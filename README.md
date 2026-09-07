@@ -8,7 +8,7 @@
   <a href="https://openlaunch.lol">openlaunch.lol</a> ·
   <a href="https://openlaunch.lol/rules">how it works</a> ·
   <a href="https://openlaunch.lol/agents">for agents</a> ·
-  <a href="https://x.com/gitlawb">@gitlawb</a>
+  <a href="https://x.com/openlaunch_lol">@openlaunch_lol</a>
 </p>
 
 <p align="center">
@@ -114,7 +114,7 @@ on every pull request.
 - Tokenized stocks are securities issued by third parties under Regulation S and are not offered to US persons;
   the site only recognizes them from the issuers' own registries, never from on-chain names.
 
-Found something? Open an issue or reach out on X: [@gitlawb](https://x.com/gitlawb).
+Found something? Open an issue or reach out on X: [@openlaunch_lol](https://x.com/openlaunch_lol).
 
 ## License
 

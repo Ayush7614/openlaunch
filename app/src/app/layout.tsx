@@ -78,9 +78,6 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <a href={`https://x.com/${BRAND_X}`} className="hover:text-ink" target="_blank" rel="noreferrer">
               @{BRAND_X}
             </a>
-            <a href="https://gitlawb.com" className="hover:text-ink" target="_blank" rel="noreferrer">
-              a gitlawb thing
-            </a>
           </footer>
           </LiveProvider>
         </Web3Provider>
