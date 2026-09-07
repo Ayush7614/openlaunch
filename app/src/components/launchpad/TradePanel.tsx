@@ -184,7 +184,7 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
               setQuote(null);
               setPhase({ k: "idle" });
             }}
-            className={`h-10 rounded-lg text-sm font-semibold capitalize transition-colors ${side === s ? (s === "buy" ? "bg-up text-white" : "bg-down text-white") : "text-body hover:text-ink"}`}
+            className={`h-10 rounded-lg text-sm font-semibold capitalize transition-colors ${side === s ? (s === "buy" ? "bg-up text-inverse" : "bg-down text-inverse") : "text-body hover:text-ink"}`}
             aria-pressed={side === s}
           >
             {s}

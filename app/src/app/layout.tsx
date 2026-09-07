@@ -31,7 +31,10 @@ export const metadata: Metadata = {
   twitter: { card: "summary_large_image", site: `@${BRAND_X}`, title: TITLE, description: SOCIAL_DESCRIPTION },
 };
 
-export const viewport: Viewport = { themeColor: "#FAFAF8", colorScheme: "light", width: "device-width", initialScale: 1, viewportFit: "cover" };
+export const viewport: Viewport = {
+  themeColor: [{ media: "(prefers-color-scheme: light)", color: "#FAFAF8" }, { media: "(prefers-color-scheme: dark)", color: "#0b1220" }],
+  colorScheme: "light dark", width: "device-width", initialScale: 1, viewportFit: "cover",
+};
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const usd = await ethUsd();

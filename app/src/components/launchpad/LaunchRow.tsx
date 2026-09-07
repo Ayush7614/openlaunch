@@ -56,7 +56,7 @@ export default function LaunchRow({ l, rank, window = "all", hl = null, now, pop
               <span className="font-mono text-xs text-muted shrink-0">{l.symbol}</span>
               <ChangeChip v={l.change_from_launch} className={`shrink-0 ${pop ? "bb-pop" : ""}`} />
               <ChainBadge chain={l.chain} className="shrink-0" />
-              {hl?.kind === "new" ? <span className="shrink-0 inline-flex items-center rounded-md px-1.5 h-5 text-[10px] font-bold uppercase tracking-wide bg-brand text-white">new</span> : null}
+              {hl?.kind === "new" ? <span className="shrink-0 inline-flex items-center rounded-md px-1.5 h-5 text-[10px] font-bold uppercase tracking-wide bg-brand text-inverse">new</span> : null}
             </div>
             <div className="mt-0.5 flex items-center gap-2 min-w-0">
               <FeeChip lpFee={l.lp_fee} mode={mode} />

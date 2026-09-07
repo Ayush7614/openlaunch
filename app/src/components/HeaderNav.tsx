@@ -41,7 +41,7 @@ export default function HeaderNav({ pulse }: { pulse: { visits: number; online: 
         </nav>
 
         <div className="ml-auto flex items-center gap-2 min-w-0">
-          <Link href="/launch" className="inline-flex items-center h-9 px-3.5 rounded-xl bg-brand text-white text-[13px] font-semibold hover:bg-brand-strong whitespace-nowrap">
+          <Link href="/launch" className="inline-flex items-center h-9 px-3.5 rounded-xl bg-brand text-inverse text-[13px] font-semibold hover:bg-brand-strong whitespace-nowrap">
             Launch<span className="hidden sm:inline">&nbsp;a token</span>
           </Link>
           <div className="hidden md:block">

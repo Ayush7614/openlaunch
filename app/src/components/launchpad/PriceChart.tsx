@@ -107,7 +107,24 @@ export default function PriceChart({ chain, token, symbol, launchedAt }: { chain
     candleSeries.current = cs;
     volSeries.current = vs;
     markers.current = createSeriesMarkers(cs, []);
+    const theme = window.matchMedia("(prefers-color-scheme: dark)");
+    const syncTheme = () => {
+      const styles = getComputedStyle(el);
+      const color = (name: string) => styles.getPropertyValue(`--color-${name}`).trim();
+      c.applyOptions({
+        layout: { textColor: color("muted") },
+        grid: { vertLines: { color: theme.matches ? color("line") : "#F1F0EE" }, horzLines: { color: theme.matches ? color("line") : "#F1F0EE" } },
+        rightPriceScale: { borderColor: color("line") },
+        timeScale: { borderColor: color("line") },
+      });
+      cs.applyOptions({ upColor: color("up"), borderUpColor: color("up"), wickUpColor: color("up"), downColor: color("down"), borderDownColor: color("down"), wickDownColor: color("down") });
+      const currentMarkers = markers.current;
+      currentMarkers?.setMarkers(currentMarkers.markers().map((marker) => ({ ...marker, color: marker.shape === "arrowUp" ? color("up") : color("down") })));
+    };
+    syncTheme();
+    theme.addEventListener("change", syncTheme);
     return () => {
+      theme.removeEventListener("change", syncTheme);
       c.remove();
       chart.current = null;
       candleSeries.current = null;
@@ -124,7 +141,8 @@ export default function PriceChart({ chain, token, symbol, launchedAt }: { chain
     cs.setData(series.candles.map((k) => ({ time: k.t as UTCTimestamp, open: k.open, high: k.high, low: k.low, close: k.close })));
     vs.setData(series.candles.map((k) => ({ time: k.t as UTCTimestamp, value: k.volume, color: k.close >= k.open ? "rgba(21,128,61,0.25)" : "rgba(220,38,38,0.25)" })));
     const intervalS = INTERVALS[interval];
-    const mine = (data?.mine ?? []).map((m) => ({ time: (Math.floor(m.t / intervalS) * intervalS) as UTCTimestamp, position: m.is_buy ? ("belowBar" as const) : ("aboveBar" as const), color: m.is_buy ? UP : DOWN, shape: m.is_buy ? ("arrowUp" as const) : ("arrowDown" as const), text: m.is_buy ? "buy" : "sell" }));
+    const colors = cs.options();
+    const mine = (data?.mine ?? []).map((m) => ({ time: (Math.floor(m.t / intervalS) * intervalS) as UTCTimestamp, position: m.is_buy ? ("belowBar" as const) : ("aboveBar" as const), color: m.is_buy ? colors.upColor : colors.downColor, shape: m.is_buy ? ("arrowUp" as const) : ("arrowDown" as const), text: m.is_buy ? "buy" : "sell" }));
     markers.current?.setMarkers(mine.sort((a, b) => Number(a.time) - Number(b.time)));
     chart.current?.timeScale().fitContent();
   }, [series, data?.mine, interval]);
@@ -153,7 +171,7 @@ export default function PriceChart({ chain, token, symbol, launchedAt }: { chain
         <div className="flex items-center gap-1.5 flex-wrap">
           <div className="flex items-center rounded-full border border-line bg-paper p-0.5" role="group" aria-label="interval">
             {INTERVAL_KEYS.map((k) => (
-              <button key={k} type="button" onClick={() => setInterval_(k)} className={`h-7 px-2 rounded-full text-[11px] font-mono font-medium ${k === interval ? "bg-ink text-white" : "text-muted hover:text-ink"}`} aria-pressed={k === interval}>
+              <button key={k} type="button" onClick={() => setInterval_(k)} className={`h-7 px-2 rounded-full text-[11px] font-mono font-medium ${k === interval ? "bg-ink text-inverse" : "text-muted hover:text-ink"}`} aria-pressed={k === interval}>
                 {k}
               </button>
             ))}
