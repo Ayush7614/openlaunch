@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://openlaunch.lol"><img src="brand/readme-banner-detailed.png" alt="OPENLAUNCH.LOL: Launch a token. Free. Open source. Liquidity locked forever. 0% platform fee · Base · Robinhood Chain · Uniswap v4" width="100%"></a>
+  <a href="https://openlaunch.lol"><img src="brand/readme-banner-detailed.png" alt="Openlaunch.lol: Launch a token. Free. Open source. Liquidity locked forever. 0% platform fee on Base and Robinhood Chain, powered by Uniswap v4." width="100%"></a>
 </p>
 
 <p align="center"><b>Launch a token. Free. Open source. On Base or Robinhood Chain.</b></p>
