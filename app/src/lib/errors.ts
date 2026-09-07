@@ -12,16 +12,20 @@ const CONTRACT_ERROR_MESSAGES: Record<string, string> = {
   BadRecipients: "Beneficiary shares must add up to 100%.",
 };
 
-export function friendlyError(err: unknown): string {
+/** `slippagePct` = the tolerance the failed call actually used (the trade panel's 1% by default). */
+export function friendlyError(err: unknown, opts: { slippagePct?: number } = {}): string {
+  const slippagePct = opts.slippagePct ?? 1;
   if (err instanceof BaseError) {
     if (err.walk((e) => e instanceof UserRejectedRequestError)) return "You cancelled in your wallet.";
     const rev = err.walk((e) => e instanceof ContractFunctionRevertedError) as ContractFunctionRevertedError | null;
     const name = rev?.data?.errorName;
+    const slippage = /slippage|amountOutMinimum|TooLittleReceived/i;
     if (name && CONTRACT_ERROR_MESSAGES[name]) return CONTRACT_ERROR_MESSAGES[name];
+    if (name && slippage.test(name)) return `Price moved more than ${slippagePct}%. Try again.`; // decoded router error (e.g. V4TooLittleReceived)
     if (name) return `Reverted: ${name}`;
     const short = err.shortMessage || err.message;
     if (/insufficient funds/i.test(short)) return "Not enough ETH for this transaction plus gas.";
-    if (/slippage|amountOutMinimum|TooLittleReceived|V4TooLittleReceived/i.test(short)) return "Price moved more than 1%. Try again.";
+    if (slippage.test(short)) return `Price moved more than ${slippagePct}%. Try again.`;
     return short.length > 200 ? `${short.slice(0, 200)}…` : short;
   }
   if (err instanceof Error) return err.message;

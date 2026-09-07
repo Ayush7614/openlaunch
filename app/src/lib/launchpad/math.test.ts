@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fdvForStartTick, fmtEth, minOut, poolIdOf, quoteUsdOf, startTickForFdv, sqrtPriceToTokensPerQuote, tickToTokensPerQuote } from "./math.ts";
+import { fdvForStartTick, fmtEth, initialBuyPreview, minOut, poolIdOf, quoteUsdOf, startTickForFdv, sqrtPriceToTokensPerQuote, tickToTokensPerQuote } from "./math.ts";
 import { encodeV4ExactInSingle } from "./swap.ts";
 
 test("startTickForFdv: 10 ETH FDV on 1B supply ≈ tick 184200 (1 ETH = 100M tokens)", () => {
@@ -89,4 +89,30 @@ test("quoteUsdOf: stables/stocks use their own price, ETH only for the native ad
   assert.equal(quoteUsdOf({ address: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168", usd: 1 }, 2500), 1, "USDG");
   assert.equal(quoteUsdOf({ address: "0xabc0000000000000000000000000000000000001", usd: 229.01 }, 2500), 229.01, "stock with live price");
   assert.equal(quoteUsdOf({ address: "0xabc0000000000000000000000000000000000001", usd: null }, 2500), null, "unknown ERC20 must not be priced as ETH");
+});
+
+test("initialBuyPreview: a tiny first buy pays the opening price; bigger buys get less per ETH", () => {
+  const tick = startTickForFdv(10); // 10 ETH FDV, 1B supply → ~1e8 tokens per ETH at the open
+  const tiny = initialBuyPreview({ startTick: tick, amountInRaw: 10n ** 12n }); // 0.000001 ETH
+  const perEthAtOpen = tickToTokensPerQuote(tick);
+  assert.ok(Math.abs(tiny.tokensOut / 1e-6 - perEthAtOpen) / perEthAtOpen < 1e-4, "tiny buy ≈ opening price");
+  const one = initialBuyPreview({ startTick: tick, amountInRaw: 10n ** 18n }); // 1 ETH into a 10 ETH FDV pool
+  assert.ok(one.tokensOut < perEthAtOpen, "price impact: less than the opening rate");
+  assert.ok(one.tokensOut > perEthAtOpen * 0.5, "…but not absurdly less");
+  assert.ok(one.pctOfSupply > 5 && one.pctOfSupply < 10, `1 ETH into 10 ETH FDV ≈ 9% of supply, got ${one.pctOfSupply}`);
+  assert.ok(one.fdvAfter > 10, "market cap rises after a buy");
+  const ten = initialBuyPreview({ startTick: tick, amountInRaw: 10n ** 19n });
+  assert.ok(ten.tokensOut > one.tokensOut && ten.pctOfSupply < 100, "monotonic and never more than the supply");
+});
+
+test("initialBuyPreview: the LP fee reduces output; quote decimals are honoured", () => {
+  const tick = startTickForFdv(10);
+  const free = initialBuyPreview({ startTick: tick, amountInRaw: 10n ** 17n, lpFeePips: 0 });
+  const fee1 = initialBuyPreview({ startTick: tick, amountInRaw: 10n ** 17n, lpFeePips: 10_000 });
+  assert.ok(Math.abs(fee1.tokensOut / free.tokensOut - 0.99) < 1e-3, "1% fee → ~1% fewer tokens");
+  // 6-decimal quote: 1,000 USDG FDV, buy 10 USDG → ~1% of supply at the open, a bit less with impact
+  const t6 = startTickForFdv(1_000, 6);
+  const u = initialBuyPreview({ startTick: t6, amountInRaw: 10n * 10n ** 6n, quoteDecimals: 6 });
+  assert.ok(u.pctOfSupply > 0.9 && u.pctOfSupply < 1.0, `got ${u.pctOfSupply}`);
+  assert.ok(u.fdvAfter > 1_000 && u.fdvAfter < 1_100, `fdv after ${u.fdvAfter}`);
 });
