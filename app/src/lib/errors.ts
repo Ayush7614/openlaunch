@@ -19,11 +19,13 @@ export function friendlyError(err: unknown, opts: { slippagePct?: number } = {})
     if (err.walk((e) => e instanceof UserRejectedRequestError)) return "You cancelled in your wallet.";
     const rev = err.walk((e) => e instanceof ContractFunctionRevertedError) as ContractFunctionRevertedError | null;
     const name = rev?.data?.errorName;
+    const slippage = /slippage|amountOutMinimum|TooLittleReceived/i;
     if (name && CONTRACT_ERROR_MESSAGES[name]) return CONTRACT_ERROR_MESSAGES[name];
+    if (name && slippage.test(name)) return `Price moved more than ${slippagePct}%. Try again.`; // decoded router error (e.g. V4TooLittleReceived)
     if (name) return `Reverted: ${name}`;
     const short = err.shortMessage || err.message;
     if (/insufficient funds/i.test(short)) return "Not enough ETH for this transaction plus gas.";
-    if (/slippage|amountOutMinimum|TooLittleReceived|V4TooLittleReceived/i.test(short)) return `Price moved more than ${slippagePct}%. Try again.`;
+    if (slippage.test(short)) return `Price moved more than ${slippagePct}%. Try again.`;
     return short.length > 200 ? `${short.slice(0, 200)}…` : short;
   }
   if (err instanceof Error) return err.message;
