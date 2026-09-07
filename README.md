@@ -51,8 +51,8 @@ Creators choose a 0 / 1 / 3 % trading fee that is pushed **in full** to benefici
 | Robinhood Chain (4663) | [`0x8155…de72`](https://robinhoodchain.blockscout.com/address/0x815542E8b392389A1389E22E588E4B62A67Ade72) | [`0xcd16…842a`](https://robinhoodchain.blockscout.com/address/0xcd1680D26922fcd9CabFbb8a56bA40C333fD842a) |
 
 Full addresses: factory `0x815542E8b392389A1389E22E588E4B62A67Ade72`, locker `0xcd1680D26922fcd9CabFbb8a56bA40C333fD842a`
-— identical on both chains (same deployer, first transaction each). Source verified on Basescan, Blockscout and
-Sourcify (exact match). Every launched token is verified too. No owner, no admin, no upgrade path.
+— identical on both chains (same deployer, first transaction each). Source verified on Basescan, Blockscout (Base and
+Robinhood Chain) and Sourcify (exact match). Every launched token is verified too. No owner, no admin, no upgrade path.
 
 ## How it works
 
