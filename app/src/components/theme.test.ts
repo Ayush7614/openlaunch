@@ -131,3 +131,11 @@ test("print falls back to ink on white", () => {
   assert.equal(print.paper, "#ffffff", "black paper does not print");
   assert.equal(print.ink, light.ink);
 });
+
+test("chart tokens are plain CSS in :root and overridden in .dark (Tailwind would drop unreferenced @theme vars)", () => {
+  const root = css.match(/:root\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
+  for (const t of ["chart-grid", "chart-vol"]) {
+    assert.match(root, new RegExp(`--color-${t}:\\s*#[\\da-f]{6}`), `--color-${t} must be set in :root`);
+    assert.ok(t in colors(darkBlock), `--color-${t} must be set in .dark`);
+  }
+});

@@ -38,7 +38,7 @@ export default function PriceChart({ chain, token, symbol, launchedAt }: { chain
   const [error, setError] = useState<string | null>(null);
   /** Bumped whenever the theme class changes, so the data effect re-pushes bar colours. */
   const [themeTick, setThemeTick] = useState(0);
-  const fitTick = useRef(0);
+  const lastFit = useRef<{ series: unknown; interval: string; mine: unknown } | null>(null);
   const { address } = useAccount();
   const { subscribe } = useLive();
   const box = useRef<HTMLDivElement>(null);
@@ -167,10 +167,13 @@ export default function PriceChart({ chain, token, symbol, launchedAt }: { chain
     const intervalS = INTERVALS[interval];
     const mine = (data?.mine ?? []).map((m) => ({ time: (Math.floor(m.t / intervalS) * intervalS) as UTCTimestamp, position: m.is_buy ? ("belowBar" as const) : ("aboveBar" as const), color: m.is_buy ? colors.upColor : colors.downColor, shape: m.is_buy ? ("arrowUp" as const) : ("arrowDown" as const), text: m.is_buy ? "buy" : "sell" }));
     markers.current?.setMarkers(mine.sort((a, b) => Number(a.time) - Number(b.time)));
-    // a theme flip only recolours: keep the viewport the reader had
-    const themeOnly = fitTick.current !== themeTick;
-    fitTick.current = themeTick;
-    if (!themeOnly) chart.current?.timeScale().fitContent();
+    // fit on new data / interval / markers; a theme flip only recolours and keeps the reader's viewport
+    const prev = lastFit.current;
+    const themeOnly = prev !== null && prev.series === series && prev.interval === interval && prev.mine === data?.mine;
+    if (!themeOnly) {
+      chart.current?.timeScale().fitContent();
+      lastFit.current = { series, interval, mine: data?.mine };
+    }
   }, [series, data?.mine, interval, themeTick]);
 
   const unitLabel = effUnit === "usd" ? "USD" : effUnit === "mcap" ? "MCAP" : data?.quote.symbol ?? "quote";
