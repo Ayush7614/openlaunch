@@ -9,7 +9,7 @@ import { getLaunchFeed, getLaunchTotals } from "@/lib/launchpad/queries";
 import { ethUsd } from "@/lib/launchpad/ethPrice";
 import { SITE_URL, explorerAddress } from "@/lib/chainPublic";
 import { launchpad } from "@/lib/launchpad/config";
-import { BRAND, BRAND_DOMAIN, BRAND_TLD, BRAND_X, SITE_DESCRIPTION, SITE_TITLE, SOCIAL_DESCRIPTION } from "@/lib/brand";
+import { BRAND, BRAND_DOMAIN, BRAND_GITHUB, BRAND_TLD, BRAND_X, SITE_DESCRIPTION, SITE_TITLE, SOCIAL_DESCRIPTION } from "@/lib/brand";
 import Mark from "@/components/launchpad/Mark";
 import RouteProgress from "@/components/RouteProgress";
 import { Suspense } from "react";
@@ -59,6 +59,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <a href="/rules" className="hover:text-ink">how it works</a>
             <a href="/agents" className="hover:text-ink">agents</a>
             <a href="/llms.txt" className="hover:text-ink">llms.txt</a>
+            <a href={BRAND_GITHUB} target="_blank" rel="noreferrer" className="hover:text-ink">
+              source · GitHub ↗
+            </a>
             {b.factory ? (
               <a href={explorerAddress("base", b.factory)} target="_blank" rel="noreferrer" className="hover:text-ink">
                 factory · Base ↗

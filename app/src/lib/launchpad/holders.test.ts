@@ -4,7 +4,7 @@ import { DEAD_ADDR, ZERO_ADDR, applyTransfer, creatorActivity, fmtShare, holderT
 
 const PM = "0x498581fF718922c3f8e6A244956aF099B2652b2b";
 const LOCKER = "0xcd1680D26922fcd9CabFbb8a56bA40C333fD842a";
-const DEV = "0x63f300b7b21fba52a8d874d90f7e1b301ae858c4";
+const DEV = "0x00000000000000000000000000000000000c0ffe";
 const A = "0x" + "a".repeat(40);
 const B = "0x" + "b".repeat(40);
 const SUPPLY = 10n ** 27n;

@@ -3,6 +3,7 @@ import { btn, pill } from "@/components/ui";
 import LiveTotals from "./LiveTotals";
 import { launchpad } from "@/lib/launchpad/config";
 import { explorerAddress } from "@/lib/chainPublic";
+import { BRAND_GITHUB } from "@/lib/brand";
 
 export default function LaunchHero({ configured }: { ethUsd?: number | null; configured: boolean }) {
   const b = launchpad("base");
@@ -11,8 +12,11 @@ export default function LaunchHero({ configured }: { ethUsd?: number | null; con
     <section className="relative pt-8 sm:pt-12 pb-2">
       <div className="flex flex-wrap items-center gap-2">
         <span className={`${pill} text-up border-up/20 bg-up-soft`}>0% platform fee</span>
+        <a href={BRAND_GITHUB} target="_blank" rel="noreferrer" className={`${pill} hover:text-ink hover:border-line-strong`}>
+          open source · GitHub ↗
+        </a>
         <a href="/rules#contracts" className={`${pill} hover:text-ink hover:border-line-strong`}>
-          open source · verified contracts
+          verified contracts
         </a>
         <span className={pill}>Base + Robinhood Chain · Uniswap v4</span>
         <span className={pill}>liquidity locked forever</span>

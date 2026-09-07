@@ -4,13 +4,34 @@ import { BRAND_DOMAIN } from "@/lib/brand";
 
 export const dynamic = "force-dynamic";
 
+/** One "- <chain>: …" line per chain; links only for deployed contracts (factory / locker are nullable until configured). */
+function verificationLine(label: string, c: { factory: string | null; locker: string | null }, verifiers: [string, (a: string) => string][]): string {
+  if (!c.factory && !c.locker) return `- ${label}: (not deployed yet)`;
+  const parts = verifiers.map(([name, url]) => {
+    const links = [c.factory ? `${url(c.factory)} (factory)` : null, c.locker ? `${url(c.locker)} (locker)` : null].filter(Boolean).join(", ");
+    return `${name} ${links}`;
+  });
+  return `- ${label}: ${parts.join("; ")}`;
+}
+
 export function GET() {
   const b = launchpad("base");
   const r = launchpad("robinhood");
   const body = `# ${BRAND_DOMAIN}
 
-> Open-source (contracts verified on Sourcify; code release pending), zero-fee token launchpad on Base (8453) and Robinhood Chain (4663). One transaction deploys a token and locks 100% of its supply as
+> Open-source (MIT — https://github.com/Gitlawb/openlaunch), zero-fee token launchpad on Base (8453) and Robinhood Chain (4663). One transaction deploys a token and locks 100% of its supply as
 > Uniswap v4 liquidity, forever. No platform fee: the factory and locker have no fee address at all.
+
+## Source verification
+${verificationLine("Base (8453)", b, [
+  ["Basescan", (a) => `https://basescan.org/address/${a}#code`],
+  ["Blockscout", (a) => `https://base.blockscout.com/address/${a}?tab=contract`],
+  ["Sourcify", (a) => `https://repo.sourcify.dev/8453/${a}`],
+])}
+${verificationLine("Robinhood Chain (4663)", r, [
+  ["Blockscout", (a) => `https://robinhoodchain.blockscout.com/address/${a}?tab=contract`],
+  ["Sourcify", (a) => `https://repo.sourcify.dev/4663/${a}`],
+])}
 
 ## What a launch does
 1. deploys a fixed-supply ERC-20 (1,000,000,000; no mint/pause/blacklist/tax/owner)
