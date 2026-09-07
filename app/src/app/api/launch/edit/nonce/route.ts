@@ -18,6 +18,5 @@ export async function POST(req: Request) {
   if (!isChainKey(b.chain) || typeof b.token !== "string" || !isAddress(b.token) || typeof b.wallet !== "string" || !isAddress(b.wallet)) return NextResponse.json({ error: "bad params" }, { status: 400 });
   const n = await issueNonce(b.chain, b.token, b.wallet);
   if (!n) return NextResponse.json({ error: "not the creator" }, { status: 403 });
-  if ("ok" in n && !n.ok) return NextResponse.json({ error: n.error }, { status: n.status });
   return NextResponse.json(n, { headers: { "cache-control": "no-store" } });
 }

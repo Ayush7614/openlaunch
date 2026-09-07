@@ -88,18 +88,22 @@ let nonce, expiresAt;
   expiresAt = r.json?.expiresAt;
 }
 
-// ── 3. Finding 1: 10 non-creator nonce requests do NOT freeze the creator ──
-console.log("\n[3] Finding 1: 10 non-creator nonce requests do not freeze the creator's budget");
+// ── 3. Finding 1: 11 nonce requests with the creator's wallet do NOT freeze the creator ──
+console.log("\n[3] Finding 1: 11 nonce requests with the creator's public address do not freeze the creator");
 {
-  // Attacker tries to freeze the creator's nonce budget by sending 10 requests
-  // with the creator's wallet but wrong token (or as non-creator).
-  // Before the fix, the route spent the wallet bucket before the creator check.
-  for (let i = 0; i < 10; i++) {
-    await post("/api/launch/edit/nonce", { chain: "base", token: TOKEN, wallet: ATTACKER_WALLET });
+  // The nonce endpoint is unauthenticated (no signature). An attacker who
+  // knows the creator's public address can pass the launcher check. Before
+  // the fix, the route spent a wallet-keyed bucket, so 10 requests with the
+  // creator's address froze the creator's next nonce request. The fix removes
+  // the wallet rate limit from the nonce endpoint entirely; the IP limit is
+  // the only limit.
+  for (let i = 0; i < 11; i++) {
+    const r = await post("/api/launch/edit/nonce", { chain: "base", token: TOKEN, wallet: TEST_WALLET });
+    check(`attacker attempt ${i + 1} with creator address returns 200`, r.status === 200, `got ${r.status} ${r.json?.error}`);
   }
   // The creator must still be able to get a nonce
   const r = await getNonce();
-  check("creator still gets a nonce after 10 attacker requests", r.status === 200 && typeof r.json?.nonce === "string", `got ${r.status} ${r.json?.error}`);
+  check("creator still gets a nonce after 11 attacker requests", r.status === 200 && typeof r.json?.nonce === "string", `got ${r.status} ${r.json?.error}`);
 }
 
 // ── 4. Finding 2: invalid signature does NOT burn the nonce ──

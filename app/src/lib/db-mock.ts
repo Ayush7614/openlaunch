@@ -2,10 +2,20 @@
 // function whose behavior is driven by a global mock state set by the test.
 import type { Db } from "./db.ts";
 
+type NonceRow = {
+  nonce: string;
+  used_at: string | null;
+  wallet: string;
+  token: string;
+  chain_id: number;
+  expires_at: string;
+};
+
 type MockState = {
-  nonceRows: Record<string, { nonce: string; used_at: string | null; wallet: string; token: string; chain_id: number; expires_at: string }>;
+  nonceRows: Record<string, NonceRow>;
   launcherRows: Record<string, { launcher: string; name: string; symbol: string }>;
   metaInserted: boolean;
+  metaInsertShouldThrow: boolean;
   verifyShouldThrow: boolean;
   verifyResult: boolean;
 };
@@ -20,6 +30,7 @@ export function resetMock() {
     nonceRows: {},
     launcherRows: {},
     metaInserted: false,
+    metaInsertShouldThrow: false,
     verifyShouldThrow: false,
     verifyResult: true,
   };
@@ -30,16 +41,44 @@ export function getMock(): MockState {
   return globalThis.__editMock!;
 }
 
+// Deep-snapshot the mutable parts of mock state so begin() can restore on rollback.
+function snapshot(m: MockState) {
+  return {
+    nonceRows: Object.fromEntries(
+      Object.entries(m.nonceRows).map(([k, v]) => [k, { ...v }]),
+    ),
+    metaInserted: m.metaInserted,
+  };
+}
+
+function restore(m: MockState, snap: { nonceRows: Record<string, NonceRow>; metaInserted: boolean }) {
+  m.nonceRows = snap.nonceRows;
+  m.metaInserted = snap.metaInserted;
+}
+
 // A fake db tagged-template function. It inspects the SQL text to decide what to return.
 function fakeDb(strings: TemplateStringsArray, ...values: unknown[]): Promise<any[]> {
   const sql = strings.join("?");
   const m = getMock();
 
   // UPDATE bb_edit_nonces SET used_at = now() ... RETURNING nonce
+  // Checks all predicates from applySignedEdit: nonce, chain_id, token,
+  // wallet, used_at IS NULL, expires_at > now(), and the exact signed expiry.
   if (sql.includes("UPDATE bb_edit_nonces") && sql.includes("used_at")) {
     const nonce = String(values[0]);
+    const cid = Number(values[1]);
+    const token = String(values[2]).toLowerCase();
+    const wallet = String(values[3]).toLowerCase();
+    const signedExpiry = String(values[4]);
     const row = m.nonceRows[nonce];
-    if (!row || row.used_at !== null) return Promise.resolve([] as any[]);
+    if (!row) return Promise.resolve([] as any[]);
+    if (row.used_at !== null) return Promise.resolve([] as any[]);
+    if (row.chain_id !== cid) return Promise.resolve([] as any[]);
+    if (row.token !== token) return Promise.resolve([] as any[]);
+    if (row.wallet !== wallet) return Promise.resolve([] as any[]);
+    if (row.expires_at !== signedExpiry) return Promise.resolve([] as any[]);
+    // expires_at > now(): check the stored expiry is in the future
+    if (new Date(row.expires_at).getTime() <= Date.now()) return Promise.resolve([] as any[]);
     row.used_at = new Date().toISOString();
     return Promise.resolve([{ nonce }] as any[]);
   }
@@ -55,16 +94,16 @@ function fakeDb(strings: TemplateStringsArray, ...values: unknown[]): Promise<an
 
   // metadata write
   if (sql.includes("bb_launch_meta")) {
+    if (m.metaInsertShouldThrow) throw new Error("mock metadata write failed");
     m.metaInserted = true;
     return Promise.resolve([] as any[]);
   }
 
   // nonce insert (issueNonce)
-  if (sql.includes("bb_edit_nonces") && sql.startsWith("?") === false && sql.includes("VALUES")) {
+  if (sql.includes("bb_edit_nonces") && sql.includes("VALUES")) {
     return Promise.resolve([] as any[]);
   }
 
-  // nonce consume (UPDATE used_at) — handled above by the used_at check
   // expired nonce cleanup
   if (sql.includes("DELETE") && sql.includes("bb_edit_nonces")) {
     return Promise.resolve([] as any[]);
@@ -73,10 +112,19 @@ function fakeDb(strings: TemplateStringsArray, ...values: unknown[]): Promise<an
   return Promise.resolve([] as any[]);
 }
 
-// Attach properties the real db has (so type checks pass)
-// begin() runs the callback with the same fake db (no real transaction, but
-// the mock tracks nonce consumption so tests can assert on it)
-(fakeDb as any).begin = async (fn: (tx: any) => Promise<any>) => fn(fakeDb);
+// begin() snapshots mock state before the transaction callback and restores
+// it on rejection, so a failed metadata write rolls back the nonce consume
+// (including reverting used_at), matching the real db.begin() semantics.
+(fakeDb as any).begin = async (fn: (tx: any) => Promise<any>) => {
+  const m = getMock();
+  const snap = snapshot(m);
+  try {
+    return await fn(fakeDb);
+  } catch (e) {
+    restore(m, snap);
+    throw e;
+  }
+};
 
 export function maybeDb(): any | null {
   return fakeDb as any;

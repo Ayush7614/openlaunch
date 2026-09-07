@@ -11,6 +11,9 @@ const TOKEN = "0x" + "11".repeat(20);
 const WALLET = "0x" + "ab".repeat(20);
 const NONCE = "a".repeat(32);
 const SIG = "0x" + "c".repeat(130);
+// Fixed expiry so seedNonce and editRequest produce the same ISO string
+const EXPIRES_AT = Date.now() + 300_000;
+const EXPIRES_AT_ISO = new Date(EXPIRES_AT).toISOString();
 
 function seedNonce(used = false) {
   const m = getMock();
@@ -20,7 +23,7 @@ function seedNonce(used = false) {
     wallet: WALLET.toLowerCase(),
     token: TOKEN.toLowerCase(),
     chain_id: 8453,
-    expires_at: new Date(Date.now() + 300_000).toISOString(),
+    expires_at: EXPIRES_AT_ISO,
   };
 }
 
@@ -39,7 +42,7 @@ function editRequest(overrides: Record<string, unknown> = {}) {
     token: TOKEN,
     wallet: WALLET,
     nonce: NONCE,
-    expiresAt: Date.now() + 300_000,
+    expiresAt: EXPIRES_AT,
     signature: SIG,
     fields: { description: "hello" },
     ...overrides,
@@ -96,6 +99,69 @@ test("applySignedEdit: valid signature consumes the nonce and writes metadata", 
   assert.equal(r.ok, true, "should succeed");
   assert.notEqual(m.nonceRows[NONCE].used_at, null, "nonce should be consumed on success");
   assert.equal(m.metaInserted, true, "metadata should be written on success");
+});
+
+test("applySignedEdit: metadata write failure rolls back the nonce consume (transaction)", async () => {
+  resetMock();
+  seedNonce();
+  seedLauncher();
+  const m = getMock();
+  m.verifyResult = true;
+  m.metaInsertShouldThrow = true; // metadata INSERT fails
+
+  // The metadata write throws inside db.begin(). The transaction rolls back
+  // (nonce used_at restored to null) and the error propagates. In production
+  // the route handler or Next.js catches it as a 500.
+  await assert.rejects(ed.applySignedEdit(editRequest()), /mock metadata write failed/);
+  // The nonce must be rolled back: used_at restored to null
+  assert.equal(m.nonceRows[NONCE].used_at, null, "nonce must be rolled back when metadata write fails");
+  assert.equal(m.metaInserted, false, "metadata must not be written");
+});
+
+test("applySignedEdit: wrong wallet in nonce row is rejected (predicate match)", async () => {
+  resetMock();
+  seedNonce();
+  seedLauncher();
+  const m = getMock();
+  m.verifyResult = true;
+  // Corrupt the wallet in the nonce row so it doesn't match the request
+  m.nonceRows[NONCE].wallet = "0x" + "99".repeat(20);
+
+  const r = await ed.applySignedEdit(editRequest());
+
+  assert.equal(r.ok, false, "should fail when nonce wallet doesn't match");
+  assert.equal(r.status, 401, "mismatched nonce should be 401");
+  assert.equal(m.nonceRows[NONCE].used_at, null, "nonce must not be consumed on wallet mismatch");
+});
+
+test("applySignedEdit: wrong chain_id in nonce row is rejected (predicate match)", async () => {
+  resetMock();
+  seedNonce();
+  seedLauncher();
+  const m = getMock();
+  m.verifyResult = true;
+  m.nonceRows[NONCE].chain_id = 999;
+
+  const r = await ed.applySignedEdit(editRequest());
+
+  assert.equal(r.ok, false, "should fail when nonce chain_id doesn't match");
+  assert.equal(r.status, 401, "mismatched chain_id should be 401");
+});
+
+test("applySignedEdit: expired expiresAt is rejected at input validation (400)", async () => {
+  resetMock();
+  seedNonce();
+  seedLauncher();
+  const m = getMock();
+  m.verifyResult = true;
+
+  // An expired expiresAt is rejected at line 54 before reaching the nonce
+  // consume. The SQL expires_at > now() predicate is defense-in-depth.
+  const r = await ed.applySignedEdit(editRequest({ expiresAt: Date.now() - 1000 }));
+
+  assert.equal(r.ok, false, "should fail when expiresAt is in the past");
+  assert.equal(r.status, 400, "expired expiresAt should be 400 (input validation)");
+  assert.equal(m.nonceRows[NONCE].used_at, null, "nonce must not be consumed on expired request");
 });
 
 test("applySignedEdit: already-used nonce is rejected (401)", async () => {
@@ -159,21 +225,26 @@ test("applySignedEdit: 10 requests with an invalid signature do NOT freeze the w
   assert.equal(m.metaInserted, true, "metadata should be written");
 });
 
-test("issueNonce: non-creator requests do NOT spend the wallet rate limit", async () => {
-  // An attacker asks for a nonce with wallet=victim but is not the creator.
-  // Before the fix, the route spent the wallet bucket before issueNonce,
-  // so the victim's next real nonce request got 429. After the fix, the
-  // wallet bucket is only spent after the creator check passes.
+test("issueNonce: creator can get nonces without a wallet-keyed limit (no unauthenticated wallet bucket)", async () => {
+  // The nonce endpoint is unauthenticated (no signature), so a wallet-keyed
+  // rate limit after the launcher check would still be abusable: an attacker
+  // who knows the creator's public address passes the launcher check and
+  // spends the wallet bucket. The fix removes the wallet limit entirely;
+  // the IP limit in the route is the only limit on this endpoint.
   resetMock();
-  // No launcher row seeded → issueNonce returns null (not the creator)
-
-  for (let i = 0; i < 10; i++) {
-    const n = await ed.issueNonce(CHAIN, TOKEN, WALLET);
-    assert.equal(n, null, `attempt ${i + 1} by non-creator should return null`);
-  }
-
-  // Now seed the launcher and verify the real creator can still get a nonce
   seedLauncher();
-  const n = await ed.issueNonce(CHAIN, TOKEN, WALLET);
-  assert.ok(n && "nonce" in n, "creator must still be able to get a nonce (bucket not frozen)");
+
+  // 11 requests with the creator's wallet must all succeed (no wallet bucket)
+  for (let i = 0; i < 11; i++) {
+    const n = await ed.issueNonce(CHAIN, TOKEN, WALLET);
+    assert.ok(n && "nonce" in n, `attempt ${i + 1} by creator should return a nonce`);
+  }
+});
+
+test("issueNonce: non-creator requests return null", async () => {
+  resetMock();
+  seedLauncher();
+  // A wallet that is not the launcher gets null
+  const n = await ed.issueNonce(CHAIN, TOKEN, "0x" + "ff".repeat(20));
+  assert.equal(n, null, "non-creator should get null");
 });

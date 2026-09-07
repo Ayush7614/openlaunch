@@ -26,15 +26,16 @@ export function rateLimited(key: string, max = 10, windowMs = 60_000): boolean {
   return b.n > max;
 }
 
-export async function issueNonce(chain: ChainKey, token: string, wallet: string): Promise<{ nonce: string; expiresAt: number } | { ok: false; error: string; status: number } | null> {
+export async function issueNonce(chain: ChainKey, token: string, wallet: string): Promise<{ nonce: string; expiresAt: number } | null> {
   const db = maybeDb();
   if (!db) return null;
   const launcher = await db<{ launcher: string }[]>`SELECT launcher FROM bb_launches WHERE chain_id = ${chainIdOf(chain)} AND token = ${token.toLowerCase()}`;
   if (!launcher[0] || launcher[0].launcher !== wallet.toLowerCase()) return null; // only the creator gets a nonce
-  // wallet rate limit is applied AFTER the creator check, so an attacker
-  // cannot freeze a creator's nonce budget by sending requests with the
-  // creator's public address (the wallet is proven before the bucket is spent)
-  if (rateLimited(`nonce:wallet:${wallet.toLowerCase()}`, 10)) return { ok: false, error: "slow down", status: 429 };
+  // No wallet rate limit here: the nonce endpoint is unauthenticated (no
+  // signature), so the launcher check only confirms the supplied wallet
+  // matches the public on-chain launcher address. An attacker who knows that
+  // address could spend a wallet-keyed bucket by passing the launcher check.
+  // The IP rate limit in the route is the only limit on this endpoint.
   const nonce = randomBytes(16).toString("hex");
   const expiresAt = Date.now() + EDIT_TTL_MS;
   await db`INSERT INTO bb_edit_nonces (nonce, chain_id, token, wallet, expires_at) VALUES (${nonce}, ${chainIdOf(chain)}, ${token.toLowerCase()}, ${wallet.toLowerCase()}, ${new Date(expiresAt).toISOString()})`;
