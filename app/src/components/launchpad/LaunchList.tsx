@@ -296,7 +296,7 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex items-center rounded-full border border-line bg-card p-0.5 shrink-0" role="group" aria-label="chain">
             {CHAIN_FILTERS.map((c) => (
-              <button key={c.label} type="button" onClick={() => pick(sort, window_, c.key)} className={`h-8 sm:h-7 px-2.5 rounded-full text-[11px] font-medium whitespace-nowrap ${c.key === chain ? (c.key === "robinhood" ? "bg-up-soft text-up" : c.key === "base" ? "bg-brand-soft text-brand" : "bg-ink text-white") : "text-muted hover:text-ink"}`} aria-pressed={c.key === chain}>
+              <button key={c.label} type="button" onClick={() => pick(sort, window_, c.key)} className={`h-8 sm:h-7 px-2.5 rounded-full text-[11px] font-medium whitespace-nowrap ${c.key === chain ? (c.key === "robinhood" ? "bg-up-soft text-up" : c.key === "base" ? "bg-brand-soft text-brand" : "bg-ink text-inverse") : "text-muted hover:text-ink"}`} aria-pressed={c.key === chain}>
                 {c.label}
               </button>
             ))}
@@ -312,7 +312,7 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
           ) : null}
           <nav className="flex items-center gap-1 rounded-full border border-line bg-card p-0.5 max-w-full overflow-x-auto bb-scroll ml-auto" aria-label="sort">
             {SORTS.map((s) => (
-              <button key={s.key} type="button" onClick={() => pick(s.key)} className={`h-8 sm:h-7 px-3 inline-flex items-center rounded-full text-xs font-medium whitespace-nowrap ${s.key === sort ? "bg-ink text-white" : "text-body hover:text-ink"}`} aria-pressed={s.key === sort}>
+              <button key={s.key} type="button" onClick={() => pick(s.key)} className={`h-8 sm:h-7 px-3 inline-flex items-center rounded-full text-xs font-medium whitespace-nowrap ${s.key === sort ? "bg-ink text-inverse" : "text-body hover:text-ink"}`} aria-pressed={s.key === sort}>
                 {s.label}
               </button>
             ))}
@@ -321,7 +321,7 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
       </div>
       <div className="flex items-center gap-1.5 flex-wrap pb-1">
         {FILTERS.map((f) => (
-          <button key={f.key} type="button" title={f.title} onClick={() => pick(sort, window_, chain, filter === f.key ? null : f.key)} className={`h-7 px-2.5 rounded-full border text-[11px] font-medium whitespace-nowrap ${filter === f.key ? "bg-ink text-white border-ink" : "bg-card text-body border-line hover:border-line-strong hover:text-ink"}`} aria-pressed={filter === f.key}>
+          <button key={f.key} type="button" title={f.title} onClick={() => pick(sort, window_, chain, filter === f.key ? null : f.key)} className={`h-7 px-2.5 rounded-full border text-[11px] font-medium whitespace-nowrap ${filter === f.key ? "bg-ink text-inverse border-ink" : "bg-card text-body border-line hover:border-line-strong hover:text-ink"}`} aria-pressed={filter === f.key}>
             {f.label}
           </button>
         ))}

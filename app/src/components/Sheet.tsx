@@ -47,7 +47,7 @@ export default function Sheet({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-ink/40 backdrop-blur-[2px]"
+      className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-scrim/40 backdrop-blur-[2px]"
       onClick={() => closeRef.current()}
       role="dialog"
       aria-modal

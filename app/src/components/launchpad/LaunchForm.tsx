@@ -376,7 +376,7 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
                       setMcapPick(null);
                       setCustomMcap("");
                     }}
-                    className={`h-8 px-3 rounded-full text-xs font-mono font-bold ${quoteKey === q.key ? "bg-ink text-white" : "text-body hover:text-ink"}`}
+                    className={`h-8 px-3 rounded-full text-xs font-mono font-bold ${quoteKey === q.key ? "bg-ink text-inverse" : "text-body hover:text-ink"}`}
                     aria-pressed={quoteKey === q.key}
                   >
                     {q.label}
@@ -506,7 +506,7 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
                     setMcapPick(v);
                     setCustomMcap("");
                   }}
-                  className={`h-11 px-4 rounded-xl border font-mono text-sm font-bold tnum ${active ? "bg-ink text-white border-ink" : "bg-card text-ink border-line-strong hover:border-ink/40"}`}
+                  className={`h-11 px-4 rounded-xl border font-mono text-sm font-bold tnum ${active ? "bg-ink text-inverse border-ink" : "bg-card text-ink border-line-strong hover:border-ink/40"}`}
                 >
                   {quote.key === "stock" ? `$${fmtCompact(v * (quote.usd ?? 0), 0)}` : quote.decimals <= 6 ? `$${fmtCompact(v, 0)}` : `${v} ${quote.symbol}`}
                 </button>
@@ -612,7 +612,7 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
                   type="button"
                   key={v}
                   onClick={() => setInitialBuy(active ? "" : v)}
-                  className={`h-11 px-4 rounded-xl border font-mono text-sm font-bold tnum ${active ? "bg-ink text-white border-ink" : "bg-card text-ink border-line-strong hover:border-ink/40"}`}
+                  className={`h-11 px-4 rounded-xl border font-mono text-sm font-bold tnum ${active ? "bg-ink text-inverse border-ink" : "bg-card text-ink border-line-strong hover:border-ink/40"}`}
                 >
                   {v} {quote.symbol}
                 </button>

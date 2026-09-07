@@ -22,11 +22,23 @@ const DOWN = "#DC2626";
  * feed shows a new trade for this token, the last buckets are re-fetched and
  * merged. Own trades (connected wallet) are drawn as markers.
  */
+/** "#rgb" / "#rrggbb" → "rgba(r,g,b,a)"; anything else is passed through unchanged. */
+function withAlpha(color: string, alpha: number): string {
+  const m = /^#([\da-f]{3}|[\da-f]{6})$/i.exec(color.trim());
+  if (!m) return color;
+  const h = m[1].length === 3 ? m[1].split("").map((c) => c + c).join("") : m[1];
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
 export default function PriceChart({ chain, token, symbol, launchedAt }: { chain: ChainKey; token: string; symbol: string; launchedAt: string }) {
   const [interval, setInterval_] = useState<Interval>(() => defaultInterval((nowMs() - new Date(launchedAt).getTime()) / 1000));
   const [unit, setUnit] = useState<Unit>("usd");
   const [data, setData] = useState<Payload | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Bumped whenever the theme class changes, so the data effect re-pushes bar colours. */
+  const [themeTick, setThemeTick] = useState(0);
+  const lastFit = useRef<{ series: unknown; interval: string; mine: unknown } | null>(null);
   const { address } = useAccount();
   const { subscribe } = useLive();
   const box = useRef<HTMLDivElement>(null);
@@ -107,7 +119,31 @@ export default function PriceChart({ chain, token, symbol, launchedAt }: { chain
     candleSeries.current = cs;
     volSeries.current = vs;
     markers.current = createSeriesMarkers(cs, []);
+    const syncTheme = () => {
+      const styles = getComputedStyle(el);
+      const color = (name: string) => styles.getPropertyValue(`--color-${name}`).trim();
+      c.applyOptions({
+        layout: { textColor: color("muted") },
+        grid: { vertLines: { color: color("chart-grid") }, horzLines: { color: color("chart-grid") } },
+        rightPriceScale: { borderColor: color("line") },
+        timeScale: { borderColor: color("line") },
+        // lightweight-charts picks contrasting label text from this background
+        crosshair: { horzLine: { labelBackgroundColor: color("ink") }, vertLine: { labelBackgroundColor: color("ink") } },
+      });
+      cs.applyOptions({ upColor: color("up"), borderUpColor: color("up"), wickUpColor: color("up"), downColor: color("down"), borderDownColor: color("down"), wickDownColor: color("down") });
+      vs.applyOptions({ color: color("chart-vol") });
+      const currentMarkers = markers.current;
+      currentMarkers?.setMarkers(currentMarkers.markers().map((marker) => ({ ...marker, color: marker.shape === "arrowUp" ? color("up") : color("down") })));
+      // per-bar volume colours live in the data effect; make it re-run
+      setThemeTick((t) => t + 1);
+    };
+    syncTheme();
+    // The theme is a class on <html> (next-themes), so matchMedia would miss a
+    // manual toggle. Watching the class covers both the toggle and an OS change.
+    const observer = new MutationObserver(syncTheme);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
     return () => {
+      observer.disconnect();
       c.remove();
       chart.current = null;
       candleSeries.current = null;
@@ -122,12 +158,23 @@ export default function PriceChart({ chain, token, symbol, launchedAt }: { chain
     const vs = volSeries.current;
     if (!cs || !vs || !series) return;
     cs.setData(series.candles.map((k) => ({ time: k.t as UTCTimestamp, open: k.open, high: k.high, low: k.low, close: k.close })));
-    vs.setData(series.candles.map((k) => ({ time: k.t as UTCTimestamp, value: k.volume, color: k.close >= k.open ? "rgba(21,128,61,0.25)" : "rgba(220,38,38,0.25)" })));
+    const colors = cs.options();
+    // Volume bars follow the candle palette (theme-aware) at 25% alpha. Plain rgba:
+    // lightweight-charts parses colours itself and rejects color-mix().
+    const volUp = withAlpha(colors.upColor, 0.25);
+    const volDown = withAlpha(colors.downColor, 0.25);
+    vs.setData(series.candles.map((k) => ({ time: k.t as UTCTimestamp, value: k.volume, color: k.close >= k.open ? volUp : volDown })));
     const intervalS = INTERVALS[interval];
-    const mine = (data?.mine ?? []).map((m) => ({ time: (Math.floor(m.t / intervalS) * intervalS) as UTCTimestamp, position: m.is_buy ? ("belowBar" as const) : ("aboveBar" as const), color: m.is_buy ? UP : DOWN, shape: m.is_buy ? ("arrowUp" as const) : ("arrowDown" as const), text: m.is_buy ? "buy" : "sell" }));
+    const mine = (data?.mine ?? []).map((m) => ({ time: (Math.floor(m.t / intervalS) * intervalS) as UTCTimestamp, position: m.is_buy ? ("belowBar" as const) : ("aboveBar" as const), color: m.is_buy ? colors.upColor : colors.downColor, shape: m.is_buy ? ("arrowUp" as const) : ("arrowDown" as const), text: m.is_buy ? "buy" : "sell" }));
     markers.current?.setMarkers(mine.sort((a, b) => Number(a.time) - Number(b.time)));
-    chart.current?.timeScale().fitContent();
-  }, [series, data?.mine, interval]);
+    // fit on new data / interval / markers; a theme flip only recolours and keeps the reader's viewport
+    const prev = lastFit.current;
+    const themeOnly = prev !== null && prev.series === series && prev.interval === interval && prev.mine === data?.mine;
+    if (!themeOnly) {
+      chart.current?.timeScale().fitContent();
+      lastFit.current = { series, interval, mine: data?.mine };
+    }
+  }, [series, data?.mine, interval, themeTick]);
 
   const unitLabel = effUnit === "usd" ? "USD" : effUnit === "mcap" ? "MCAP" : data?.quote.symbol ?? "quote";
   const last = series?.candles.at(-1);
@@ -153,7 +200,7 @@ export default function PriceChart({ chain, token, symbol, launchedAt }: { chain
         <div className="flex items-center gap-1.5 flex-wrap">
           <div className="flex items-center rounded-full border border-line bg-paper p-0.5" role="group" aria-label="interval">
             {INTERVAL_KEYS.map((k) => (
-              <button key={k} type="button" onClick={() => setInterval_(k)} className={`h-7 px-2 rounded-full text-[11px] font-mono font-medium ${k === interval ? "bg-ink text-white" : "text-muted hover:text-ink"}`} aria-pressed={k === interval}>
+              <button key={k} type="button" onClick={() => setInterval_(k)} className={`h-7 px-2 rounded-full text-[11px] font-mono font-medium ${k === interval ? "bg-ink text-inverse" : "text-muted hover:text-ink"}`} aria-pressed={k === interval}>
                 {k}
               </button>
             ))}

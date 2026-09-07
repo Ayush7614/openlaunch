@@ -12,6 +12,7 @@ import { launchpad } from "@/lib/launchpad/config";
 import { BRAND, BRAND_DOMAIN, BRAND_GITHUB, BRAND_TLD, BRAND_X, SITE_DESCRIPTION, SITE_TITLE, SOCIAL_DESCRIPTION } from "@/lib/brand";
 import Mark from "@/components/launchpad/Mark";
 import RouteProgress from "@/components/RouteProgress";
+import ThemeProvider from "@/components/ThemeProvider";
 import { Suspense } from "react";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
@@ -31,6 +32,8 @@ export const metadata: Metadata = {
   twitter: { card: "summary_large_image", site: `@${BRAND_X}`, title: TITLE, description: SOCIAL_DESCRIPTION },
 };
 
+// Light is the default; dark is a class the header toggle adds, never an OS preference, so the
+// pre-CSS hints stay light (as on main). ThemeProvider keeps theme-color in step after a toggle.
 export const viewport: Viewport = { themeColor: "#FAFAF8", colorScheme: "light", width: "device-width", initialScale: 1, viewportFit: "cover" };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
@@ -39,8 +42,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const b = launchpad("base");
   const r = launchpad("robinhood");
   return (
-    <html lang="en" className={`${inter.variable} ${spaceMono.variable} ${unbounded.variable}`}>
+    <html lang="en" className={`${inter.variable} ${spaceMono.variable} ${unbounded.variable}`} suppressHydrationWarning>
       <body className="min-h-screen flex flex-col">
+        <ThemeProvider>
         <Web3Provider>
           <LiveProvider initial={{ at: 0, feed, totals, ethUsd: usd }}>
           <Suspense fallback={null}>
@@ -81,6 +85,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           </footer>
           </LiveProvider>
         </Web3Provider>
+        </ThemeProvider>
       </body>
     </html>
   );

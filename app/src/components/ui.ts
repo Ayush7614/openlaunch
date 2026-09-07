@@ -4,14 +4,14 @@ const btnBase =
   "inline-flex items-center justify-center gap-1.5 rounded-xl font-semibold text-sm whitespace-nowrap transition-colors disabled:opacity-40 disabled:cursor-not-allowed select-none";
 
 export const btn = {
-  primary: `${btnBase} min-h-11 px-5 bg-brand text-white hover:bg-brand-strong`,
-  primarySm: `${btnBase} min-h-9 px-3.5 text-[13px] bg-brand text-white hover:bg-brand-strong`,
+  primary: `${btnBase} min-h-11 px-5 bg-brand text-inverse hover:bg-brand-strong`,
+  primarySm: `${btnBase} min-h-9 px-3.5 text-[13px] bg-brand text-inverse hover:bg-brand-strong`,
   secondary: `${btnBase} min-h-11 px-5 bg-card text-ink border border-line-strong hover:border-ink/40 hover:bg-paper`,
   secondarySm: `${btnBase} min-h-9 px-3.5 text-[13px] bg-card text-ink border border-line-strong hover:border-ink/40`,
-  soft: `${btnBase} min-h-11 px-5 bg-brand-soft text-brand hover:bg-brand hover:text-white`,
-  softSm: `${btnBase} min-h-9 px-3.5 text-[13px] bg-brand-soft text-brand hover:bg-brand hover:text-white`,
-  up: `${btnBase} min-h-11 px-5 bg-up text-white hover:brightness-110`,
-  warm: `${btnBase} min-h-11 px-5 bg-warm text-white hover:brightness-110`,
+  soft: `${btnBase} min-h-11 px-5 bg-brand-soft text-brand hover:bg-brand hover:text-inverse`,
+  softSm: `${btnBase} min-h-9 px-3.5 text-[13px] bg-brand-soft text-brand hover:bg-brand hover:text-inverse`,
+  up: `${btnBase} min-h-11 px-5 bg-up text-inverse hover:brightness-110`,
+  warm: `${btnBase} min-h-11 px-5 bg-warm text-inverse hover:brightness-110`,
   warmOutline: `${btnBase} min-h-11 px-5 bg-warm-soft text-warm-ink border border-warm/40 hover:border-warm`,
   icon: `${btnBase} h-10 w-10 rounded-xl text-ink hover:bg-paper border border-transparent hover:border-line`,
 };

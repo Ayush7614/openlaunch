@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import Mark, { Wordmark } from "./launchpad/Mark";
 import ConnectButton from "./ConnectButton";
+import ThemeToggle from "./ThemeToggle";
 import Sheet from "./Sheet";
 import LivePulse from "./launchpad/LivePulse";
 
@@ -41,9 +42,12 @@ export default function HeaderNav({ pulse }: { pulse: { visits: number; online: 
         </nav>
 
         <div className="ml-auto flex items-center gap-2 min-w-0">
-          <Link href="/launch" className="inline-flex items-center h-9 px-3.5 rounded-xl bg-brand text-white text-[13px] font-semibold hover:bg-brand-strong whitespace-nowrap">
+          <Link href="/launch" className="inline-flex items-center h-9 px-3.5 rounded-xl bg-brand text-inverse text-[13px] font-semibold hover:bg-brand-strong whitespace-nowrap">
             Launch<span className="hidden sm:inline">&nbsp;a token</span>
           </Link>
+          <div className="hidden md:block">
+            <ThemeToggle />
+          </div>
           <div className="hidden md:block">
             <ConnectButton />
           </div>
@@ -71,6 +75,7 @@ export default function HeaderNav({ pulse }: { pulse: { visits: number; online: 
             </div>
           </nav>
           <div className="border-t border-line pt-4 space-y-3">
+            <ThemeToggle block />
             <ConnectButton block />
           </div>
         </Sheet>
