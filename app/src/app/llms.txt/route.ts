@@ -9,8 +9,12 @@ export function GET() {
   const r = launchpad("robinhood");
   const body = `# ${BRAND_DOMAIN}
 
-> Open-source (MIT — https://github.com/Gitlawb/openlaunch; contracts verified on Basescan, Blockscout and Sourcify), zero-fee token launchpad on Base (8453) and Robinhood Chain (4663). One transaction deploys a token and locks 100% of its supply as
+> Open-source (MIT — https://github.com/Gitlawb/openlaunch), zero-fee token launchpad on Base (8453) and Robinhood Chain (4663). One transaction deploys a token and locks 100% of its supply as
 > Uniswap v4 liquidity, forever. No platform fee: the factory and locker have no fee address at all.
+
+## Source verification
+- Base (8453): Basescan https://basescan.org/address/${b.factory}#code (factory), https://basescan.org/address/${b.locker}#code (locker); Blockscout https://base.blockscout.com/address/${b.factory}?tab=contract; Sourcify https://repo.sourcify.dev/8453/${b.factory}
+- Robinhood Chain (4663): Blockscout https://robinhoodchain.blockscout.com/address/${r.factory}?tab=contract (factory), https://robinhoodchain.blockscout.com/address/${r.locker}?tab=contract (locker); Sourcify https://repo.sourcify.dev/4663/${r.factory}
 
 ## What a launch does
 1. deploys a fixed-supply ERC-20 (1,000,000,000; no mint/pause/blacklist/tax/owner)

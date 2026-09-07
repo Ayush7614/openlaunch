@@ -13,7 +13,10 @@ export default function LaunchHero({ configured }: { ethUsd?: number | null; con
       <div className="flex flex-wrap items-center gap-2">
         <span className={`${pill} text-up border-up/20 bg-up-soft`}>0% platform fee</span>
         <a href={BRAND_GITHUB} target="_blank" rel="noreferrer" className={`${pill} hover:text-ink hover:border-line-strong`}>
-          open source · verified contracts ↗
+          open source · GitHub ↗
+        </a>
+        <a href="/rules#contracts" className={`${pill} hover:text-ink hover:border-line-strong`}>
+          verified contracts
         </a>
         <span className={pill}>Base + Robinhood Chain · Uniswap v4</span>
         <span className={pill}>liquidity locked forever</span>

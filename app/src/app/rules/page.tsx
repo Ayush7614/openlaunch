@@ -21,6 +21,19 @@ const NEVER = [
   ["No admin", "No owner, no pause, no upgrade, no allowlist. The contracts are the same for everyone, forever."],
 ] as const;
 
+/** Where each chain's contract source is verified (links go to the explorer's contract record). */
+const VERIFIERS: Record<(typeof CHAIN_KEYS)[number], { name: string; url: (addr: string) => string }[]> = {
+  base: [
+    { name: "Basescan", url: (a) => `https://basescan.org/address/${a}#code` },
+    { name: "Blockscout", url: (a) => `https://base.blockscout.com/address/${a}?tab=contract` },
+    { name: "Sourcify", url: (a) => `https://repo.sourcify.dev/8453/${a}` },
+  ],
+  robinhood: [
+    { name: "Blockscout", url: (a) => `https://robinhoodchain.blockscout.com/address/${a}?tab=contract` },
+    { name: "Sourcify", url: (a) => `https://repo.sourcify.dev/4663/${a}` },
+  ],
+};
+
 export default function RulesPage() {
   return (
     <main className="mx-auto max-w-3xl px-4 py-10 space-y-10">
@@ -109,11 +122,23 @@ export default function RulesPage() {
                     <span className="font-mono">not deployed yet</span>
                   )}
                 </p>
+                {c.factory && c.locker ? (
+                  <p className="text-xs text-muted">
+                    Source verified:{" "}
+                    {VERIFIERS[k].map((v, i) => (
+                      <span key={v.name}>
+                        {i > 0 ? " · " : ""}
+                        {v.name} (<a href={v.url(c.factory!)} target="_blank" rel="noreferrer" className="underline underline-offset-2">factory</a>,{" "}
+                        <a href={v.url(c.locker!)} target="_blank" rel="noreferrer" className="underline underline-offset-2">locker</a>)
+                      </span>
+                    ))}
+                  </p>
+                ) : null}
               </div>
             );
           })}
           <p>Identical bytecode on both chains. Uniswap v4&apos;s PoolManager, PositionManager, Permit2 and Universal Router are Uniswap&apos;s canonical deployments. MIT-licensed source on{" "}
-            <a href={BRAND_GITHUB} target="_blank" rel="noreferrer" className="text-ink underline underline-offset-2">GitHub ↗</a>, verified on Basescan, Blockscout and Sourcify on both chains.
+            <a href={BRAND_GITHUB} target="_blank" rel="noreferrer" className="text-ink underline underline-offset-2">GitHub ↗</a>; the verification records for each chain are linked above.
           </p>
         </div>
       </section>
