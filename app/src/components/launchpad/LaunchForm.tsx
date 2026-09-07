@@ -2,17 +2,18 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAccount, useConfig, useConnect, useSwitchChain } from "wagmi";
+import { useAccount, useBalance, useConfig, useConnect, useReadContract, useSwitchChain } from "wagmi";
 import { getPublicClient, getWalletClient } from "wagmi/actions";
-import { isAddress, parseEventLogs, type Address, type Hex } from "viem";
+import { isAddress, maxUint160, maxUint256, parseEventLogs, parseUnits, zeroAddress, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
 import TokenAvatar from "./TokenAvatar";
 import ImageUpload from "./ImageUpload";
 import FeeChip from "./FeeChip";
 import { toast } from "./TxToasts";
 import { btn, card, helper, input, label } from "@/components/ui";
-import { LAUNCH_FACTORY_ABI } from "@/lib/launchpad/abi";
-import { BPS, DEFAULT_SUPPLY, FEE_PRESETS, MCAP_PRESETS, launchpad, quoteUsdOf, type Quote } from "@/lib/launchpad/config";
-import { fdvForStartTick, fmtCompact, fmtUsd, startTickForFdv, tickToTokensPerQuote } from "@/lib/launchpad/math";
+import { ERC20_MIN_ABI, LAUNCH_FACTORY_ABI, PERMIT2_ABI, UNIVERSAL_ROUTER_ABI, V4_QUOTER_ABI } from "@/lib/launchpad/abi";
+import { BPS, DEFAULT_SUPPLY, FEE_PRESETS, MCAP_PRESETS, TICK_SPACING, launchpad, quoteUsdOf, type Quote } from "@/lib/launchpad/config";
+import { fdvForStartTick, fmtCompact, fmtUsd, initialBuyPreview, minOut, startTickForFdv, tickToTokensPerQuote, units } from "@/lib/launchpad/math";
+import { encodeV4ExactInSingle, type PoolKey } from "@/lib/launchpad/swap";
 import { stockMcapPresets } from "@/lib/launchpad/stocks";
 import { CHAINS, CHAIN_LABELS, CHAIN_KEYS, BUILDER_DATA_SUFFIX, explorerTx, shortAddr, type ChainKey } from "@/lib/chainPublic";
 import { friendlyError } from "@/lib/errors";
@@ -21,7 +22,9 @@ import { startNav } from "@/components/RouteProgress";
 
 /**
  * Launch flow — honest states, nothing claimed before the chain says so:
- *   idle → saving (metadata → predicted address) → simulating → signing → sent (hash) → indexing → done → /t/<token>
+ *   idle → saving (metadata → predicted address) → simulating → signing → sent (hash) → [buying] → indexing → done → /t/<token>
+ * `buying` is the optional first buy: a second transaction right after the launch is confirmed. It can fail
+ * (rejected, sniped past slippage) without the launch failing — the launch is already on-chain by then.
  */
 type Phase =
   | { k: "idle" }
@@ -29,16 +32,87 @@ type Phase =
   | { k: "simulating" }
   | { k: "signing" }
   | { k: "sent"; hash: Hex }
+  | { k: "buying"; hash: Hex; step: "quote" | "approve" | "sign" | "sent" }
   | { k: "indexing"; hash: Hex }
   | { k: "done"; hash: Hex; token: string }
   | { k: "error"; message: string };
 
 type Beneficiary = "burn" | "me" | "custom";
 
+const FIRST_BUY_SLIPPAGE_BPS = 300; // nobody has traded yet, but a same-block sniper can move the price a little
+const PERMIT_EXPIRY_S = 30 * 24 * 3600;
+const GAS_RESERVE_WEI = 500_000_000_000_000n; // 0.0005 ETH kept back so the buy itself can pay for gas
+const BUY_PRESETS: Record<Quote["key"], string[]> = { eth: ["0.01", "0.05", "0.1", "0.25"], usdg: ["25", "100", "250"], stock: [] };
+
 function randomSalt(): Hex {
   const b = new Uint8Array(32);
   crypto.getRandomValues(b);
   return `0x${Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("")}`;
+}
+
+type FirstBuyCtx = { pub: PublicClient; wallet: WalletClient; address: Address; V4: ReturnType<typeof launchpad>["v4"]; quote: Quote; feePips: number; CHAIN: (typeof CHAINS)[ChainKey]; setPhase: (p: Phase) => void };
+
+function parseBuyAmount(v: string, decimals: number): bigint | null | undefined {
+  try {
+    const t = v.trim();
+    if (!t) return null;
+    const raw = parseUnits(t, decimals);
+    return raw > 0n ? raw : null;
+  } catch {
+    return undefined; // typed something that is not a number
+  }
+}
+
+/** Buy `amountIn` of the freshly launched token through the Universal Router — same path as the token page's trade panel. */
+async function firstBuy(ctx: FirstBuyCtx, tokenAddr: Address, launchHash: Hex, amountIn: bigint): Promise<{ hash: Hex; out: bigint }> {
+  const { pub, wallet, address, V4, quote, feePips, CHAIN, setPhase } = ctx;
+  // the factory guarantees the token sorts above the quote, so the quote is always currency0
+  const key: PoolKey = { currency0: quote.address, currency1: tokenAddr, fee: feePips, tickSpacing: TICK_SPACING, hooks: zeroAddress };
+  setPhase({ k: "buying", hash: launchHash, step: "quote" });
+  // public nodes can lag the launch block by one: retry the quote a few times before giving up
+  let out: bigint | null = null;
+  for (let attempt = 0; out === null; attempt++) {
+    try {
+      const { result } = await pub.simulateContract({ address: V4.quoter, abi: V4_QUOTER_ABI, functionName: "quoteExactInputSingle", args: [{ poolKey: key, zeroForOne: true, exactAmount: amountIn, hookData: "0x" }] });
+      out = result[0];
+    } catch (err) {
+      if (attempt >= 5) throw err;
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+  }
+  if (quote.key !== "eth") {
+    const payToken = quote.address;
+    const erc20Allowance = await pub.readContract({ address: payToken, abi: ERC20_MIN_ABI, functionName: "allowance", args: [address, V4.permit2] });
+    if (erc20Allowance < amountIn) {
+      setPhase({ k: "buying", hash: launchHash, step: "approve" });
+      const h = await wallet.writeContract({ address: payToken, abi: ERC20_MIN_ABI, functionName: "approve", args: [V4.permit2, maxUint256], dataSuffix: BUILDER_DATA_SUFFIX, chain: CHAIN, account: address });
+      await pub.waitForTransactionReceipt({ hash: h });
+    }
+    const [pAmount, pExp] = await pub.readContract({ address: V4.permit2, abi: PERMIT2_ABI, functionName: "allowance", args: [address, payToken, V4.universalRouter] });
+    const now = Math.floor(Date.now() / 1000);
+    if (pAmount < amountIn || pExp <= now + 60) {
+      setPhase({ k: "buying", hash: launchHash, step: "approve" });
+      const h = await wallet.writeContract({ address: V4.permit2, abi: PERMIT2_ABI, functionName: "approve", args: [payToken, V4.universalRouter, maxUint160, now + PERMIT_EXPIRY_S], dataSuffix: BUILDER_DATA_SUFFIX, chain: CHAIN, account: address });
+      await pub.waitForTransactionReceipt({ hash: h });
+    }
+  }
+  const { commands, inputs } = encodeV4ExactInSingle({ key, zeroForOne: true, amountIn, minOut: minOut(out, FIRST_BUY_SLIPPAGE_BPS), layout: V4.swapLayout });
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + 600);
+  const { request } = await pub.simulateContract({
+    address: V4.universalRouter,
+    abi: UNIVERSAL_ROUTER_ABI,
+    functionName: "execute",
+    args: [commands, inputs, deadline],
+    value: quote.key === "eth" ? amountIn : 0n,
+    account: address,
+    dataSuffix: BUILDER_DATA_SUFFIX,
+  });
+  setPhase({ k: "buying", hash: launchHash, step: "sign" });
+  const h = await wallet.writeContract(request);
+  setPhase({ k: "buying", hash: launchHash, step: "sent" });
+  const rc = await pub.waitForTransactionReceipt({ hash: h });
+  if (rc.status !== "success") throw new Error("The buy reverted on-chain.");
+  return { hash: h, out };
 }
 
 export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: number | null; initialChain?: ChainKey }) {
@@ -87,6 +161,7 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
   const [feePips, setFeePips] = useState<number>(0);
   const [beneficiary, setBeneficiary] = useState<Beneficiary>("burn");
   const [customAddr, setCustomAddr] = useState("");
+  const [initialBuy, setInitialBuy] = useState("");
   // Generated lazily at launch time (a render-time random value would break hydration).
   const saltRef = useRef<Hex | null>(null);
   // The metadataURI is keyed by meta_key, so findSalt can change the salt freely within one attempt. Both refs are
@@ -103,6 +178,7 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
   const fmtMcap = (v: number) => (quote.decimals <= 6 ? `${v.toLocaleString("en-US", { maximumFractionDigits: 0 })} ${quote.symbol}` : `${v.toFixed(quote.key === "stock" ? 3 : 2)} ${quote.symbol}`);
 
   const symbolClean = symbol.trim().toUpperCase();
+  const initialBuyRaw = parseBuyAmount(initialBuy, quote.decimals);
   const errors: string[] = [];
   if (name.trim().length === 0 || name.trim().length > 32) errors.push("Name: 1–32 characters.");
   if (!/^[A-Z0-9]{1,10}$/.test(symbolClean)) errors.push("Symbol: 1–10 letters or digits.");
@@ -111,9 +187,19 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
   if (image && !/^https:\/\//.test(image.trim())) errors.push("Image must be an https URL.");
   if (website && !/^https:\/\//.test(website.trim())) errors.push("Website must be an https URL.");
   if (feePips > 0 && beneficiary === "custom" && !isAddress(customAddr.trim())) errors.push("Beneficiary: enter a valid address.");
-  const valid = errors.length === 0;
+  if (initialBuyRaw === undefined) errors.push(`First buy: enter an amount in ${quote.symbol}, or leave it empty.`);
 
   const onChain = chainId === CHAIN.id;
+  // balance of whatever the first buy is paid with (only read while an amount is typed)
+  const ethBal = useBalance({ address, chainId: CHAIN.id, query: { enabled: Boolean(address) && quote.key === "eth" && Boolean(initialBuyRaw), refetchInterval: 15_000 } });
+  const quoteBal = useReadContract({ address: quote.address, abi: ERC20_MIN_ABI, functionName: "balanceOf", args: address ? [address] : undefined, chainId: CHAIN.id, query: { enabled: Boolean(address) && quote.key !== "eth" && Boolean(initialBuyRaw), refetchInterval: 15_000 } });
+  const buyBalance: bigint | undefined = quote.key === "eth" ? ethBal.data?.value : (quoteBal.data as bigint | undefined);
+  if (initialBuyRaw && buyBalance !== undefined && initialBuyRaw + (quote.key === "eth" ? GAS_RESERVE_WEI : 0n) > buyBalance)
+    errors.push(quote.key === "eth" ? "First buy: not enough ETH (leave a little for gas)." : `First buy: not enough ${quote.symbol} in this wallet.`);
+  const valid = errors.length === 0;
+  const buyPreview = initialBuyRaw && startTick !== null ? initialBuyPreview({ startTick, amountInRaw: initialBuyRaw, lpFeePips: feePips, quoteDecimals: quote.decimals }) : null;
+  const buyUsd = initialBuyRaw && quoteUsd ? units(initialBuyRaw, quote.decimals) * quoteUsd : null;
+  const fmtPct = (p: number) => (p >= 10 ? p.toFixed(0) : p >= 1 ? p.toFixed(1) : p.toFixed(2)) + "%";
 
   const recipients = useMemo(() => {
     if (feePips === 0 || beneficiary === "burn") return [] as { payout: Address; bps: number }[];
@@ -198,10 +284,27 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
       const [ev] = parseEventLogs({ abi: LAUNCH_FACTORY_ABI, eventName: "Launched", logs: receipt.logs });
       const token = (ev?.args.token ?? meta.token ?? "").toLowerCase();
 
+      // Optional first buy. The launch is already on-chain: whatever happens here must not read as a launch failure.
+      let buyHash: Hex | null = null;
+      let buyProblem: string | null = null;
+      let bought: bigint | null = null;
+      if (initialBuyRaw && ev?.args.token) {
+        try {
+          const r = await firstBuy({ pub, wallet, address, V4: cfg.v4, quote, feePips, CHAIN, setPhase }, ev.args.token, hash, initialBuyRaw);
+          buyHash = r.hash;
+          bought = r.out;
+        } catch (err) {
+          buyProblem = friendlyError(err);
+        }
+      }
+
       setPhase({ k: "indexing", hash });
       await fetch(`/api/launch/sync?chain=${chain}&tx=${hash}`, { method: "POST" }).catch(() => {});
+      if (buyHash) await fetch(`/api/launch/sync?chain=${chain}&tx=${buyHash}`, { method: "POST" }).catch(() => {});
       setPhase({ k: "done", hash, token });
       toast({ kind: "launch", title: `${name.trim()} is live on ${CHAIN_LABEL}`, sub: "Liquidity locked forever. Taking you to your token.", chain, token, symbol: symbolClean, celebrate: true });
+      if (bought !== null) toast({ kind: "buy", title: `You bought ${fmtCompact(Number(bought) / 1e18)} ${symbolClean}`, sub: "First holder. Confirmed on " + CHAIN_LABEL, chain, token, symbol: symbolClean });
+      if (buyProblem) toast({ kind: "info", title: "Launched, but the first buy did not go through", sub: `${buyProblem} You can buy on the token page.`, chain, token, symbol: symbolClean });
       startNav();
       router.push(`/t/${chain}/${token}`);
     } catch (err) {
@@ -485,6 +588,53 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
         </section>
 
         {/* submit */}
+        <section className={`${card} p-5 space-y-4`}>
+          <div className="flex items-baseline justify-between gap-3 flex-wrap">
+            <h2 className="text-sm font-semibold text-ink">
+              First buy <span className="font-normal text-muted">· optional</span>
+            </h2>
+            <span className="text-xs text-muted">a second transaction, right after the launch confirms</span>
+          </div>
+          <div className="flex flex-wrap gap-2 items-center">
+            {BUY_PRESETS[quote.key].map((v) => {
+              const active = initialBuy.trim() === v;
+              return (
+                <button
+                  type="button"
+                  key={v}
+                  onClick={() => setInitialBuy(active ? "" : v)}
+                  className={`h-11 px-4 rounded-xl border font-mono text-sm font-bold tnum ${active ? "bg-ink text-white border-ink" : "bg-card text-ink border-line-strong hover:border-ink/40"}`}
+                >
+                  {v} {quote.symbol}
+                </button>
+              );
+            })}
+            <div className="relative">
+              <input
+                className={`${input} h-11 w-40 font-mono pr-16`}
+                value={initialBuy}
+                onChange={(e) => setInitialBuy(e.target.value.replace(/[^0-9.]/g, ""))}
+                placeholder="none"
+                inputMode="decimal"
+                aria-label={`first buy amount in ${quote.symbol}`}
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-mono text-muted">{quote.symbol}</span>
+            </div>
+            {initialBuyRaw && buyBalance !== undefined ? (
+              <span className="text-xs font-mono text-muted tnum">balance {fmtCompact(units(buyBalance, quote.decimals), quote.decimals <= 8 ? 2 : 4)}</span>
+            ) : null}
+          </div>
+          {buyPreview ? (
+            <p className="text-sm text-body">
+              You become the first holder with about <span className="font-mono font-bold text-ink tnum">{fmtCompact(buyPreview.tokensOut, 0)}</span> {symbolClean || "tokens"}{" "}
+              <span className="font-mono text-muted tnum">({fmtPct(buyPreview.pctOfSupply)} of supply{buyUsd ? ` · ≈ ${fmtUsd(buyUsd)}` : ""})</span>. Market cap after your buy:{" "}
+              <span className="font-mono font-bold text-ink tnum">{fmtMcap(buyPreview.fdvAfter)}</span>. Includes price impact and the pool fee; the exact amount is quoted on-chain right before the buy.
+            </p>
+          ) : (
+            <p className={helper}>Seed yourself as the first holder so the chart does not open empty. Skip it and the pool opens untouched.</p>
+          )}
+        </section>
+
         <section className={`${card} p-5 space-y-3`}>
           {errors.length > 0 && (name || symbol) ? (
             <ul className="text-xs text-warm-ink space-y-0.5">
@@ -506,11 +656,13 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
               if (c) connect({ connector: c });
             }}
             onSwitch={() => void switchChainAsync({ chainId: CHAIN.id })}
+            label={initialBuyRaw ? "Launch + first buy — free, gas only" : "Launch — free, gas only"}
           />
           <PhaseNote phase={phase} chain={chain} />
           <p className="text-xs text-muted leading-relaxed">
             One transaction on {CHAIN_LABEL}: deploys the token, creates the Uniswap v4 pool ({quote.symbol} / your token), locks 100% of the supply in it forever, and registers the fee routing. Cost: gas only, usually a few cents.
             Nothing is refundable and nothing can be edited afterwards.
+            {initialBuyRaw ? ` Then a second transaction buys ${initialBuy.trim()} ${quote.symbol} of your token${quote.key !== "eth" ? " (with a one-time approval the first time)" : ""}; if you reject it, the launch still stands.` : ""}
           </p>
         </section>
       </form>
@@ -530,7 +682,7 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
           {description.trim() ? <p className="mt-3 text-sm text-body line-clamp-3">{description.trim()}</p> : null}
           <dl className="mt-4 grid grid-cols-2 gap-2">
             <Mini k="Opens at" v={fdvPreview !== null ? fmtMcap(fdvPreview) : "—"} sub={quote.key !== "usdg" ? previewMcapUsd : CHAIN_LABELS[chain]} />
-            <Mini k="Supply" v="1B" sub="100% in pool" />
+            <Mini k="First buy" v={initialBuyRaw ? `${initialBuy.trim()} ${quote.symbol}` : "none"} sub={buyPreview ? `~${fmtPct(buyPreview.pctOfSupply)} of supply` : "pool opens untouched"} />
             <Mini k="Trading fee" v={FEE_PRESETS.find((f) => f.pips === feePips)?.label ?? "—"} sub={feePips === 0 ? "free pool" : beneficiary === "burn" ? "burned" : "to beneficiary"} />
             <Mini k="Platform fee" v="0" sub="always" accent />
           </dl>
@@ -541,6 +693,7 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
             ["Opens a Uniswap v4 pool", `${quote.symbol} / your token on ${CHAIN_LABELS[chain]}, no hook`],
             ["Locks 100% of supply as liquidity", "the position NFT lives in an ownerless locker, forever"],
             ["Routes trading fees", feePips === 0 ? "nothing to route at 0%" : beneficiary === "burn" ? "burned at collect time" : "100% to the beneficiary, claimable any time"],
+            ...(initialBuyRaw ? [["Buys your first tokens", `${initialBuy.trim()} ${quote.symbol} right after the launch confirms — a second wallet prompt`]] : []),
           ].map(([t, d]) => (
             <li key={t} className="flex gap-2.5">
               <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-brand shrink-0" aria-hidden />
@@ -575,6 +728,7 @@ function SubmitButton({
   phase,
   onConnect,
   onSwitch,
+  label,
 }: {
   chainLabel: string;
   configured: boolean;
@@ -585,6 +739,7 @@ function SubmitButton({
   phase: Phase;
   onConnect: () => void;
   onSwitch: () => void;
+  label: string;
 }) {
   const cls = `${btn.primary} w-full min-h-12 text-[15px]`;
   if (!configured)
@@ -610,6 +765,7 @@ function SubmitButton({
     simulating: "Checking the launch…",
     signing: "Confirm in your wallet…",
     sent: `Confirming on ${chainLabel}…`,
+    buying: "Launched! Buying your first tokens…",
     indexing: "Almost there…",
     done: "Launched!",
   };
@@ -621,7 +777,7 @@ function SubmitButton({
           <Spinner size={14} /> {busy}
         </>
       ) : (
-        "Launch — free, gas only"
+        label
       )}
     </button>
   );
@@ -634,14 +790,24 @@ function PhaseNote({ phase, chain }: { phase: Phase; chain: ChainKey }) {
         {phase.message}
       </p>
     );
-  if (phase.k === "sent" || phase.k === "indexing" || phase.k === "done")
+  if (phase.k === "sent" || phase.k === "buying" || phase.k === "indexing" || phase.k === "done")
     return (
       <p className="text-xs text-muted">
-        Transaction{" "}
+        {phase.k === "buying" ? "Launch " : "Transaction "}
         <a href={explorerTx(chain, phase.hash)} target="_blank" rel="noreferrer" className="font-mono underline underline-offset-2 hover:text-ink">
           {phase.hash.slice(0, 10)}…
         </a>
-        {phase.k === "done" ? " confirmed. Taking you to your token." : " sent."}
+        {phase.k === "done"
+          ? " confirmed. Taking you to your token."
+          : phase.k === "buying"
+            ? phase.step === "quote"
+              ? " confirmed. Pricing your first buy…"
+              : phase.step === "approve"
+                ? " confirmed. Approve the quote token in your wallet (one time)…"
+                : phase.step === "sign"
+                  ? " confirmed. Confirm the buy in your wallet…"
+                  : " confirmed. Buy sent, waiting for confirmation…"
+            : " sent."}
       </p>
     );
   return null;

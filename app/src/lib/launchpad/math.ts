@@ -85,6 +85,31 @@ export function poolIdOf(key: { currency0: Address; currency1: Address; fee: num
   );
 }
 
+/**
+ * What the very first buy into a fresh launch pool returns, before anyone else
+ * has traded. Mirrors the factory exactly: the whole supply sits as currency1
+ * liquidity in [minUsableTick, startTick], the pool is initialized at the
+ * upper edge, and a buy (quote in, zeroForOne) walks the price down the range:
+ *   L = supply / (√Pu − √Pl)                       (getLiquidityForAmount1)
+ *   1/√Pnew = 1/√Pu + Δin·(1 − fee)/L               (Δ currency0 for a move)
+ *   out = L · (√Pu − √Pnew)                         (Δ currency1 released)
+ * Floats are plenty for a preview (relative error ≪ 1e-9); the real amount is
+ * quoted on-chain right before the swap.
+ */
+export function initialBuyPreview(args: { startTick: number; amountInRaw: bigint; lpFeePips?: number; quoteDecimals?: number; supplyWei?: bigint }): { tokensOut: number; pctOfSupply: number; fdvAfter: number } {
+  const { startTick, amountInRaw, lpFeePips = 0, quoteDecimals = 18, supplyWei = 10n ** 27n } = args;
+  const supply = Number(supplyWei);
+  const minTick = -Math.floor(887_272 / TICK_SPACING) * TICK_SPACING;
+  const sqrtPu = Math.pow(1.0001, startTick / 2);
+  const sqrtPl = Math.pow(1.0001, minTick / 2);
+  const L = supply / (sqrtPu - sqrtPl);
+  const dIn = Number(amountInRaw) * (1 - lpFeePips / 1_000_000);
+  const sqrtPnew = Math.max(sqrtPl, 1 / (1 / sqrtPu + dIn / L));
+  const outRaw = Math.min(supply, L * (sqrtPu - sqrtPnew));
+  const tokensPerQuote = sqrtPnew * sqrtPnew * Math.pow(10, quoteDecimals - 18);
+  return { tokensOut: outRaw / 1e18, pctOfSupply: (outRaw / supply) * 100, fdvAfter: supply / 1e18 / tokensPerQuote };
+}
+
 /** Slippage-adjusted minimum output. */
 export function minOut(amountOut: bigint, slippageBps: number): bigint {
   return (amountOut * BigInt(10_000 - slippageBps)) / 10_000n;
