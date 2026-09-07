@@ -32,11 +32,9 @@ export const metadata: Metadata = {
   twitter: { card: "summary_large_image", site: `@${BRAND_X}`, title: TITLE, description: SOCIAL_DESCRIPTION },
 };
 
-export const viewport: Viewport = {
-  // light is the default; dark is a class the header toggle adds, not an OS preference
-  themeColor: "#FAFAF8",
-  colorScheme: "light dark", width: "device-width", initialScale: 1, viewportFit: "cover",
-};
+// Light is the default; dark is a class the header toggle adds, never an OS preference, so the
+// pre-CSS hints stay light (as on main). ThemeProvider keeps theme-color in step after a toggle.
+export const viewport: Viewport = { themeColor: "#FAFAF8", colorScheme: "light", width: "device-width", initialScale: 1, viewportFit: "cover" };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const usd = await ethUsd();

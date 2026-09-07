@@ -1,6 +1,19 @@
 "use client";
 
-import { ThemeProvider as NextThemes } from "next-themes";
+import { useEffect } from "react";
+import { ThemeProvider as NextThemes, useTheme } from "next-themes";
+
+const THEME_COLOR = { light: "#FAFAF8", dark: "#000000" } as const;
+
+/** Keeps the browser chrome (mobile address bar, PWA title bar) in step with the toggled theme. */
+function ThemeColorSync() {
+  const { resolvedTheme } = useTheme();
+  useEffect(() => {
+    const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+    if (meta) meta.content = resolvedTheme === "dark" ? THEME_COLOR.dark : THEME_COLOR.light;
+  }, [resolvedTheme]);
+  return null;
+}
 
 /**
  * Light by default (the shipped design) with an explicit dark option behind the
@@ -21,6 +34,7 @@ import { ThemeProvider as NextThemes } from "next-themes";
 export default function ThemeProvider({ children }: { children: React.ReactNode }) {
   return (
     <NextThemes attribute="class" defaultTheme="light" enableSystem={false} disableTransitionOnChange>
+      <ThemeColorSync />
       {children}
     </NextThemes>
   );
