@@ -12,6 +12,7 @@ import { launchpad } from "@/lib/launchpad/config";
 import { BRAND, BRAND_DOMAIN, BRAND_GITHUB, BRAND_TLD, BRAND_X, SITE_DESCRIPTION, SITE_TITLE, SOCIAL_DESCRIPTION } from "@/lib/brand";
 import Mark from "@/components/launchpad/Mark";
 import RouteProgress from "@/components/RouteProgress";
+import ThemeProvider from "@/components/ThemeProvider";
 import { Suspense } from "react";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
@@ -32,8 +33,9 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: [{ media: "(prefers-color-scheme: light)", color: "#FAFAF8" }, { media: "(prefers-color-scheme: dark)", color: "#0b1220" }],
-  colorScheme: "light dark", width: "device-width", initialScale: 1, viewportFit: "cover",
+  // dark is the default theme; the toggle flips a class, not the OS preference
+  themeColor: "#000000",
+  colorScheme: "dark light", width: "device-width", initialScale: 1, viewportFit: "cover",
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
@@ -42,8 +44,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const b = launchpad("base");
   const r = launchpad("robinhood");
   return (
-    <html lang="en" className={`${inter.variable} ${spaceMono.variable} ${unbounded.variable}`}>
+    <html lang="en" className={`${inter.variable} ${spaceMono.variable} ${unbounded.variable}`} suppressHydrationWarning>
       <body className="min-h-screen flex flex-col">
+        <ThemeProvider>
         <Web3Provider>
           <LiveProvider initial={{ at: 0, feed, totals, ethUsd: usd }}>
           <Suspense fallback={null}>
@@ -84,6 +87,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           </footer>
           </LiveProvider>
         </Web3Provider>
+        </ThemeProvider>
       </body>
     </html>
   );

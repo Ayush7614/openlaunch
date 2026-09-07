@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import Mark, { Wordmark } from "./launchpad/Mark";
 import ConnectButton from "./ConnectButton";
+import ThemeToggle from "./ThemeToggle";
 import Sheet from "./Sheet";
 import LivePulse from "./launchpad/LivePulse";
 
@@ -45,6 +46,9 @@ export default function HeaderNav({ pulse }: { pulse: { visits: number; online: 
             Launch<span className="hidden sm:inline">&nbsp;a token</span>
           </Link>
           <div className="hidden md:block">
+            <ThemeToggle />
+          </div>
+          <div className="hidden md:block">
             <ConnectButton />
           </div>
           <button type="button" onClick={() => setOpen(true)} aria-label="Open menu" aria-expanded={open} className="md:hidden h-10 w-10 inline-flex items-center justify-center rounded-xl border border-line bg-card text-ink hover:border-line-strong">
@@ -71,6 +75,7 @@ export default function HeaderNav({ pulse }: { pulse: { visits: number; online: 
             </div>
           </nav>
           <div className="border-t border-line pt-4 space-y-3">
+            <ThemeToggle block />
             <ConnectButton block />
           </div>
         </Sheet>

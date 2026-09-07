@@ -27,6 +27,8 @@ export default function PriceChart({ chain, token, symbol, launchedAt }: { chain
   const [unit, setUnit] = useState<Unit>("usd");
   const [data, setData] = useState<Payload | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Bumped whenever the theme class changes, so the data effect re-pushes bar colours. */
+  const [themeTick, setThemeTick] = useState(0);
   const { address } = useAccount();
   const { subscribe } = useLive();
   const box = useRef<HTMLDivElement>(null);
@@ -107,24 +109,31 @@ export default function PriceChart({ chain, token, symbol, launchedAt }: { chain
     candleSeries.current = cs;
     volSeries.current = vs;
     markers.current = createSeriesMarkers(cs, []);
-    const theme = window.matchMedia("(prefers-color-scheme: dark)");
     const syncTheme = () => {
       const styles = getComputedStyle(el);
       const color = (name: string) => styles.getPropertyValue(`--color-${name}`).trim();
       c.applyOptions({
         layout: { textColor: color("muted") },
-        grid: { vertLines: { color: theme.matches ? color("line") : "#F1F0EE" }, horzLines: { color: theme.matches ? color("line") : "#F1F0EE" } },
+        grid: { vertLines: { color: color("chart-grid") }, horzLines: { color: color("chart-grid") } },
         rightPriceScale: { borderColor: color("line") },
         timeScale: { borderColor: color("line") },
+        // lightweight-charts picks contrasting label text from this background
+        crosshair: { horzLine: { labelBackgroundColor: color("ink") }, vertLine: { labelBackgroundColor: color("ink") } },
       });
       cs.applyOptions({ upColor: color("up"), borderUpColor: color("up"), wickUpColor: color("up"), downColor: color("down"), borderDownColor: color("down"), wickDownColor: color("down") });
+      vs.applyOptions({ color: color("line-strong") });
       const currentMarkers = markers.current;
       currentMarkers?.setMarkers(currentMarkers.markers().map((marker) => ({ ...marker, color: marker.shape === "arrowUp" ? color("up") : color("down") })));
+      // per-bar volume colours live in the data effect; make it re-run
+      setThemeTick((t) => t + 1);
     };
     syncTheme();
-    theme.addEventListener("change", syncTheme);
+    // The theme is a class on <html> (next-themes), so matchMedia would miss a
+    // manual toggle. Watching the class covers both the toggle and an OS change.
+    const observer = new MutationObserver(syncTheme);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
     return () => {
-      theme.removeEventListener("change", syncTheme);
+      observer.disconnect();
       c.remove();
       chart.current = null;
       candleSeries.current = null;
@@ -139,13 +148,17 @@ export default function PriceChart({ chain, token, symbol, launchedAt }: { chain
     const vs = volSeries.current;
     if (!cs || !vs || !series) return;
     cs.setData(series.candles.map((k) => ({ time: k.t as UTCTimestamp, open: k.open, high: k.high, low: k.low, close: k.close })));
-    vs.setData(series.candles.map((k) => ({ time: k.t as UTCTimestamp, value: k.volume, color: k.close >= k.open ? "rgba(21,128,61,0.25)" : "rgba(220,38,38,0.25)" })));
-    const intervalS = INTERVALS[interval];
     const colors = cs.options();
+    // Volume bars follow the candle palette instead of hardcoded light-theme
+    // rgba, which was invisible against the dark card.
+    const volUp = `color-mix(in srgb, ${colors.upColor} 25%, transparent)`;
+    const volDown = `color-mix(in srgb, ${colors.downColor} 25%, transparent)`;
+    vs.setData(series.candles.map((k) => ({ time: k.t as UTCTimestamp, value: k.volume, color: k.close >= k.open ? volUp : volDown })));
+    const intervalS = INTERVALS[interval];
     const mine = (data?.mine ?? []).map((m) => ({ time: (Math.floor(m.t / intervalS) * intervalS) as UTCTimestamp, position: m.is_buy ? ("belowBar" as const) : ("aboveBar" as const), color: m.is_buy ? colors.upColor : colors.downColor, shape: m.is_buy ? ("arrowUp" as const) : ("arrowDown" as const), text: m.is_buy ? "buy" : "sell" }));
     markers.current?.setMarkers(mine.sort((a, b) => Number(a.time) - Number(b.time)));
     chart.current?.timeScale().fitContent();
-  }, [series, data?.mine, interval]);
+  }, [series, data?.mine, interval, themeTick]);
 
   const unitLabel = effUnit === "usd" ? "USD" : effUnit === "mcap" ? "MCAP" : data?.quote.symbol ?? "quote";
   const last = series?.candles.at(-1);
