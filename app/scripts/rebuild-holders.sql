@@ -2,6 +2,10 @@
 -- per-launch holders counters. Idempotent; safe to run any time (a few thousand rows).
 -- Usage: fly ssh console -a basebid-db -C "sh -c 'PGPASSWORD=$OPERATOR_PASSWORD psql -h localhost -p 5433 -U postgres -d basebid -f /tmp/rebuild-holders.sql'"
 BEGIN;
+-- serialize against the indexer: transfers cannot be ingested while balances are recomputed
+LOCK TABLE bb_token_transfers IN SHARE MODE;
+LOCK TABLE bb_token_holders IN EXCLUSIVE MODE;
+LOCK TABLE bb_launches IN EXCLUSIVE MODE;
 WITH legs AS (
   SELECT chain_id, token, from_addr AS holder, -value AS d, block_number FROM bb_token_transfers WHERE from_addr <> '0x0000000000000000000000000000000000000000'
   UNION ALL

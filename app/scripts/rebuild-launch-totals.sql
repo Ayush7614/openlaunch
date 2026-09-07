@@ -3,6 +3,14 @@
 -- "update totals" before those became one transaction). Prints a drift report first, then repairs.
 -- Usage: fly ssh sftp shell -a basebid-db <<< "put scripts/rebuild-launch-totals.sql /tmp/r.sql"
 --        fly ssh console -a basebid-db -C "sh -c 'PGPASSWORD=$OPERATOR_PASSWORD psql -h localhost -p 5433 -U postgres -d basebid -f /tmp/r.sql'"
+-- Concurrency: everything runs in ONE transaction that takes SHARE locks on the raw event tables and an
+-- EXCLUSIVE lock on bb_launches, so the indexer's ingestion transactions (INSERT event + UPDATE totals)
+-- block for the few seconds this takes and then apply on top of the recomputed values — nothing is lost.
+BEGIN;
+LOCK TABLE bb_launch_swaps IN SHARE MODE;
+LOCK TABLE bb_launch_fee_events IN SHARE MODE;
+LOCK TABLE bb_launches IN EXCLUSIVE MODE;
+
 WITH s AS (
   SELECT chain_id, token, count(*) FILTER (WHERE is_buy) AS buys, count(*) FILTER (WHERE NOT is_buy) AS sells,
          COALESCE(sum(abs(amount0)), 0) AS volume_quote, max(block_time) AS last_trade_at
@@ -13,7 +21,6 @@ SELECT 'drift before' AS what,
        count(*) FILTER (WHERE (l.buys + l.sells) > 0 AND s.token IS NULL) AS totals_without_swaps
   FROM bb_launches l LEFT JOIN s ON s.chain_id = l.chain_id AND s.token = l.token;
 
-BEGIN;
 -- swaps → buys / sells / volume / last trade
 UPDATE bb_launches l SET
   buys = COALESCE(s.buys, 0), sells = COALESCE(s.sells, 0), volume_quote = COALESCE(s.volume_quote, 0), last_trade_at = s.last_trade_at
@@ -39,7 +46,6 @@ UPDATE bb_launches l SET
                (SELECT COALESCE(sum(amount), 0) FROM bb_launch_fee_events e WHERE e.chain_id = l2.chain_id AND e.token = l2.token AND e.kind = 'burned' AND e.currency <> l2.quote) AS tb
           FROM bb_launches l2) f
  WHERE l.chain_id = f.chain_id AND l.token = f.token;
-COMMIT;
 
 WITH s AS (
   SELECT chain_id, token, count(*) FILTER (WHERE is_buy) AS buys, count(*) FILTER (WHERE NOT is_buy) AS sells, COALESCE(sum(abs(amount0)), 0) AS volume_quote
@@ -48,3 +54,4 @@ WITH s AS (
 SELECT 'drift after' AS what,
        count(*) FILTER (WHERE l.buys <> COALESCE(s.buys, 0) OR l.sells <> COALESCE(s.sells, 0) OR l.volume_quote <> COALESCE(s.volume_quote, 0)) AS launches_with_wrong_totals
   FROM bb_launches l LEFT JOIN s ON s.chain_id = l.chain_id AND s.token = l.token;
+COMMIT;
