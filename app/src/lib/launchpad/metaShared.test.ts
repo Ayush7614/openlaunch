@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { metaUriFor, metaWriteDecision, validateMeta } from "./metaShared.ts";
 
-const L = "0x63F300b7b21FbA52A8D874D90F7E1B301AE858c4";
+const L = "0x00000000000000000000000000000000000c0ffe";
 const SALT = "0x" + "a".repeat(64);
 const KEY = "0x" + "B".repeat(64);
 const base = { chain: "base" as const, launcher: L, salt: SALT, name: "Clear Sky", symbol: "sky" };
@@ -22,7 +22,7 @@ test("validateMeta: meta_key is optional (defaults to the salt) and normalized t
 
 test("metaUriFor is keyed by (launcher, meta_key) and is stable while the salt changes", () => {
   const u1 = metaUriFor(L, KEY);
-  assert.match(u1, /\/api\/launch\/meta\/0x63f300b7b21fba52a8d874d90f7e1b301ae858c4\/0xbbbb/);
+  assert.match(u1, /\/api\/launch\/meta\/0x00000000000000000000000000000000000c0ffe\/0xbbbb/);
   assert.equal(metaUriFor(L.toLowerCase(), KEY.toLowerCase()), u1, "case-insensitive");
   assert.notEqual(metaUriFor(L, SALT), u1, "a different key → different URI");
 });

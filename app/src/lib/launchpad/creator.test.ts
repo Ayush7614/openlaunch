@@ -60,7 +60,7 @@ test("share card shaping", () => {
   const now = Date.parse("2026-09-06T12:00:00Z");
   const c = shapeCard({ name: "Dollar Dog", symbol: "DDOG", chain: "robinhood", fdv_usd: 12345, fdv_quote: 12345, quote_symbol: "USDG", change_from_launch: 0.234, lp_fee: 10000, recipients: [{ payout: DEAD, bps: 10000 }], block_time: "2026-09-06T09:30:00Z" }, now);
   assert.deepEqual(c, { title: "Dollar Dog", symbol: "DDOG", chainLabel: "Robinhood Chain", mcap: "$12.3K", change: "+23%", up: true, fee: "1% fee, burned", age: "2h old", quote: null });
-  assert.deepEqual(shapeCard({ name: "Base Stock Test", symbol: "BSTK", chain: "base", fdv_usd: 25206, fdv_quote: 109.6, quote_symbol: "NVDAc", change_from_launch: 0, lp_fee: 10000, recipients: [{ payout: "0x63f300b7b21fba52a8d874d90f7e1b301ae858c4", bps: 10000 }], block_time: "2026-09-06T09:30:00Z" }, now).quote, { symbol: "NVDAc", ticker: "NVDA" }, "stock quotes get a ticker tile on the card");
+  assert.deepEqual(shapeCard({ name: "Base Stock Test", symbol: "BSTK", chain: "base", fdv_usd: 25206, fdv_quote: 109.6, quote_symbol: "NVDAc", change_from_launch: 0, lp_fee: 10000, recipients: [{ payout: "0x00000000000000000000000000000000000c0ffe", bps: 10000 }], block_time: "2026-09-06T09:30:00Z" }, now).quote, { symbol: "NVDAc", ticker: "NVDA" }, "stock quotes get a ticker tile on the card");
   assert.equal(feeLabel(0, []), "0% fee");
   assert.equal(feeLabel(30000, [{ payout: "0x1", bps: 10000 }]), "3% fee → beneficiary");
   assert.equal(ageLabel("2026-09-06T11:59:30Z", now), "1m old");
