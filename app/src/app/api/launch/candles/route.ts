@@ -32,17 +32,17 @@ export async function GET(req: Request) {
   const fromRaw = Number(u.searchParams.get("from"));
   const from = boundedCandleFrom(fromRaw, launchT, requestedAt, intervalS);
   const wallet = u.searchParams.get("wallet");
-  const [snapshot, mine] = await Promise.all([
-    memo(`candles:${chain}:${token}:${interval}:${from}`, 3_000, async () => {
-      const asOf = requestedAt;
-      const [candles, priorPrice] = await Promise.all([
-        getCandles(chain, token, intervalS, from, q.decimals, asOf),
-        getCandleBaseline(chain, token, from, q.decimals),
-      ]);
-      return { candles, priorPrice, asOf };
-    }),
-    wallet && isAddress(wallet) ? getWalletSwaps(chain, token, wallet) : Promise.resolve(null),
-  ]);
+  const snapshot = await memo(`candles:${chain}:${token}:${interval}:${from}`, 3_000, async () => {
+    const asOf = requestedAt;
+    const [candles, priorPrice] = await Promise.all([
+      getCandles(chain, token, intervalS, from, q.decimals, asOf),
+      getCandleBaseline(chain, token, from, q.decimals),
+    ]);
+    return { candles, priorPrice, asOf };
+  });
+  // A cache hit can predate this request. Markers must share its cutoff so a
+  // new wallet trade cannot appear ahead of the corresponding OHLCV update.
+  const mine = wallet && isAddress(wallet) ? await getWalletSwaps(chain, token, wallet, snapshot.asOf) : null;
   // launch price in quote per token, from the start tick
   const launchPrice = 1 / (Math.pow(1.0001, l.start_tick) * Math.pow(10, q.decimals - 18));
   const baseline = { price: snapshot.priorPrice ?? launchPrice, hasPriorTrades: snapshot.priorPrice !== null };

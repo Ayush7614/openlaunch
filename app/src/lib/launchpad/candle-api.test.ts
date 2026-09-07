@@ -8,6 +8,7 @@ const route = readFileSync(new URL("../../app/api/launch/candles/route.ts", impo
 const queries = readFileSync(new URL("./queries.ts", import.meta.url), "utf8");
 const candleQuery = queries.slice(queries.indexOf("export async function getCandles("), queries.indexOf("export async function getCandleBaseline("));
 const baselineQuery = queries.slice(queries.indexOf("export async function getCandleBaseline("), queries.indexOf("export async function getWalletSwaps("));
+const walletQuery = queries.slice(queries.indexOf("export async function getWalletSwaps("), queries.indexOf("export async function getWalletTokens("));
 
 // Compile only the handler, replacing every import with an explicit local fake.
 // These tests never load server modules, fetch prices, or connect to a database.
@@ -16,6 +17,7 @@ function isolatedRoute(priorPrice: number | null) {
   const calls = { launch: 0, candles: [] as unknown[][], baseline: [] as unknown[][], wallet: [] as unknown[][] };
   const launch = { block_time: new Date((now - 365 * 86400) * 1000).toISOString(), quote_symbol: "USDG", quote_decimals: 6, quote_usd: 1, supply: "1000000000000000000000000000", start_tick: 391400 };
   const candle = { t: 1_800_000_000, open: 2, high: 3, low: 1, close: 2.5, volume: 7, trades: 2 };
+  const walletSwaps = [{ t: now, is_buy: true, quote: "7000000" }];
   const values = new Map<string, unknown>();
   const imports: Record<string, unknown> = {
     "next/server": { NextResponse: { json: (body: unknown, options?: ResponseInit) => Response.json(body, options) } },
@@ -27,7 +29,10 @@ function isolatedRoute(priorPrice: number | null) {
       getLaunch: async () => { calls.launch++; return launch; },
       getCandles: async (...args: unknown[]) => { calls.candles.push(args); return [candle]; },
       getCandleBaseline: async (...args: unknown[]) => { calls.baseline.push(args); return priorPrice; },
-      getWalletSwaps: async (...args: unknown[]) => { calls.wallet.push(args); return []; },
+      getWalletSwaps: async (...args: unknown[]) => {
+        calls.wallet.push(args);
+        return walletSwaps.filter((swap) => swap.t <= Number(args[3]));
+      },
     },
     "@/lib/launchpad/memo": {
       memo: async (key: string, _ttl: number, fn: () => Promise<unknown>) => {
@@ -43,7 +48,7 @@ function isolatedRoute(priorPrice: number | null) {
     assert.ok(Object.hasOwn(imports, id), `unexpected production import: ${id}`);
     return imports[id];
   }, exported, SnapshotDate);
-  return { get: exported.GET, calls, candle, advance: () => { now++; } };
+  return { get: exported.GET, calls, candle, walletSwaps, advance: () => { now++; } };
 }
 
 test("candle handler preserves quote metadata and returns a bounded, correctly seeded snapshot", async () => {
@@ -86,6 +91,48 @@ test("candle handler rejects prototype interval names before server reads", asyn
   }
   assert.equal(calls.launch, 0);
   assert.equal(calls.candles.length, 0);
+});
+
+test("wallet markers retain the cached candle cutoff when a new trade arrives in the same bucket", async () => {
+  const { get, calls, walletSwaps, advance } = isolatedRoute(42);
+  const token = `0x${"b".repeat(40)}`;
+  const wallet = `0x${"c".repeat(40)}`;
+  const request = new Request(`https://example.test/api/launch/candles?chain=base&token=${token}&interval=5m&from=1799999444&wallet=${wallet}`);
+  const first = await (await get(request)).json();
+  assert.deepEqual(first.mine, [walletSwaps[0]], "include a trade exactly at the snapshot cutoff");
+  advance();
+  walletSwaps.push({ t: first.asOf + 1, is_buy: false, quote: "3000000" });
+  const cached = await (await get(request)).json();
+  assert.equal(cached.asOf, first.asOf);
+  assert.deepEqual(cached.candles, first.candles);
+  assert.deepEqual(cached.mine, first.mine, "a newer same-bucket marker must wait for refreshed OHLCV");
+  assert.equal(calls.candles.length, 1, "the second request must exercise the snapshot cache");
+  assert.deepEqual(calls.wallet, [
+    ["base", token, wallet, first.asOf],
+    ["base", token, wallet, first.asOf],
+  ]);
+});
+
+test("wallet marker query parameterizes its snapshot cutoff and rejects non-finite cutoffs", async () => {
+  const calls: { sql: string; values: unknown[] }[] = [];
+  const db = async (parts: TemplateStringsArray, ...values: unknown[]) => {
+    calls.push({ sql: parts.join("?"), values });
+    return [{ t: "1800000037", is_buy: true, quote: "7000000" }];
+  };
+  const compiled = ts.transpileModule(walletQuery, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+  const exported = {} as { getWalletSwaps: (chain: string, token: string, wallet: string, asOf: number, limit?: number) => Promise<unknown[]> };
+  new Function("exports", "maybeDb", "chainIdOf", compiled)(exported, () => db, () => 8453);
+  const token = `0x${"A".repeat(40)}`;
+  const wallet = `0x${"B".repeat(40)}`;
+  const rows = await exported.getWalletSwaps("base", token, wallet, 1_800_000_037, 900);
+  assert.deepEqual(rows, [{ t: 1_800_000_037, is_buy: true, quote: "7000000" }]);
+  assert.deepEqual(calls[0].values, [8453, token.toLowerCase(), wallet.toLowerCase(), 1_800_000_037, 500]);
+  assert.match(calls[0].sql, /chain_id = \? AND token = \? AND trader = \?\s+AND block_time <= to_timestamp\(\?\)/);
+  assert.match(calls[0].sql, /ORDER BY block_number DESC, log_index DESC LIMIT \?/);
+  for (const cutoff of [NaN, Infinity, -Infinity]) {
+    assert.deepEqual(await exported.getWalletSwaps("base", token, wallet, cutoff), []);
+  }
+  assert.equal(calls.length, 1, "invalid cutoffs must never reach SQL");
 });
 
 test("candle API bounds whole buckets before fetching and returns the memoized snapshot time", () => {

@@ -7,8 +7,8 @@ export function marketUsd(value: number): string {
 }
 
 export function marketChange(value: number): { label: string; direction: "up" | "down" | "flat" } {
-  if (!Number.isFinite(value)) return { label: "N/A", direction: "flat" };
   const pct = value * 100;
+  if (!Number.isFinite(pct)) return { label: "N/A", direction: "flat" };
   const rounded = Number(pct.toFixed(Math.abs(pct) >= 10 ? 0 : 1));
   if (rounded === 0) return { label: "0.0%", direction: "flat" };
   const amount = Math.abs(pct) >= 1e15 ? pct.toExponential(1) : new Intl.NumberFormat("en-US", { notation: Math.abs(pct) >= 1_000 ? "compact" : "standard", maximumFractionDigits: Math.abs(pct) >= 10 ? 0 : 1 }).format(pct);

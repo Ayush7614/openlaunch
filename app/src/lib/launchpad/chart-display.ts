@@ -5,8 +5,3 @@ export function chartAlpha(hex: string, opacity: number): string {
   const rgb = [0, 2, 4].map((i) => parseInt(value.slice(i, i + 2), 16));
   return `rgba(${rgb.join(", ")}, ${Math.max(0, Math.min(1, opacity))})`;
 }
-
-/** A market cap in a quote with no USD conversion must never get a dollar sign. */
-export function chartValueUnit(unit: "usd" | "quote" | "mcap", quoteSymbol: string, usdAvailable: boolean): string {
-  return unit === "quote" || (unit === "mcap" && !usdAvailable) ? quoteSymbol : "USD";
-}

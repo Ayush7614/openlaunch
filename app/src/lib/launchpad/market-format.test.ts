@@ -18,3 +18,13 @@ test("rounded zero changes are neutral; extreme values stay bounded", () => {
   assert.ok(marketChange(7.259e18).label.length < 12);
   assert.deepEqual(marketChange(Infinity), { label: "N/A", direction: "flat" });
 });
+
+test("non-finite changes and finite values that overflow percentages are neutral", () => {
+  for (const value of [NaN, Infinity, -Infinity, Number.MAX_VALUE, -Number.MAX_VALUE]) {
+    assert.deepEqual(marketChange(value), { label: "N/A", direction: "flat" }, String(value));
+  }
+  assert.deepEqual(marketChange(0), { label: "0.0%", direction: "flat" });
+  assert.deepEqual(marketChange(-0), { label: "0.0%", direction: "flat" });
+  assert.deepEqual(marketChange(1e300), { label: "+1.0e+302%", direction: "up" });
+  assert.deepEqual(marketChange(-1e300), { label: "-1.0e+302%", direction: "down" });
+});

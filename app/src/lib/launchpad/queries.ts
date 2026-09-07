@@ -405,13 +405,15 @@ export async function getCandleBaseline(chain: ChainKey, token: string, from: nu
   return rows[0] ? quotePerToken(BigInt(rows[0].sqrt_price_x96), quoteDecimals) : null;
 }
 
-/** Trades by one wallet on one token (for the chart's own-trade markers). */
-export async function getWalletSwaps(chain: ChainKey, token: string, wallet: string, limit = 200): Promise<{ t: number; is_buy: boolean; quote: string }[]> {
+/** Trades by one wallet on one token, bounded to the chart snapshot's time. */
+export async function getWalletSwaps(chain: ChainKey, token: string, wallet: string, asOf: number, limit = 200): Promise<{ t: number; is_buy: boolean; quote: string }[]> {
+  if (!Number.isFinite(asOf)) return [];
   const db = maybeDb();
   if (!db) return [];
   const rows = await db<{ t: number; is_buy: boolean; quote: string }[]>`
     SELECT extract(epoch FROM block_time)::int AS t, is_buy, abs(amount0)::text AS quote FROM bb_launch_swaps
      WHERE chain_id = ${chainIdOf(chain)} AND token = ${token.toLowerCase()} AND trader = ${wallet.toLowerCase()}
+       AND block_time <= to_timestamp(${asOf})
      ORDER BY block_number DESC, log_index DESC LIMIT ${Math.min(500, limit)}`;
   return rows.map((r) => ({ t: Number(r.t), is_buy: r.is_buy, quote: r.quote }));
 }

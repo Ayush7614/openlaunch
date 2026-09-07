@@ -13,7 +13,11 @@ test("launch merge preserves optional funding checks and post-launch buy isolati
   assert.match(source, /initialBuyRaw \+ \(quote\.key === "eth" \? GAS_RESERVE_WEI : 0n\) > buyBalance/);
   assert.match(source, /if \(initialBuyRaw && ev\?\.args\.token\) \{\s*try \{/);
   assert.match(source, /buyProblem = friendlyError\(err, \{ slippagePct: FIRST_BUY_SLIPPAGE_BPS \/ 100 \}\)/);
-  assert.ok(source.indexOf('if (receipt.status !== "success")') < source.indexOf("await firstBuy("));
+  const receiptCheck = source.indexOf('if (receipt.status !== "success")');
+  const buyCall = source.indexOf("await firstBuy(");
+  assert.ok(receiptCheck >= 0, "Launch receipt status check must remain");
+  assert.ok(buyCall >= 0, "Optional first buy call must remain");
+  assert.ok(receiptCheck < buyCall, "The receipt status check must run before the first buy");
   assert.match(source, /if \(buyHash\) await fetch\(`\/api\/launch\/sync\?chain=\$\{chain\}&tx=\$\{buyHash\}/);
   assert.match(source, /Launched, but the first buy did not go through/);
   assert.match(source, /buying: "Launched! Buying your first tokens…"/);
