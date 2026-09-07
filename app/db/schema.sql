@@ -292,3 +292,7 @@ CREATE INDEX IF NOT EXISTS bb_launches_holders_idx ON bb_launches (holders DESC)
 -- feed: newest swaps across all tokens without scanning the table
 CREATE INDEX IF NOT EXISTS bb_launch_swaps_bt_idx ON bb_launch_swaps (block_time DESC);
 CREATE INDEX IF NOT EXISTS bb_launches_bt_idx ON bb_launches (block_time DESC);
+
+-- ── metadata key (stable URI across the CREATE2 salt search) ────────────────
+ALTER TABLE bb_launch_meta ADD COLUMN IF NOT EXISTS meta_key text;
+CREATE INDEX IF NOT EXISTS bb_launch_meta_key_idx ON bb_launch_meta (launcher, meta_key);

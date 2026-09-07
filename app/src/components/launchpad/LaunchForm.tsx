@@ -89,6 +89,7 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
   const [customAddr, setCustomAddr] = useState("");
   // Generated lazily at launch time (a render-time random value would break hydration).
   const saltRef = useRef<Hex | null>(null);
+  const metaKeyRef = useRef<Hex | null>(null); // chosen once: the metadataURI is keyed by it, so findSalt can change the salt freely
   const [phase, setPhase] = useState<Phase>({ k: "idle" });
 
   const presets = quote.key === "stock" ? stockMcapPresets(quote.usd ?? 0) : MCAP_PRESETS[quote.key];
@@ -121,16 +122,26 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
     if (!valid || !address || !cfg.factory || startTick === null) return;
     const FACTORY_ADDRESS = cfg.factory;
     let salt = saltRef.current ?? (saltRef.current = randomSalt());
-    try {
-      if (!onChain) await switchChainAsync({ chainId: CHAIN.id });
-      setPhase({ k: "saving" });
+    const metaKey = metaKeyRef.current ?? (metaKeyRef.current = randomSalt());
+    const register = async (s: Hex) => {
       const res = await fetch("/api/launch/meta", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ chain, launcher: address, salt, name: name.trim(), symbol: symbolClean, description, image_url: image, website, x_handle: x }),
+        body: JSON.stringify({ chain, launcher: address, salt: s, meta_key: metaKey, name: name.trim(), symbol: symbolClean, description, image_url: image, website, x_handle: x }),
       });
-      const meta = (await res.json()) as { uri?: string; token?: string; error?: string };
-      if (!res.ok || !meta.uri) throw new Error(meta.error ?? "could not save metadata");
+      const j = (await res.json()) as { uri?: string; token?: string; error?: string };
+      return { status: res.status, ...j };
+    };
+    try {
+      if (!onChain) await switchChainAsync({ chainId: CHAIN.id });
+      setPhase({ k: "saving" });
+      let meta = await register(salt);
+      if (meta.status === 409) {
+        // this salt was registered before with different details (an earlier attempt): take a fresh one
+        salt = saltRef.current = randomSalt();
+        meta = await register(salt);
+      }
+      if (meta.status !== 200 || !meta.uri) throw new Error(meta.error ?? "could not save metadata");
 
       setPhase({ k: "simulating" });
       const pub = getPublicClient(config, { chainId: CHAIN.id })!;
@@ -145,15 +156,10 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
         if (found !== salt) {
           salt = found;
           saltRef.current = found;
-          // metadata is keyed by (launcher, salt): re-register under the salt actually used
-          const res2 = await fetch("/api/launch/meta", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ chain, launcher: address, salt, name: name.trim(), symbol: symbolClean, description, image_url: image, website, x_handle: x }),
-          });
-          const meta2 = (await res2.json()) as { uri?: string; token?: string; error?: string };
-          if (!res2.ok || !meta2.uri) throw new Error(meta2.error ?? "could not save metadata");
-          meta.uri = meta2.uri;
+          // the URI is keyed by meta_key, so it does not change; register the row for the token the new salt produces
+          const meta2 = await register(salt);
+          if (meta2.status !== 200 || !meta2.uri) throw new Error(meta2.error ?? "could not save metadata");
+          if (meta2.uri !== meta.uri) throw new Error("metadata URI changed during the salt search");
           meta.token = meta2.token;
         }
       }

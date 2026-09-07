@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { saveMeta, validateMeta } from "@/lib/launchpad/meta";
+import { MetaConflict, saveMeta, validateMeta } from "@/lib/launchpad/meta";
 import { LAUNCHPAD_CONFIGURED } from "@/lib/launchpad/config";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +18,7 @@ export async function POST(req: Request) {
   try {
     return NextResponse.json(await saveMeta(v.value));
   } catch (err) {
+    if (err instanceof MetaConflict) return NextResponse.json({ error: err.message }, { status: 409 });
     return NextResponse.json({ error: err instanceof Error ? err.message : "failed" }, { status: 502 });
   }
 }

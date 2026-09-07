@@ -115,16 +115,20 @@ async function applySwap(db: Db, chain: ChainKey, log: Log & { args: Swap }, poo
   const isBuy = a.amount0 < 0n; // swapper paid quote (currency0)
   const absQuote = a.amount0 < 0n ? -a.amount0 : a.amount0;
   const [time, trader] = await Promise.all([timeOf(chain, log.blockNumber!), fromOf(chain, log.transactionHash!)]);
-  const inserted = await db`
+  const bn = log.blockNumber!;
+  const li = log.logIndex!;
+  // One transaction: the swap row and the launch totals commit together or not at all (a failure between
+  // the two used to leave a recorded trade whose totals were never applied — and the dedupe then skips it).
+  return db.begin(async (tx) => {
+    const t = tx as unknown as Db;
+    const inserted = await t`
     INSERT INTO bb_launch_swaps (chain_id, tx_hash, log_index, token, pool_id, trader, amount0, amount1, sqrt_price_x96, tick, is_buy, block_number, block_time)
     VALUES (${cid}, ${log.transactionHash!.toLowerCase()}, ${log.logIndex!}, ${token}, ${poolId}, ${trader}, ${a.amount0.toString()}, ${a.amount1.toString()},
             ${a.sqrtPriceX96.toString()}, ${a.tick}, ${isBuy}, ${log.blockNumber!}, ${time})
     ON CONFLICT DO NOTHING
     RETURNING tx_hash`;
-  if (inserted.length === 0) return false;
-  const bn = log.blockNumber!;
-  const li = log.logIndex!;
-  await db`
+    if (inserted.length === 0) return false;
+    await t`
     UPDATE bb_launches SET
       volume_quote = volume_quote + ${absQuote.toString()}::numeric,
       buys = buys + ${isBuy ? 1 : 0},
@@ -135,7 +139,8 @@ async function applySwap(db: Db, chain: ChainKey, log: Log & { args: Swap }, poo
       last_swap_log  = CASE WHEN (${bn}::bigint, ${li}::int) > (last_swap_block, last_swap_log) THEN ${li} ELSE last_swap_log END,
       last_swap_block= CASE WHEN (${bn}::bigint, ${li}::int) > (last_swap_block, last_swap_log) THEN ${bn} ELSE last_swap_block END
     WHERE chain_id = ${cid} AND token = ${token}`;
-  return true;
+    return true;
+  }) as Promise<boolean>;
 }
 
 type FeeLog = Log &
@@ -146,9 +151,14 @@ type FeeLog = Log &
     | { eventName: "Credited" | "Claimed"; args: { account: Address; currency: Address; amount: bigint } }
   );
 
-async function applyFee(db: Db, chain: ChainKey, log: FeeLog, tokenIdToToken: Map<string, { token: string; quote: string }>): Promise<boolean> {
+async function applyFee(pool: Db, chain: ChainKey, log: FeeLog, tokenIdToToken: Map<string, { token: string; quote: string }>): Promise<boolean> {
   const cid = chainIdOf(chain);
   const time = await timeOf(chain, log.blockNumber!);
+  // event row + launch fee totals in one transaction (same reasoning as applySwap)
+  return pool.begin(async (tx) => applyFeeIn(tx as unknown as Db, chain, cid, time, log, tokenIdToToken)) as Promise<boolean>;
+}
+
+async function applyFeeIn(db: Db, chain: ChainKey, cid: number, time: string, log: FeeLog, tokenIdToToken: Map<string, { token: string; quote: string }>): Promise<boolean> {
   const tx = log.transactionHash!.toLowerCase();
   const li = log.logIndex!;
   const bn = log.blockNumber!;

@@ -24,6 +24,18 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import postgres from "postgres";
 
+// Fresh checkouts: pick DATABASE_URL up from .env.local / .env (never overriding a real env var).
+if (!process.env.DATABASE_URL) {
+  const { readFileSync, existsSync } = await import("node:fs");
+  for (const f of [".env.local", ".env"]) {
+    if (!existsSync(f)) continue;
+    const m = readFileSync(f, "utf8").match(/^\s*DATABASE_URL\s*=\s*"?([^"\n#]+)"?/m);
+    if (m) {
+      process.env.DATABASE_URL = m[1].trim();
+      break;
+    }
+  }
+}
 const url = process.env.DATABASE_URL?.trim();
 if (!url) {
   console.error("migrate: DATABASE_URL is not set");

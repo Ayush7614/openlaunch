@@ -88,13 +88,22 @@ FORK_TESTS=true forge test --match-contract LaunchStockQuote            # AAPL-q
 
 ```
 cd app && npm install
-cp .env.example .env.local        # RPCs, factory / locker addresses, DATABASE_URL
-npm run migrate && npm run dev    # http://localhost:3000
+cp .env.example .env.local        # RPCs, factory / locker addresses, DATABASE_URL (a local Postgres is enough)
+npm run migrate                   # applies db/schema.sql; reads DATABASE_URL from .env.local
+npm run dev                       # http://localhost:3000
 npm test                          # unit tests (node --test)
 ```
 
 `app/README.md` covers local development against anvil forks of both chains; `app/LAUNCH.md` is the
-production runbook (deploy, backups, restore).
+production runbook (deploy, backups, restore). Deploying your own instance: change the app name in
+`app/fly.toml`, put production values in `app/.env.production`, run `scripts/fly-secrets.sh`, then `fly deploy`
+with the four `NEXT_PUBLIC_LAUNCH_*` build args (see the top of `app/fly.toml`).
+
+## Contributing and security
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md). Security issues: [`SECURITY.md`](SECURITY.md) — please report privately.
+CI runs lint, typecheck, unit tests and a production build for the app, and build + unit tests for the contracts,
+on every pull request.
 
 ## Security
 

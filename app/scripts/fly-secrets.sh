@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Stage basebid runtime secrets on Fly (app: basebid). BASE_RPC_URL is read from
-# ../web/.env.local (never printed). DATABASE_URL is set by `fly postgres attach`.
+# Stage runtime secrets on Fly for this app. Values are read from ./.env.production (never printed,
+# never committed — see .env.example for the keys). DATABASE_URL is set by `fly postgres attach`.
 # Staged secrets apply on the next `fly deploy`. Re-runnable.
-#   LAUNCH_DEPLOY_BLOCK = block the LaunchFactory was deployed at (indexer never scans before it).
+#   FLY_APP     = Fly app name (default: basebid — the live openlaunch.lol app; set your own for a fork)
+#   SECRETS_ENV = file to read (default: .env.production)
 set -euo pipefail
 cd "$(dirname "$0")/.."
-APP=basebid
-WEB=../web/.env.local
+APP=${FLY_APP:-basebid}
+WEB=${SECRETS_ENV:-.env.production}
+[ -f "$WEB" ] || { echo "missing $WEB — copy .env.example to $WEB and fill in the production values"; exit 1; }
 val() { grep -E "^$2=" "$1" | head -1 | cut -d= -f2- | sed 's/^"//;s/"$//'; }
 args=()
 add() { [ -n "${2:-}" ] && args+=("$1=$2") && echo "  staged $1" || echo "  SKIP $1 (empty)"; }
