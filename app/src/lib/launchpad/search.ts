@@ -1,0 +1,49 @@
+/** Pure search / filter helpers (client + server; node --test loads this directly). */
+export type LaunchFilter = "fee0" | "burn" | "usdg" | "today";
+export const FILTERS: { key: LaunchFilter; label: string; title: string }[] = [
+  { key: "fee0", label: "0% fee", title: "feeless pools" },
+  { key: "burn", label: "fees burned", title: "no beneficiary — every fee is burned" },
+  { key: "usdg", label: "USDG", title: "priced in USDG (Robinhood Chain)" },
+  { key: "today", label: "today", title: "launched in the last 24 hours" },
+];
+export function isFilter(v: unknown): v is LaunchFilter {
+  return v === "fee0" || v === "burn" || v === "usdg" || v === "today";
+}
+
+/** Trim, collapse whitespace, strip a leading $ (people type $SYM), lowercase. */
+export function normalizeQuery(q: string): string {
+  return q.trim().replace(/\s+/g, " ").replace(/^\$/, "").toLowerCase();
+}
+export function isAddressQuery(q: string): boolean {
+  return /^0x[0-9a-f]{40}$/i.test(q.trim());
+}
+
+const DEAD = "0x000000000000000000000000000000000000dead";
+type Matchable = { name: string; symbol: string; token: string; lp_fee: number; quote_symbol: string; block_time: string; recipients: { payout: string; bps: number }[] };
+
+/** Client-side match over an already-loaded row. Name/symbol prefix or substring, or exact address. */
+export function matchesQuery(l: Matchable, q: string): boolean {
+  const n = normalizeQuery(q);
+  if (!n) return true;
+  if (isAddressQuery(n)) return l.token.toLowerCase() === n;
+  return l.name.toLowerCase().includes(n) || l.symbol.toLowerCase().includes(n);
+}
+
+export function matchesFilter(l: Matchable, f: LaunchFilter | null, now = Date.now()): boolean {
+  if (!f) return true;
+  if (f === "fee0") return l.lp_fee === 0;
+  if (f === "burn") return l.lp_fee > 0 && l.recipients.length === 1 && l.recipients[0].payout.toLowerCase() === DEAD;
+  if (f === "usdg") return l.quote_symbol === "USDG";
+  return now - new Date(l.block_time).getTime() < 86_400_000;
+}
+
+/** Rank search hits: symbol exact > symbol prefix > name prefix > substring. */
+export function rankHit(l: Matchable, q: string): number {
+  const n = normalizeQuery(q);
+  const s = l.symbol.toLowerCase();
+  const name = l.name.toLowerCase();
+  if (s === n) return 0;
+  if (s.startsWith(n)) return 1;
+  if (name.startsWith(n)) return 2;
+  return 3;
+}

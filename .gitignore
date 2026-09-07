@@ -1,0 +1,17 @@
+node_modules/
+.next/
+.env
+.env.*
+!.env.example
+*.local.*
+out/
+cache/
+broadcast/
+.DS_Store
+*.tsbuildinfo
+
+# editor/agent scratch + local deploy metadata
+AGENTS.md
+CLAUDE.md
+.vercel/
+.uploads/

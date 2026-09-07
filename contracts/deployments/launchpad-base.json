@@ -1,0 +1,18 @@
+{
+  "chainId": 8453,
+  "deployedAt": "2026-09-06",
+  "deployBlock": 50940130,
+  "deployTx": "0xf58f481f38a00ec6db604d14a9b79c711fa4aac74dc4577072376eeecdac8a60",
+  "deployer": "0x63F300b7b21FbA52A8D874D90F7E1B301AE858c4",
+  "LaunchFactory": "0x815542E8b392389A1389E22E588E4B62A67Ade72",
+  "LaunchLocker": "0xcd1680D26922fcd9CabFbb8a56bA40C333fD842a",
+  "uniswapV4": {
+    "poolManager": "0x498581fF718922c3f8e6A244956aF099B2652b2b",
+    "positionManager": "0x7C5f5A4bBd8fD63184577525326123B519429bDc",
+    "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+    "stateView": "0xA3c0c9b65baD0b08107Aa264b0f3dB444b867A71",
+    "quoter": "0x0d5e0F971ED27FBfF6c2837bf31316121532048D",
+    "universalRouter": "0x6fF5693b99212Da76ad316178A184AB56D299b43"
+  },
+  "platformFee": "none"
+}

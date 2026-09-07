@@ -1,0 +1,57 @@
+# basebid.lol — standalone Next.js app on Fly. Build context is this directory:
+#   fly deploy -c fly.toml --ha=false --remote-only --build-arg NEXT_PUBLIC_LAUNCH_FACTORY=0x... --build-arg NEXT_PUBLIC_LAUNCH_LOCKER=0x...
+# Runtime: node server.js (Next standalone) + the in-process indexer loop;
+# release_command (fly.toml) runs scripts/migrate.mjs from this same image.
+FROM node:22-slim AS build
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
+
+COPY . .
+# NEXT_PUBLIC_* are INLINED INTO THE CLIENT BUNDLE AT BUILD TIME — they must be
+# build args (fly.toml [build.args]), not only runtime secrets.
+ARG NEXT_PUBLIC_CHAIN=base
+ARG NEXT_PUBLIC_SITE_URL=https://basebid.lol
+ARG NEXT_PUBLIC_LAUNCH_FACTORY
+ARG NEXT_PUBLIC_LAUNCH_LOCKER
+ARG NEXT_PUBLIC_LAUNCH_FACTORY_ROBINHOOD
+ARG NEXT_PUBLIC_LAUNCH_LOCKER_ROBINHOOD
+ENV NEXT_PUBLIC_CHAIN=$NEXT_PUBLIC_CHAIN \
+    NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL \
+    NEXT_PUBLIC_LAUNCH_FACTORY=$NEXT_PUBLIC_LAUNCH_FACTORY \
+    NEXT_PUBLIC_LAUNCH_LOCKER=$NEXT_PUBLIC_LAUNCH_LOCKER \
+    NEXT_PUBLIC_LAUNCH_FACTORY_ROBINHOOD=$NEXT_PUBLIC_LAUNCH_FACTORY_ROBINHOOD \
+    NEXT_PUBLIC_LAUNCH_LOCKER_ROBINHOOD=$NEXT_PUBLIC_LAUNCH_LOCKER_ROBINHOOD \
+    NEXT_PUBLIC_LAUNCH_FACTORY_ROBINHOOD=$NEXT_PUBLIC_LAUNCH_FACTORY_ROBINHOOD \
+    NEXT_PUBLIC_LAUNCH_LOCKER_ROBINHOOD=$NEXT_PUBLIC_LAUNCH_LOCKER_ROBINHOOD \
+    NEXT_TELEMETRY_DISABLED=1
+RUN npm run build
+
+FROM node:22-slim
+WORKDIR /app
+RUN groupadd -r app && useradd -r -g app -d /app app
+ARG NEXT_PUBLIC_CHAIN=base
+ARG NEXT_PUBLIC_SITE_URL=https://basebid.lol
+ARG NEXT_PUBLIC_LAUNCH_FACTORY
+ARG NEXT_PUBLIC_LAUNCH_LOCKER
+ARG NEXT_PUBLIC_LAUNCH_FACTORY_ROBINHOOD
+ARG NEXT_PUBLIC_LAUNCH_LOCKER_ROBINHOOD
+# Server-side reads of the same vars must match the client build. Everything
+# secret (DATABASE_URL, RPC, deploy block) comes from Fly secrets at runtime — see LAUNCH.md.
+ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0 \
+    NEXT_PUBLIC_CHAIN=$NEXT_PUBLIC_CHAIN \
+    NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL \
+    NEXT_PUBLIC_LAUNCH_FACTORY=$NEXT_PUBLIC_LAUNCH_FACTORY \
+    NEXT_PUBLIC_LAUNCH_LOCKER=$NEXT_PUBLIC_LAUNCH_LOCKER \
+    NEXT_PUBLIC_LAUNCH_FACTORY_ROBINHOOD=$NEXT_PUBLIC_LAUNCH_FACTORY_ROBINHOOD \
+    NEXT_PUBLIC_LAUNCH_LOCKER_ROBINHOOD=$NEXT_PUBLIC_LAUNCH_LOCKER_ROBINHOOD \
+    NEXT_TELEMETRY_DISABLED=1
+COPY --from=build --chown=app:app /app/.next/standalone ./
+COPY --from=build --chown=app:app /app/.next/static ./.next/static
+COPY --from=build --chown=app:app /app/public ./public
+COPY --from=build --chown=app:app /app/db ./db
+COPY --from=build --chown=app:app /app/scripts/migrate.mjs ./scripts/migrate.mjs
+COPY --from=build --chown=app:app /app/scripts/lib ./scripts/lib
+USER app
+EXPOSE 3000
+CMD ["node", "server.js"]

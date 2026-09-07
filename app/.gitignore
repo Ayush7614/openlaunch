@@ -1,0 +1,14 @@
+/node_modules
+/.next
+/out
+/build
+.env
+.env*.local
+.env*
+!.env.example
+!.env.production.example
+.DS_Store
+*.tsbuildinfo
+next-env.d.ts
+.vercel
+.uploads/

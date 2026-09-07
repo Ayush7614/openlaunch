@@ -1,0 +1,194 @@
+@import "tailwindcss";
+
+/* ── "Clear Sky" — light only ─────────────────────────────────────────────── */
+@theme {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: var(--font-space-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-display: var(--font-unbounded), var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  /* surfaces */
+  --color-paper: #fafaf8;
+  --color-card: #ffffff;
+  --color-line: #e7e5e4;
+  --color-line-strong: #d6d3d1;
+
+  /* text */
+  --color-ink: #0f172a;
+  --color-body: #475569;
+  --color-muted: #64748b; /* AA on paper/card at body sizes */
+  --color-faint: #94a3b8; /* decorative / placeholders only */
+
+  /* accent */
+  --color-brand: #0052ff;
+  --color-brand-strong: #0041cc;
+  --color-brand-soft: #eaf0ff;
+
+  /* money: up (refund / locked), down (displaced), warm (takeover / testnet) */
+  --color-up: #15803d;
+  --color-up-soft: #ecfdf3;
+  --color-down: #dc2626;
+  --color-down-ink: #b91c1c; /* text on down-soft */
+  --color-down-soft: #fef2f2;
+  --color-warm: #d97706;
+  --color-warm-ink: #b45309; /* text on warm-soft / paper */
+  --color-warm-soft: #fffbeb;
+
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 16px rgba(15, 23, 42, 0.04);
+  --shadow-card-hover: 0 2px 4px rgba(15, 23, 42, 0.06), 0 10px 28px rgba(15, 23, 42, 0.09);
+  --shadow-sheet: 0 -8px 40px rgba(15, 23, 42, 0.12);
+  --shadow-dialog: 0 24px 64px rgba(15, 23, 42, 0.18);
+}
+
+:root {
+  color-scheme: light;
+}
+
+html {
+  background: var(--color-paper);
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-body);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-x: clip;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "cv11", "ss01";
+}
+
+/* faint blue wash behind the hero only */
+.bb-sky {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 520px;
+  pointer-events: none;
+  background: radial-gradient(1200px 400px at 50% -100px, var(--color-brand-soft), transparent);
+}
+
+/* tabular numbers everywhere money shows */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* tape: subtle tint fade when a row is new */
+@keyframes bb-tint-down {
+  0% { background-color: var(--color-down-soft); }
+  100% { background-color: transparent; }
+}
+@keyframes bb-tint-up {
+  0% { background-color: var(--color-up-soft); }
+  100% { background-color: transparent; }
+}
+.bb-flash-down { animation: bb-tint-down 1.8s ease-out 1; }
+.bb-flash-up { animation: bb-tint-up 1.8s ease-out 1; }
+
+@keyframes bb-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.bb-pulse { animation: bb-pulse 1.6s ease-in-out infinite; }
+
+@keyframes bb-sheet-up {
+  from { transform: translateY(24px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.bb-sheet-in { animation: bb-sheet-up 220ms cubic-bezier(0.2, 0.8, 0.2, 1) 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .bb-flash-down, .bb-flash-up, .bb-pulse, .bb-sheet-in { animation: none; }
+  *, *::before, *::after { transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}
+
+/* the sticky mobile action bar covers the bottom of the page: pad the footer */
+@media (max-width: 767px) {
+  body:has(.bb-action-bar) .bb-footer { padding-bottom: calc(5.5rem + env(safe-area-inset-bottom)); }
+}
+
+/* a sheet is open: lock scroll, hide the mobile action bar */
+html[data-sheet-open] body { overflow: hidden; }
+html[data-sheet-open] .bb-action-bar { display: none; }
+
+/* thin scrollbars */
+.bb-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+.bb-scroll::-webkit-scrollbar-thumb { background: var(--color-line-strong); border-radius: 9999px; }
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+
+::selection { background: var(--color-brand); color: #fff; }
+
+:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* transaction toasts */
+@keyframes bb-toast-in {
+  from { transform: translateY(12px) scale(0.98); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+@keyframes bb-toast-out {
+  from { transform: translateY(0); opacity: 1; }
+  to { transform: translateY(8px); opacity: 0; }
+}
+.bb-toast-in { animation: bb-toast-in 260ms cubic-bezier(0.2, 0.8, 0.2, 1) 1; }
+.bb-toast-out { animation: bb-toast-out 320ms ease-in 1 forwards; }
+
+/* one-shot confetti burst (own tx confirmed) */
+@keyframes bb-confetti {
+  0% { transform: translate(0, 0) rotate(0deg); opacity: 1; }
+  100% { transform: translate(var(--dx), -55vh) rotate(var(--rot)); opacity: 0; }
+}
+.bb-confetti { animation: bb-confetti 1.3s cubic-bezier(0.1, 0.8, 0.3, 1) 1 forwards; }
+
+/* price / number flash when a live value changes */
+@keyframes bb-pop { 0% { transform: scale(1); } 40% { transform: scale(1.06); } 100% { transform: scale(1); } }
+.bb-pop { animation: bb-pop 320ms ease-out 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .bb-toast-in, .bb-toast-out, .bb-confetti, .bb-pop { animation: none; }
+  .bb-confetti { display: none; }
+}
+
+/* live list highlights */
+@keyframes bb-row-new {
+  0% { box-shadow: 0 0 0 0 rgba(0, 82, 255, 0.45), var(--shadow-card); border-color: var(--color-brand); background-color: var(--color-brand-soft); }
+  60% { box-shadow: 0 0 0 10px rgba(0, 82, 255, 0), var(--shadow-card); }
+  100% { box-shadow: var(--shadow-card); border-color: var(--color-brand); background-color: var(--color-card); }
+}
+.bb-row-new { animation: bb-row-new 1.6s ease-out 1; border-color: var(--color-brand) !important; }
+@keyframes bb-row-buy { 0% { background-color: var(--color-up-soft); border-color: var(--color-up); } 100% { background-color: var(--color-card); border-color: var(--color-line); } }
+@keyframes bb-row-sell { 0% { background-color: var(--color-down-soft); border-color: var(--color-down); } 100% { background-color: var(--color-card); border-color: var(--color-line); } }
+.bb-row-buy { animation: bb-row-buy 2.2s ease-out 1; }
+.bb-row-sell { animation: bb-row-sell 2.2s ease-out 1; }
+@media (prefers-reduced-motion: reduce) { .bb-row-new, .bb-row-buy, .bb-row-sell { animation: none; } }
+
+/* ── loading system: route progress bar, skeleton shimmer, spinner ─────────── */
+.bb-progress { position: fixed; top: 0; left: 0; height: 3px; width: 0; background: var(--color-brand); z-index: 100; opacity: 0; pointer-events: none; transition: width 0.25s ease, opacity 0.3s ease; box-shadow: 0 0 8px rgba(0, 82, 255, 0.45); }
+.bb-progress-run { opacity: 1; animation: bb-progress-creep 12s cubic-bezier(0.1, 0.6, 0.2, 1) forwards; }
+.bb-progress-done { opacity: 0; width: 100%; transition: width 0.2s ease, opacity 0.35s ease 0.15s; }
+@keyframes bb-progress-creep { 0% { width: 0; } 10% { width: 35%; } 40% { width: 70%; } 100% { width: 92%; } }
+.bb-skel { background: linear-gradient(90deg, #ecebe8 0%, #f5f4f1 40%, #ecebe8 80%); background-size: 200% 100%; animation: bb-shimmer 1.6s ease-in-out infinite; }
+@keyframes bb-shimmer { 0% { background-position: 120% 0; } 100% { background-position: -80% 0; } }
+.bb-spin { animation: bb-rotate 0.8s linear infinite; }
+@keyframes bb-rotate { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .bb-progress-run { animation: none; width: 60%; }
+  .bb-skel { animation: none; background: #ecebe8; }
+  .bb-spin { animation-duration: 1.6s; }
+}
+
+/* live beacon: the dot stays solid; a ring grows from it and fades, every 2s */
+.bb-beacon::after { content: ""; position: absolute; inset: 0; border-radius: 9999px; background: var(--color-up); opacity: 0.55; animation: bb-beacon 2s cubic-bezier(0.2, 0.7, 0.3, 1) infinite; }
+@keyframes bb-beacon { 0% { transform: scale(1); opacity: 0.55; } 70% { transform: scale(2.8); opacity: 0; } 100% { transform: scale(2.8); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .bb-beacon::after { animation: none; opacity: 0; } }
+
+/* "Hot right now" card: slow warm glow around the border */
+.bb-hot { box-shadow: 0 0 0 0 rgba(217, 119, 6, 0.0); animation: bb-hot 2.8s ease-in-out infinite; }
+@keyframes bb-hot { 0%, 100% { box-shadow: 0 0 0 0 rgba(217, 119, 6, 0.0); } 50% { box-shadow: 0 0 0 4px rgba(217, 119, 6, 0.14); } }
+@media (prefers-reduced-motion: reduce) { .bb-hot { animation: none; } }

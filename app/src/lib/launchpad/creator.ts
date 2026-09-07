@@ -1,0 +1,27 @@
+/** Pure creator-dashboard math (node --test loads this directly). */
+export type Recipient = { payout: string; bps: number };
+const DEAD = "0x000000000000000000000000000000000000dead";
+
+/** This wallet's share of a launch's fees, in bps (0 when it is not a recipient). */
+export function feeShareBps(recipients: Recipient[], wallet: string): number {
+  const w = wallet.toLowerCase();
+  return recipients.filter((r) => r.payout.toLowerCase() === w).reduce((a, r) => a + r.bps, 0);
+}
+
+/** Fees this wallet has been paid so far (raw quote units): (collected − burned) × its share. Exact in push mode. */
+export function earnedRaw(collectedQuote: bigint | string, burnedQuote: bigint | string, shareBps: number): bigint {
+  const paid = BigInt(collectedQuote) - BigInt(burnedQuote);
+  if (paid <= 0n || shareBps <= 0) return 0n;
+  return (paid * BigInt(shareBps)) / 10_000n;
+}
+
+/** Whether a launch burns everything (no beneficiary). */
+export function isBurnOnly(recipients: Recipient[]): boolean {
+  return recipients.length === 1 && recipients[0].payout.toLowerCase() === DEAD;
+}
+
+/** Portfolio value of a holding: balance (wei) × price (whole quote per token) × quote USD. */
+export function holdingUsd(balanceWei: bigint | string, priceQuote: number, quoteUsd: number | null): number | null {
+  if (quoteUsd === null) return null;
+  return (Number(BigInt(balanceWei)) / 1e18) * priceQuote * quoteUsd;
+}

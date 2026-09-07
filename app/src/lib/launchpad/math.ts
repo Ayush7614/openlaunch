@@ -1,0 +1,147 @@
+/**
+ * Pure launchpad math (no server-only, unit-tested). Prices are "token per
+ * 1 ETH" (currency0 = ETH/quote, currency1 = token; both 18 decimals). Uniswap
+ * price = currency1 / currency0 = 1.0001^tick, so tick > 0 means many tokens
+ * per ETH — the cheap-token regime every launch starts in. Buys push the tick
+ * DOWN (fewer tokens per ETH = token got pricier).
+ */
+import { encodeAbiParameters, keccak256, type Address, type Hex } from "viem";
+
+// Self-contained on purpose: node --test loads this file directly and cannot
+// resolve extensionless sibling imports. config.ts re-exports these.
+export const TICK_SPACING = 200;
+
+const Q96 = 2n ** 96n;
+const WAD = 10n ** 18n;
+
+/**
+ * Uniswap's raw price is token-wei per smallest quote unit = 1.0001^tick.
+ * With `quoteDecimals` (18 for ETH, 6 for USDG) that becomes tokens per 1 whole
+ * quote unit: 1.0001^tick · 10^qd / 10^18.
+ */
+export function tickToTokensPerQuote(tick: number, quoteDecimals = 18): number {
+  return Math.pow(1.0001, tick) * Math.pow(10, quoteDecimals - 18);
+}
+
+/** sqrtPriceX96 → tokens per 1 whole quote unit (float). */
+export function sqrtPriceToTokensPerQuote(sqrtPriceX96: bigint, quoteDecimals = 18): number {
+  const s = Number(sqrtPriceX96) / Number(Q96);
+  return s * s * Math.pow(10, quoteDecimals - 18);
+}
+
+/** Whole quote units per 1 token (float). */
+export function quotePerToken(sqrtPriceX96: bigint, quoteDecimals = 18): number {
+  const t = sqrtPriceToTokensPerQuote(sqrtPriceX96, quoteDecimals);
+  return t > 0 ? 1 / t : 0;
+}
+
+/** Fully diluted valuation in whole quote units. */
+export function fdvQuote(sqrtPriceX96: bigint, supplyWei: bigint, quoteDecimals = 18): number {
+  return quotePerToken(sqrtPriceX96, quoteDecimals) * (Number(supplyWei) / 1e18);
+}
+
+/**
+ * Start tick for a target FDV in whole quote units: tokens per quote unit =
+ * supply / fdv, converted to Uniswap's raw ratio, snapped DOWN to the tick
+ * spacing (a slightly higher FDV, never lower).
+ */
+export function startTickForFdv(fdv: number, quoteDecimals = 18, supplyWei: bigint = 10n ** 27n): number {
+  if (!(fdv > 0)) throw new Error("fdv must be > 0");
+  const tokensPerQuote = Number(supplyWei) / 1e18 / fdv;
+  const rawRatio = tokensPerQuote * Math.pow(10, 18 - quoteDecimals);
+  const raw = Math.log(rawRatio) / Math.log(1.0001);
+  return Math.floor(raw / TICK_SPACING) * TICK_SPACING;
+}
+
+/** FDV (whole quote units) implied by a start tick, for the form's live preview. */
+export function fdvForStartTick(tick: number, quoteDecimals = 18, supplyWei: bigint = 10n ** 27n): number {
+  return Number(supplyWei) / 1e18 / tickToTokensPerQuote(tick, quoteDecimals);
+}
+
+/** Whole-unit amount from a raw amount with `decimals`. */
+/** USD per quote unit: fixed (stables) or live (stocks) via `usd`; ETH only for the native address; anything else is unknown → null. */
+export function quoteUsdOf(q: { address: string; usd: number | null }, ethUsd: number | null): number | null {
+  if (q.usd !== null && q.usd !== undefined) return q.usd;
+  return q.address.toLowerCase() === "0x0000000000000000000000000000000000000000" ? ethUsd : null;
+}
+
+export function units(raw: bigint | string, decimals: number): number {
+  return Number(BigInt(raw)) / Math.pow(10, decimals);
+}
+
+/** Uniswap v4 PoolId = keccak256(abi.encode(PoolKey)). */
+export function poolIdOf(key: { currency0: Address; currency1: Address; fee: number; tickSpacing: number; hooks: Address }): Hex {
+  return keccak256(
+    encodeAbiParameters(
+      [
+        { type: "address" },
+        { type: "address" },
+        { type: "uint24" },
+        { type: "int24" },
+        { type: "address" },
+      ],
+      [key.currency0, key.currency1, key.fee, key.tickSpacing, key.hooks],
+    ),
+  );
+}
+
+/** Slippage-adjusted minimum output. */
+export function minOut(amountOut: bigint, slippageBps: number): bigint {
+  return (amountOut * BigInt(10_000 - slippageBps)) / 10_000n;
+}
+
+// ── formatting ───────────────────────────────────────────────────────────────
+
+export function fmtCompact(n: number, digits = 2): string {
+  if (!Number.isFinite(n)) return "—";
+  const abs = Math.abs(n);
+  if (abs >= 1e12) return `${(n / 1e12).toFixed(digits)}T`;
+  if (abs >= 1e9) return `${(n / 1e9).toFixed(digits)}B`;
+  if (abs >= 1e6) return `${(n / 1e6).toFixed(digits)}M`;
+  if (abs >= 1e3) return `${(n / 1e3).toFixed(digits)}K`;
+  return n.toFixed(abs >= 100 ? 0 : abs >= 1 ? 2 : digits);
+}
+
+/** Quote amount for display: "0.0421" style, trimming noise. bigint = wei (18 dec); number = whole units. */
+export function fmtEth(wei: bigint | number, opts: { max?: number } = {}): string {
+  const v = typeof wei === "bigint" ? Number(wei) / 1e18 : wei;
+  if (!Number.isFinite(v)) return "—";
+  if (v === 0) return "0";
+  const abs = Math.abs(v);
+  const digits = abs >= 100 ? 1 : abs >= 1 ? 3 : abs >= 0.01 ? 4 : abs >= 0.0001 ? 6 : 8;
+  return v.toFixed(Math.min(digits, opts.max ?? digits)).replace(/\.?0+$/, "");
+}
+
+/** Tiny per-token prices: "0.00000012" or subscript-free sci notation for extremes. */
+export function fmtPrice(v: number): string {
+  if (!Number.isFinite(v) || v <= 0) return "—";
+  if (v >= 1) return v.toFixed(4).replace(/\.?0+$/, "");
+  if (v >= 1e-8) return v.toFixed(10).replace(/\.?0+$/, "");
+  return v.toExponential(2);
+}
+
+export function fmtUsd(v: number, opts: { compact?: boolean } = {}): string {
+  if (!Number.isFinite(v)) return "—";
+  if (opts.compact && Math.abs(v) >= 1000) return `$${fmtCompact(v, 1)}`;
+  if (Math.abs(v) >= 1) return `$${v.toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: v >= 100 ? 0 : 2 })}`;
+  if (v === 0) return "$0";
+  return `$${fmtPrice(v)}`;
+}
+
+/** Token amounts with 18 decimals → compact human number. */
+export function fmtTokens(wei: bigint): string {
+  return fmtCompact(Number(wei) / 1e18);
+}
+
+export function pipsToPct(pips: number): string {
+  const pct = pips / 10_000;
+  return `${Number.isInteger(pct) ? pct : pct.toFixed(2)}%`;
+}
+
+/** "12.5 USDG" / "0.05 ETH" from a raw amount. */
+export function fmtQuote(raw: bigint | string, decimals: number, symbol: string): string {
+  const v = units(raw, decimals);
+  return `${decimals <= 6 ? (v >= 100 ? v.toFixed(0) : v.toFixed(2)).replace(/\.00$/, "") : fmtEth(v)} ${symbol}`;
+}
+
+export const WAD_ = WAD;

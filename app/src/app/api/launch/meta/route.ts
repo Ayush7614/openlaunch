@@ -1,0 +1,23 @@
+import { NextResponse } from "next/server";
+import { saveMeta, validateMeta } from "@/lib/launchpad/meta";
+import { LAUNCHPAD_CONFIGURED } from "@/lib/launchpad/config";
+
+export const dynamic = "force-dynamic";
+
+/** POST — store off-chain metadata for a launch about to be sent; returns the metadataURI + predicted token. */
+export async function POST(req: Request) {
+  if (!LAUNCHPAD_CONFIGURED) return NextResponse.json({ error: "launchpad unconfigured" }, { status: 503 });
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "bad json" }, { status: 400 });
+  }
+  const v = validateMeta((body ?? {}) as Partial<Parameters<typeof validateMeta>[0]>);
+  if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 });
+  try {
+    return NextResponse.json(await saveMeta(v.value));
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : "failed" }, { status: 502 });
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "chainId": 4663,
+  "chain": "Robinhood Chain",
+  "deployedAt": "2026-09-06",
+  "deployBlock": 55880172,
+  "deployTx": "0x6924da2fa4425b73def3b98c44e4c6fcec85ecbe2ce5c428e1e909cd3ad1adf8",
+  "deployer": "0x63F300b7b21FbA52A8D874D90F7E1B301AE858c4",
+  "LaunchFactory": "0x815542E8b392389A1389E22E588E4B62A67Ade72",
+  "LaunchLocker": "0xcd1680D26922fcd9CabFbb8a56bA40C333fD842a",
+  "uniswapV4": {
+    "poolManager": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+    "positionManager": "0x58daec3116aae6D93017bAAea7749052E8a04fA7",
+    "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+    "stateView": "0xf3334192d15450cdd385c8b70e03f9a6bd9e673b",
+    "quoter": "0x8dc178efb8111bb0973dd9d722ebeff267c98f94",
+    "universalRouter": "0x8876789976decbfcbbbe364623c63652db8c0904",
+    "universalRouterSwapLayout": "v2 (ExactInputSingleParams includes minHopPriceX36)"
+  },
+  "quotes": { "USDG": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168", "ETH": "native" },
+  "platformFee": "none",
+  "note": "identical bytecode and addresses to the Base deployment (deployer nonce 0 on both chains)"
+}
