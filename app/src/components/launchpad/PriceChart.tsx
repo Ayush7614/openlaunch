@@ -22,6 +22,15 @@ const DOWN = "#DC2626";
  * feed shows a new trade for this token, the last buckets are re-fetched and
  * merged. Own trades (connected wallet) are drawn as markers.
  */
+/** "#rgb" / "#rrggbb" → "rgba(r,g,b,a)"; anything else is passed through unchanged. */
+function withAlpha(color: string, alpha: number): string {
+  const m = /^#([\da-f]{3}|[\da-f]{6})$/i.exec(color.trim());
+  if (!m) return color;
+  const h = m[1].length === 3 ? m[1].split("").map((c) => c + c).join("") : m[1];
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
 export default function PriceChart({ chain, token, symbol, launchedAt }: { chain: ChainKey; token: string; symbol: string; launchedAt: string }) {
   const [interval, setInterval_] = useState<Interval>(() => defaultInterval((nowMs() - new Date(launchedAt).getTime()) / 1000));
   const [unit, setUnit] = useState<Unit>("usd");
@@ -150,10 +159,10 @@ export default function PriceChart({ chain, token, symbol, launchedAt }: { chain
     if (!cs || !vs || !series) return;
     cs.setData(series.candles.map((k) => ({ time: k.t as UTCTimestamp, open: k.open, high: k.high, low: k.low, close: k.close })));
     const colors = cs.options();
-    // Volume bars follow the candle palette instead of hardcoded light-theme
-    // rgba, which was invisible against the dark card.
-    const volUp = `color-mix(in srgb, ${colors.upColor} 25%, transparent)`;
-    const volDown = `color-mix(in srgb, ${colors.downColor} 25%, transparent)`;
+    // Volume bars follow the candle palette (theme-aware) at 25% alpha. Plain rgba:
+    // lightweight-charts parses colours itself and rejects color-mix().
+    const volUp = withAlpha(colors.upColor, 0.25);
+    const volDown = withAlpha(colors.downColor, 0.25);
     vs.setData(series.candles.map((k) => ({ time: k.t as UTCTimestamp, value: k.volume, color: k.close >= k.open ? volUp : volDown })));
     const intervalS = INTERVALS[interval];
     const mine = (data?.mine ?? []).map((m) => ({ time: (Math.floor(m.t / intervalS) * intervalS) as UTCTimestamp, position: m.is_buy ? ("belowBar" as const) : ("aboveBar" as const), color: m.is_buy ? colors.upColor : colors.downColor, shape: m.is_buy ? ("arrowUp" as const) : ("arrowDown" as const), text: m.is_buy ? "buy" : "sell" }));
