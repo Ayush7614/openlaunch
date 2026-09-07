@@ -2,7 +2,7 @@ import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
 /**
- * Class-name joiner used by shadcn/ui and Aceternity components.
+ * Class-name joiner (the vendored theme toggler uses it).
  * `twMerge` resolves conflicting Tailwind utilities so a caller's className
  * always wins over a component's default (e.g. `p-2` passed in beats `p-4`).
  */

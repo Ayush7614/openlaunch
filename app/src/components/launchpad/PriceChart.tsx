@@ -29,6 +29,7 @@ export default function PriceChart({ chain, token, symbol, launchedAt }: { chain
   const [error, setError] = useState<string | null>(null);
   /** Bumped whenever the theme class changes, so the data effect re-pushes bar colours. */
   const [themeTick, setThemeTick] = useState(0);
+  const fitTick = useRef(0);
   const { address } = useAccount();
   const { subscribe } = useLive();
   const box = useRef<HTMLDivElement>(null);
@@ -121,7 +122,7 @@ export default function PriceChart({ chain, token, symbol, launchedAt }: { chain
         crosshair: { horzLine: { labelBackgroundColor: color("ink") }, vertLine: { labelBackgroundColor: color("ink") } },
       });
       cs.applyOptions({ upColor: color("up"), borderUpColor: color("up"), wickUpColor: color("up"), downColor: color("down"), borderDownColor: color("down"), wickDownColor: color("down") });
-      vs.applyOptions({ color: color("line-strong") });
+      vs.applyOptions({ color: color("chart-vol") });
       const currentMarkers = markers.current;
       currentMarkers?.setMarkers(currentMarkers.markers().map((marker) => ({ ...marker, color: marker.shape === "arrowUp" ? color("up") : color("down") })));
       // per-bar volume colours live in the data effect; make it re-run
@@ -157,7 +158,10 @@ export default function PriceChart({ chain, token, symbol, launchedAt }: { chain
     const intervalS = INTERVALS[interval];
     const mine = (data?.mine ?? []).map((m) => ({ time: (Math.floor(m.t / intervalS) * intervalS) as UTCTimestamp, position: m.is_buy ? ("belowBar" as const) : ("aboveBar" as const), color: m.is_buy ? colors.upColor : colors.downColor, shape: m.is_buy ? ("arrowUp" as const) : ("arrowDown" as const), text: m.is_buy ? "buy" : "sell" }));
     markers.current?.setMarkers(mine.sort((a, b) => Number(a.time) - Number(b.time)));
-    chart.current?.timeScale().fitContent();
+    // a theme flip only recolours: keep the viewport the reader had
+    const themeOnly = fitTick.current !== themeTick;
+    fitTick.current = themeTick;
+    if (!themeOnly) chart.current?.timeScale().fitContent();
   }, [series, data?.mine, interval, themeTick]);
 
   const unitLabel = effUnit === "usd" ? "USD" : effUnit === "mcap" ? "MCAP" : data?.quote.symbol ?? "quote";

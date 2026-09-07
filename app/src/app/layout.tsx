@@ -33,9 +33,9 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  // dark is the default theme; the toggle flips a class, not the OS preference
-  themeColor: "#000000",
-  colorScheme: "dark light", width: "device-width", initialScale: 1, viewportFit: "cover",
+  // light is the default; dark is a class the header toggle adds, not an OS preference
+  themeColor: "#FAFAF8",
+  colorScheme: "light dark", width: "device-width", initialScale: 1, viewportFit: "cover",
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {

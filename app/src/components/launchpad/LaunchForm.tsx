@@ -612,7 +612,7 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
                   type="button"
                   key={v}
                   onClick={() => setInitialBuy(active ? "" : v)}
-                  className={`h-11 px-4 rounded-xl border font-mono text-sm font-bold tnum ${active ? "bg-ink text-white border-ink" : "bg-card text-ink border-line-strong hover:border-ink/40"}`}
+                  className={`h-11 px-4 rounded-xl border font-mono text-sm font-bold tnum ${active ? "bg-ink text-inverse border-ink" : "bg-card text-ink border-line-strong hover:border-ink/40"}`}
                 >
                   {v} {quote.symbol}
                 </button>

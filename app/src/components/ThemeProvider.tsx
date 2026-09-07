@@ -3,12 +3,12 @@
 import { ThemeProvider as NextThemes } from "next-themes";
 
 /**
- * Dark by default with an explicit light option — the same two-state model as
- * gitlawb.com (which stores "light" | "dark" and never follows the OS).
+ * Light by default (the shipped design) with an explicit dark option behind the
+ * header toggle. Two states, stored as "light" | "dark"; the OS preference is
+ * not consulted so the first paint matches what everyone has seen so far.
  *
- * Class-based rather than gitlawb's `data-theme` attribute: Aceternity and
- * shadcn components ship `dark:` variants, and Tailwind's dark variant resolves
- * against a class (see @custom-variant at the top of globals.css).
+ * Class-based: Tailwind's dark variant resolves against `.dark` on <html>
+ * (see @custom-variant at the top of globals.css).
  *
  * Deliberately NO `value` mapping. next-themes writes `light` or `dark`, while
  * the animated toggler flips only `dark` — so mid-toggle you briefly get
@@ -20,7 +20,7 @@ import { ThemeProvider as NextThemes } from "next-themes";
  */
 export default function ThemeProvider({ children }: { children: React.ReactNode }) {
   return (
-    <NextThemes attribute="class" defaultTheme="dark" enableSystem={false} disableTransitionOnChange>
+    <NextThemes attribute="class" defaultTheme="light" enableSystem={false} disableTransitionOnChange>
       {children}
     </NextThemes>
   );
