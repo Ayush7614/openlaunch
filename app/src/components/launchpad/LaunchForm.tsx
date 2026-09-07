@@ -10,7 +10,7 @@ import ImageUpload from "./ImageUpload";
 import FeeChip from "./FeeChip";
 import { toast } from "./TxToasts";
 import { btn, card, helper, input, label } from "@/components/ui";
-import { ERC20_MIN_ABI, LAUNCH_FACTORY_ABI, PERMIT2_ABI, UNIVERSAL_ROUTER_ABI, V4_QUOTER_ABI } from "@/lib/launchpad/abi";
+import { ERC20_MIN_ABI, ERC20_TRANSFER_EVENT, LAUNCH_FACTORY_ABI, PERMIT2_ABI, UNIVERSAL_ROUTER_ABI, V4_QUOTER_ABI } from "@/lib/launchpad/abi";
 import { BPS, DEFAULT_SUPPLY, FEE_PRESETS, MCAP_PRESETS, TICK_SPACING, launchpad, quoteUsdOf, type Quote } from "@/lib/launchpad/config";
 import { fdvForStartTick, fmtCompact, fmtUsd, initialBuyPreview, minOut, startTickForFdv, tickToTokensPerQuote, units } from "@/lib/launchpad/math";
 import { encodeV4ExactInSingle, type PoolKey } from "@/lib/launchpad/swap";
@@ -64,7 +64,8 @@ function parseBuyAmount(v: string, decimals: number): bigint | null | undefined 
 }
 
 /** Buy `amountIn` of the freshly launched token through the Universal Router — same path as the token page's trade panel. */
-async function firstBuy(ctx: FirstBuyCtx, tokenAddr: Address, launchHash: Hex, amountIn: bigint): Promise<{ hash: Hex; out: bigint }> {
+/** Resolves with what the wallet actually received (from the receipt's Transfer logs); `exact` is false only if no such log was found and the quote is returned instead. */
+async function firstBuy(ctx: FirstBuyCtx, tokenAddr: Address, launchHash: Hex, amountIn: bigint): Promise<{ hash: Hex; out: bigint; exact: boolean }> {
   const { pub, wallet, address, V4, quote, feePips, CHAIN, setPhase } = ctx;
   // the factory guarantees the token sorts above the quote, so the quote is always currency0
   const key: PoolKey = { currency0: quote.address, currency1: tokenAddr, fee: feePips, tickSpacing: TICK_SPACING, hooks: zeroAddress };
@@ -112,7 +113,11 @@ async function firstBuy(ctx: FirstBuyCtx, tokenAddr: Address, launchHash: Hex, a
   setPhase({ k: "buying", hash: launchHash, step: "sent" });
   const rc = await pub.waitForTransactionReceipt({ hash: h });
   if (rc.status !== "success") throw new Error("The buy reverted on-chain.");
-  return { hash: h, out };
+  // the executed amount can be below the quote (down to the slippage floor): read it off the receipt
+  const received = parseEventLogs({ abi: [ERC20_TRANSFER_EVENT], eventName: "Transfer", logs: rc.logs })
+    .filter((l) => l.address.toLowerCase() === tokenAddr.toLowerCase() && l.args.to.toLowerCase() === address.toLowerCase())
+    .reduce((sum, l) => sum + l.args.value, 0n);
+  return received > 0n ? { hash: h, out: received, exact: true } : { hash: h, out, exact: false };
 }
 
 export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: number | null; initialChain?: ChainKey }) {
@@ -287,14 +292,14 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
       // Optional first buy. The launch is already on-chain: whatever happens here must not read as a launch failure.
       let buyHash: Hex | null = null;
       let buyProblem: string | null = null;
-      let bought: bigint | null = null;
+      let bought: { out: bigint; exact: boolean } | null = null;
       if (initialBuyRaw && ev?.args.token) {
         try {
           const r = await firstBuy({ pub, wallet, address, V4: cfg.v4, quote, feePips, CHAIN, setPhase }, ev.args.token, hash, initialBuyRaw);
           buyHash = r.hash;
-          bought = r.out;
+          bought = { out: r.out, exact: r.exact };
         } catch (err) {
-          buyProblem = friendlyError(err);
+          buyProblem = friendlyError(err, { slippagePct: FIRST_BUY_SLIPPAGE_BPS / 100 });
         }
       }
 
@@ -303,7 +308,7 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
       if (buyHash) await fetch(`/api/launch/sync?chain=${chain}&tx=${buyHash}`, { method: "POST" }).catch(() => {});
       setPhase({ k: "done", hash, token });
       toast({ kind: "launch", title: `${name.trim()} is live on ${CHAIN_LABEL}`, sub: "Liquidity locked forever. Taking you to your token.", chain, token, symbol: symbolClean, celebrate: true });
-      if (bought !== null) toast({ kind: "buy", title: `You bought ${fmtCompact(Number(bought) / 1e18)} ${symbolClean}`, sub: "First holder. Confirmed on " + CHAIN_LABEL, chain, token, symbol: symbolClean });
+      if (bought !== null) toast({ kind: "buy", title: `You bought ${bought.exact ? "" : "about "}${fmtCompact(Number(bought.out) / 1e18)} ${symbolClean}`, sub: "First holder. Confirmed on " + CHAIN_LABEL, chain, token, symbol: symbolClean });
       if (buyProblem) toast({ kind: "info", title: "Launched, but the first buy did not go through", sub: `${buyProblem} You can buy on the token page.`, chain, token, symbol: symbolClean });
       startNav();
       router.push(`/t/${chain}/${token}`);
