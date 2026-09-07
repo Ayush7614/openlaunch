@@ -1,41 +1,42 @@
 "use client";
 
 import { useState } from "react";
+import { cn } from "@/lib/utils";
+import { tokenMark } from "@/lib/launchpad/token-mark";
+import styles from "./TokenAvatar.module.css";
 
-/** Deterministic hue from an address — same identity trick as the tape dots. */
-export function hueOf(addr: string): number {
-  let h = 0;
-  for (let i = 2; i < Math.min(addr.length, 18); i++) h = (h * 31 + addr.charCodeAt(i)) % 360;
-  return h;
-}
+/** Uploaded logos take priority; missing/broken images get a chain-scoped mint mark. */
+export default function TokenAvatar({ chain, token, symbol, image, size = 40, className = "" }: { chain: string; token: string; symbol: string; image?: string | null; size?: number; className?: string }) {
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const src = image?.trim() || null;
+  const dimensions = { width: size, height: size };
+  const radius = size < 40 ? "rounded-lg" : "rounded-xl";
 
-/** Token image with a graceful fallback: a soft gradient tile with the first letter of the symbol. */
-export default function TokenAvatar({ token, symbol, image, size = 40, className = "" }: { token: string; symbol: string; image?: string | null; size?: number; className?: string }) {
-  const [broken, setBroken] = useState(false);
-  const h = hueOf(token);
-  const style = { width: size, height: size, fontSize: Math.max(11, Math.round(size * 0.42)) };
-  if (image && !broken) {
+  if (src && src !== failedSrc) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={image}
-        alt=""
-        width={size}
-        height={size}
-        referrerPolicy="no-referrer"
-        onError={() => setBroken(true)}
-        className={`shrink-0 rounded-xl object-cover bg-paper border border-line ${className}`}
-        style={style}
-      />
+      <img key={src} src={src} alt="" width={size} height={size} referrerPolicy="no-referrer"
+        data-token-avatar="image"
+        ref={(img) => { if (img?.complete && img.naturalWidth === 0) setFailedSrc(src); }}
+        onError={() => setFailedSrc(src)}
+        className={cn("shrink-0 object-cover bg-paper border border-line", radius, className)}
+        style={dimensions} />
     );
   }
+
+  const mark = tokenMark(chain, token);
   return (
-    <div
-      aria-hidden
-      className={`shrink-0 rounded-xl grid place-items-center font-display font-bold text-white select-none ${className}`}
-      style={{ ...style, background: `linear-gradient(135deg, hsl(${h} 70% 55%), hsl(${(h + 40) % 360} 75% 45%))` }}
-    >
-      {symbol.slice(0, 1).toUpperCase()}
-    </div>
+    <span aria-hidden="true" data-token-avatar="generated" title={`${symbol || "Token"} · generated mark`}
+      className={cn("shrink-0", styles.mark, radius, className)} style={dimensions}>
+      <svg viewBox="0 0 48 48" className={styles.drawing} aria-hidden="true" focusable="false">
+        {size >= 36 && <path d="M5 11V5H11M37 43H43V37" className={styles.registration} />}
+        <g transform={`rotate(${mark.rotation} 24 24)`}>
+          {mark.parts.map((part, index) => <polygon key={index} points={part.points} className={styles[part.tone]} />)}
+        </g>
+        {size >= 36 && <g className={styles.ticks}>
+          {mark.ticks.map((height, index) => <path key={index} d={`M${5 + index * 2} 43v-${height}`} />)}
+        </g>}
+      </svg>
+    </span>
   );
 }

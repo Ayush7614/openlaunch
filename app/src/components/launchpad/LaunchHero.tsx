@@ -1,75 +1,62 @@
 import Link from "next/link";
-import { btn, pill } from "@/components/ui";
-import LiveTotals from "./LiveTotals";
-import { launchpad } from "@/lib/launchpad/config";
-import { explorerAddress } from "@/lib/chainPublic";
+import { ArrowRight } from "lucide-react";
+import { btn } from "@/components/ui";
+import LaunchMechanism from "./LaunchMechanism";
+import LaunchMachine from "./LaunchMachine";
 import { BRAND_GITHUB } from "@/lib/brand";
 
+/**
+ * First viewport of the home page. Left: the promise and the one filled CTA.
+ * Right: a code-native isometric launch mechanism. Live totals remain outside
+ * the illustrative scene, with source links and an accessible breakdown.
+ */
 export default function LaunchHero({ configured }: { ethUsd?: number | null; configured: boolean }) {
-  const b = launchpad("base");
-  const r = launchpad("robinhood");
   return (
-    <section className="relative pt-8 sm:pt-12 pb-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className={`${pill} text-up border-up/20 bg-up-soft`}>0% platform fee</span>
-        <a href={BRAND_GITHUB} target="_blank" rel="noreferrer" className={`${pill} hover:text-ink hover:border-line-strong`}>
-          open source · GitHub ↗
-        </a>
-        <a href="/rules#contracts" className={`${pill} hover:text-ink hover:border-line-strong`}>
-          verified contracts
-        </a>
-        <span className={pill}>Base + Robinhood Chain · Uniswap v4</span>
-        <span className={pill}>liquidity locked forever</span>
-        <span className={pill}>no owner, no admin</span>
-      </div>
-
-      <div className="mt-6 sm:mt-8 grid lg:grid-cols-[minmax(0,1fr)_24rem] gap-8 lg:gap-12 items-end">
-        <div className="min-w-0">
-          <h1 className="font-display font-bold leading-[0.98] tracking-[-0.03em] text-ink text-5xl sm:text-6xl lg:text-7xl break-words">
+    <section className="relative pt-10 sm:pt-14 pb-2">
+      <div className="grid lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] gap-x-8 gap-y-8 xl:gap-x-12 lg:gap-y-0 lg:grid-rows-[min-content_1fr]">
+        <div className="min-w-0 lg:col-start-1 lg:row-start-1">
+          <h1 className="font-display font-bold leading-[1.02] tracking-[-0.04em] text-ink text-[40px] min-[400px]:text-5xl sm:text-6xl lg:text-[48px] xl:text-[56px]">
             Launch a token.
             <br />
             <span className="text-brand">Free.</span> On Base or Robinhood.
           </h1>
-          <p className="mt-5 text-lg sm:text-xl text-body max-w-xl">
-            One transaction deploys your token, opens a Uniswap v4 pool and locks 100% of the supply as liquidity — forever. We take nothing. The only cost is gas.
+          <p className="mt-6 text-base sm:text-lg text-body max-w-[32rem] leading-relaxed text-pretty">
+            One transaction. Your token, a Uniswap v4 pool, and a liquidity position locked forever. 100% of the supply goes into the pool at launch. We take nothing. You only pay gas.
           </p>
-          <div className="mt-7 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5">
-            <Link href="/launch" className={`${btn.primary} w-full sm:w-auto min-h-12 px-7 text-[15px]`}>
+          <div className="mt-8 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5">
+            {/* the header watches this id: while it is on screen the header CTA stays quiet (one filled blue per screen) */}
+            <Link id="hero-cta" href="/launch" className={`${btn.primary} w-full sm:w-auto min-h-12 px-7 text-[15px]`}>
               Launch a token
-              <span aria-hidden className="ml-1">→</span>
+              <ArrowRight size={16} strokeWidth={2.4} aria-hidden className="ml-1" />
             </Link>
             <Link href="/rules#launchpad" className="text-sm font-medium text-brand hover:underline underline-offset-4 text-center sm:text-left">
               How it works
             </Link>
           </div>
+          {/* the proofs that used to be chips: quiet, linkable, one line */}
+          <p className="mt-6 font-mono text-xs tnum text-muted">
+            MIT
+            <span aria-hidden> · </span>
+            <a href={BRAND_GITHUB} target="_blank" rel="noreferrer" className="hover:text-ink underline underline-offset-2 decoration-line-strong">
+              source ↗
+            </a>
+            <span aria-hidden> · </span>
+            <Link href="/rules#contracts" className="hover:text-ink underline underline-offset-2 decoration-line-strong">
+              verified contracts
+            </Link>
+          </p>
           {!configured ? (
             <p className="mt-5 inline-block rounded-xl bg-warm-soft border border-warm/30 text-warm-ink text-sm px-3 py-2">
-              Launchpad contracts are not configured yet — read-only until NEXT_PUBLIC_LAUNCH_FACTORY / _LOCKER are set.
+              Launchpad contracts are not configured yet. Read-only until NEXT_PUBLIC_LAUNCH_FACTORY / _LOCKER are set.
             </p>
           ) : null}
         </div>
 
-        <div className="min-w-0">
-          <LiveTotals />
-          <p className="mt-3 text-xs text-muted leading-relaxed">
-            Liquidity lives in Uniswap&apos;s PoolManager; the position NFT in an ownerless locker on each chain (
-            {b.locker ? (
-              <a href={explorerAddress("base", b.locker)} target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-ink">
-                Base
-              </a>
-            ) : (
-              "Base"
-            )}
-            ,{" "}
-            {r.locker ? (
-              <a href={explorerAddress("robinhood", r.locker)} target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-ink">
-                Robinhood
-              </a>
-            ) : (
-              "Robinhood"
-            )}
-            ). Nobody can pull it — not the creator, not us.
-          </p>
+        <div className="min-w-0 lg:col-start-2 lg:row-start-1 lg:row-span-2 self-center">
+          <LaunchMachine />
+        </div>
+        <div className="min-w-0 lg:col-start-1 lg:row-start-2 lg:mt-9">
+          <LaunchMechanism />
         </div>
       </div>
     </section>

@@ -7,21 +7,18 @@ import test from "node:test";
  * palette is internally consistent — it cannot prove a component uses the right
  * token. A pass means "the ramp is sane", not "the UI is fine".
  *
- * Structure: the unclassed base (@theme) is LIGHT — the shipped "Clear Sky"
- * palette, which is also the default — and `.dark` overrides it behind the
- * header toggle. The toggler flips themes with a bare `classList.toggle("dark")`,
- * so "no class" must mean light.
+ * Structure: the unclassed base (@theme) is LIGHT and `.dark` overrides it,
+ * even though dark is what everyone sees by default. The animated toggler flips
+ * themes with a bare `classList.toggle("dark")`, so "no class" must mean light.
  */
 const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
-const themeBlock = css.match(/@theme\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
+const themeBlock = css.match(/@theme(?:\s+static)?\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
 const darkBlock = css.match(/\n\.dark\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
 const printBlock = css.match(/@media print\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
 const colors = (source: string) => Object.fromEntries(Array.from(source.matchAll(/--color-([\w-]+):\s*(#[\da-f]{3,8});/gi), ([, name, hex]) => [name, hex]));
 
 const light = colors(themeBlock);
 const dark = { ...light, ...colors(darkBlock) };
-/** Light pairs are the pre-existing design: guard against regressions below their current worst case, never re-tune them here. */
-const LIGHT_FLOOR = 3.0;
 const THEMES: [string, Record<string, string>][] = [
   ["light", light],
   ["dark", dark],
@@ -40,26 +37,23 @@ const ratio = (fg: string, bg: string) => {
   return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
 };
 
-test("dark: black ground, white ink", () => {
+test("dark carries the gitlawb palette: black ground, white ink", () => {
   assert.equal(dark.paper, "#000000");
   assert.equal(dark.ink, "#ffffff");
   assert.equal(dark.inverse, "#000000");
 });
 
-test("light is the original Clear Sky palette, unchanged, and the unclassed base", () => {
-  // The shipped design. Adding dark mode must not move a single light value.
-  assert.deepEqual(
-    { paper: light.paper, card: light.card, line: light.line, "line-strong": light["line-strong"], ink: light.ink, body: light.body, muted: light.muted, faint: light.faint, brand: light.brand, "brand-strong": light["brand-strong"], "brand-soft": light["brand-soft"], up: light.up, "up-soft": light["up-soft"], down: light.down, "down-ink": light["down-ink"], "down-soft": light["down-soft"], warm: light.warm, "warm-ink": light["warm-ink"], "warm-soft": light["warm-soft"] },
-    { paper: "#fafaf8", card: "#ffffff", line: "#e7e5e4", "line-strong": "#d6d3d1", ink: "#0f172a", body: "#475569", muted: "#64748b", faint: "#94a3b8", brand: "#0052ff", "brand-strong": "#0041cc", "brand-soft": "#eaf0ff", up: "#15803d", "up-soft": "#ecfdf3", down: "#dc2626", "down-ink": "#b91c1c", "down-soft": "#fef2f2", warm: "#d97706", "warm-ink": "#b45309", "warm-soft": "#fffbeb" },
-  );
+test("light is the unclassed base, so `no class` means light", () => {
   // The animated toggler does classList.toggle("dark") and never writes a
   // `light` class — if light lived in its own class this would break.
+  assert.equal(light.paper, "#ffffff");
+  assert.equal(light.ink, "#000000");
   assert.equal(css.includes("\n.light {"), false, "light must not live in a class");
   assert.match(css, /:root\s*\{[^}]*color-scheme:\s*light/);
   assert.match(darkBlock, /color-scheme:\s*dark/);
 });
 
-test("typography is unchanged", () => {
+test("typography is unchanged — only the palette came from gitlawb", () => {
   assert.match(themeBlock, /--font-sans:\s*var\(--font-inter\)/);
   assert.match(themeBlock, /--font-mono:\s*var\(--font-space-mono\)/);
   assert.match(themeBlock, /--font-display:\s*var\(--font-unbounded\)/);
@@ -70,8 +64,8 @@ test("the dark: variant resolves against a class, not a media query", () => {
   assert.doesNotMatch(css, /@media \(prefers-color-scheme/, "theming is by explicit choice, never by OS preference");
 });
 
-test("dark greys are near-achromatic", () => {
-  for (const [name, palette] of THEMES.filter(([n]) => n === "dark")) {
+test("greys are near-achromatic in both themes, like gitlawb.com", () => {
+  for (const [name, palette] of THEMES) {
     for (const token of ["paper", "card", "line", "line-strong", "ink", "body", "muted", "faint"]) {
       const hex = palette[token];
       const [r, g, b] = [1, 3, 5].map((o) => parseInt(hex.slice(o, o + 2), 16));
@@ -81,8 +75,8 @@ test("dark greys are near-achromatic", () => {
   }
 });
 
-test("the dark surface ramp steps away from the ground monotonically (light: white cards on off-white paper, by design)", () => {
-  for (const [name, palette] of THEMES.filter(([n]) => n === "dark")) {
+test("the surface ramp steps away from the ground monotonically", () => {
+  for (const [name, palette] of THEMES) {
     const steps = ["paper", "card", "line", "line-strong"].map((n) => luminance(palette[n]));
     const rising = steps[1] > steps[0];
     for (let i = 1; i < steps.length; i++) {
@@ -91,7 +85,7 @@ test("the dark surface ramp steps away from the ground monotonically (light: whi
   }
 });
 
-test("dark text, semantic labels, and filled controls meet AA contrast (light is the shipped palette; it is checked for regressions, not re-tuned)", () => {
+test("text, semantic labels, and filled controls maintain AA contrast in both themes", () => {
   const pairs = [
     ...["paper", "card"].flatMap((surface) => ["ink", "body", "muted", "brand", "up", "down-ink", "warm-ink"].map((text) => [text, surface])),
     ...["ink", "brand", "brand-strong", "up", "down", "warm-ink"].map((fill) => ["inverse", fill]),
@@ -100,16 +94,41 @@ test("dark text, semantic labels, and filled controls meet AA contrast (light is
   for (const [name, palette] of THEMES) {
     for (const [foreground, background] of pairs) {
       const r = ratio(palette[foreground], palette[background]);
-      const floor = name === "dark" ? 4.5 : LIGHT_FLOOR;
-      assert.ok(r >= floor, `${name}: ${foreground} on ${background} is ${r.toFixed(2)}:1`);
+      assert.ok(r >= 4.5, `${name}: ${foreground} on ${background} is ${r.toFixed(2)}:1`);
     }
   }
+});
+
+test("runtime chart tokens survive Tailwind tree-shaking", () => {
+  assert.match(css, /@theme static\s*\{/);
+  assert.equal(light["chart-grid"], "#f1f0ee");
+  assert.equal(dark["chart-grid"], "#1a1a1a");
 });
 
 test("every base token has a dark counterpart", () => {
   const darkOnly = colors(darkBlock);
   const missing = Object.keys(light).filter((name) => !(name in darkOnly));
   assert.deepEqual(missing, [], `tokens with no dark value: ${missing.join(", ")}`);
+});
+
+test("the surface system is flat: hairlines, never drop shadows", () => {
+  const shadows = Array.from(css.matchAll(/--shadow-([\w-]+):\s*([^;]+);/g));
+  assert.ok(shadows.length >= 4, "the shadow tokens must stay declared so the utilities remain valid");
+  for (const [, name, value] of shadows) assert.equal(value.trim(), "none", `--shadow-${name} should be flat`);
+  assert.doesNotMatch(css, /--tint-/, "tint vars are unused once shadows are flat");
+});
+
+test("no decorative colour wash behind the hero", () => {
+  assert.doesNotMatch(css, /\.bb-sky/, "the hero wash is gone");
+});
+
+test("market highlights are token-based, finite and flat", () => {
+  assert.doesNotMatch(css, /\.bb-hot|@keyframes bb-hot/, "trending has no looping glow");
+  const freshRow = css.match(/@keyframes bb-row-new\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
+  assert.match(freshRow, /var\(--color-brand-soft\)/);
+  assert.doesNotMatch(freshRow, /box-shadow|rgba\(/);
+  assert.match(css, /\.bb-tape-enter \{ animation: bb-tape-enter 240ms ease-out both; \}/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{ \.bb-tape-enter \{ animation: none; \} \}/);
 });
 
 test("the modal scrim darkens in both themes rather than inverting", () => {
@@ -126,16 +145,19 @@ test("the view-transition wipe is disabled under reduced motion", () => {
   assert.match(reduced, /view-transition/, "reduced motion must also stop the theme wipe");
 });
 
+test("theme persistence and browser chrome follow the current explicit palette", () => {
+  const provider = readFileSync(new URL("./ThemeProvider.tsx", import.meta.url), "utf8");
+  assert.match(provider, /defaultTheme="dark" enableSystem=\{false\}/);
+  assert.match(provider, /<ThemeColorSync \/>/);
+  assert.match(provider, /light: "#ffffff", dark: "#000000"/);
+  assert.match(provider, /resolvedTheme === "dark" \? THEME_COLOR\.dark : THEME_COLOR\.light/);
+  assert.match(provider, /meta\.content !== color/);
+  assert.match(provider, /observer\.observe\(document\.head/);
+  assert.match(provider, /observer\.disconnect\(\)/);
+});
+
 test("print falls back to ink on white", () => {
   const print = colors(printBlock);
   assert.equal(print.paper, "#ffffff", "black paper does not print");
-  assert.equal(print.ink, light.ink);
-});
-
-test("chart tokens are plain CSS in :root and overridden in .dark (Tailwind would drop unreferenced @theme vars)", () => {
-  const root = css.match(/:root\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
-  for (const t of ["chart-grid", "chart-vol"]) {
-    assert.match(root, new RegExp(`--color-${t}:\\s*#[\\da-f]{6}`), `--color-${t} must be set in :root`);
-    assert.ok(t in colors(darkBlock), `--color-${t} must be set in .dark`);
-  }
+  assert.equal(print.ink, "#000000");
 });

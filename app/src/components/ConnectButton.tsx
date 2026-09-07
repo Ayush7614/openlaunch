@@ -2,17 +2,18 @@
 
 import { useSyncExternalStore } from "react";
 import { useAccount, useConnect, useDisconnect, useSwitchChain } from "wagmi";
-import { CHAINS, CHAIN_SHORT, chainKeyOf, shortAddr } from "@/lib/chainPublic";
+import { CHAINS } from "@/lib/chainPublic";
+import WalletMenu from "./WalletMenu";
 
 /**
  * Wallet chip. `block` renders a full-width row for the mobile menu sheet;
  * default is the compact inline chip for the desktop header.
  */
-export default function ConnectButton({ block = false }: { block?: boolean }) {
-  const { address, isConnected, chainId } = useAccount();
+export default function ConnectButton({ block = false, onNavigate }: { block?: boolean; onNavigate?: () => void }) {
+  const { address, isConnected, chainId, connector: activeConnector } = useAccount();
   const { connect, connectors, isPending } = useConnect();
-  const { disconnect } = useDisconnect();
-  const { switchChain, isPending: switching } = useSwitchChain();
+  const { disconnectAsync, isPending: disconnecting } = useDisconnect();
+  const { switchChainAsync, isPending: switching } = useSwitchChain();
   // Wallet state only exists on the client; render a neutral pill during SSR/hydration.
   const mounted = useSyncExternalStore(
     () => () => {},
@@ -20,40 +21,28 @@ export default function ConnectButton({ block = false }: { block?: boolean }) {
     () => false,
   );
 
-  const base = `${block ? "w-full min-h-12 px-4 text-sm" : "h-9 px-3.5 text-[13px]"} inline-flex items-center justify-center gap-2 rounded-xl font-medium transition-colors disabled:opacity-50 whitespace-nowrap`;
+  // pill in the header strip, rounded-xl as a row in the mobile menu list
+  const base = `${block ? "w-full min-h-12 px-4 text-sm rounded-xl" : "h-9 px-3.5 text-[13px] rounded-full"} inline-flex items-center justify-center gap-2 font-medium transition-colors disabled:opacity-50 whitespace-nowrap`;
 
   if (!mounted) return <div className={`${base} border border-line text-faint`}>Wallet</div>;
 
-  if (!isConnected) {
+  if (!isConnected || !address) {
     const connector = connectors.find((c) => c.id === "coinbaseWallet") ?? connectors[0];
     return (
       <button
         onClick={() => connector && connect({ connector })}
         disabled={isPending || !connector}
-        className={`${base} border border-line-strong text-ink hover:border-ink/40 hover:bg-paper`}
+        // a quiet hairline utility (the ThemeToggle recipe): only the launch CTA is loud
+        className={`${base} border border-line text-body hover:text-ink hover:border-line-strong`}
       >
         {isPending ? "Connecting…" : "Connect wallet"}
       </button>
     );
   }
-  const key = chainKeyOf(chainId);
-  if (!key) {
-    return (
-      <button
-        onClick={() => switchChain({ chainId: CHAINS.base.id })}
-        disabled={switching}
-        className={`${base} bg-warm-soft border border-warm/40 text-warm-ink hover:border-warm`}
-      >
-        {switching ? "Switching…" : "Switch to Base"}
-      </button>
-    );
-  }
   return (
-    <button onClick={() => disconnect()} title={`Disconnect (on ${CHAIN_SHORT[key]})`} className={`${base} bg-brand-soft text-brand hover:bg-brand hover:text-inverse font-mono tnum`}>
-      <span className="inline-block h-2 w-2 rounded-full bg-up" aria-hidden />
-      {shortAddr(address)}
-      <span className="font-sans text-[10px] font-semibold uppercase tracking-wide opacity-70">{CHAIN_SHORT[key]}</span>
-      {block ? <span className="ml-auto text-xs font-sans font-normal opacity-70">Disconnect</span> : null}
-    </button>
+    <WalletMenu address={address} chainId={chainId} connectorName={activeConnector?.name}
+      block={block} switching={switching} disconnecting={disconnecting} onNavigate={onNavigate}
+      onSwitchChain={(chain) => switchChainAsync({ chainId: CHAINS[chain].id })}
+      onDisconnect={() => disconnectAsync()} />
   );
 }

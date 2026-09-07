@@ -40,7 +40,7 @@ type Phase =
 
 type Beneficiary = "burn" | "me" | "custom";
 
-const FIRST_BUY_SLIPPAGE_BPS = 300; // nobody has traded yet, but a same-block sniper can move the price a little
+const FIRST_BUY_SLIPPAGE_BPS = 300; // Other buyers can trade between the launch and this separate buy.
 const PERMIT_EXPIRY_S = 30 * 24 * 3600;
 const GAS_RESERVE_WEI = 500_000_000_000_000n; // 0.0005 ETH kept back so the buy itself can pay for gas
 const BUY_PRESETS: Record<Quote["key"], string[]> = { eth: ["0.01", "0.05", "0.1", "0.25"], usdg: ["25", "100", "250"], stock: [] };
@@ -312,7 +312,7 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
       if (buyHash) await fetch(`/api/launch/sync?chain=${chain}&tx=${buyHash}`, { method: "POST" }).catch(() => {});
       setPhase({ k: "done", hash, token });
       toast({ kind: "launch", title: `${name.trim()} is live on ${CHAIN_LABEL}`, sub: "Liquidity locked forever. Taking you to your token.", chain, token, symbol: symbolClean, celebrate: true });
-      if (bought !== null) toast({ kind: "buy", title: `You bought ${bought.exact ? "" : "about "}${fmtCompact(Number(bought.out) / 1e18)} ${symbolClean}`, sub: "First holder. Confirmed on " + CHAIN_LABEL, chain, token, symbol: symbolClean });
+      if (bought !== null) toast({ kind: "buy", title: `You bought ${bought.exact ? "" : "about "}${fmtCompact(Number(bought.out) / 1e18)} ${symbolClean}`, sub: "Buy confirmed on " + CHAIN_LABEL, chain, token, symbol: symbolClean });
       if (buyProblem) toast({ kind: "info", title: "Launched, but the first buy did not go through", sub: `${buyProblem} You can buy on the token page.`, chain, token, symbol: symbolClean });
       startNav();
       router.push(`/t/${chain}/${token}`);
@@ -436,8 +436,8 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
               ) : null}
               <p className={helper}>
                 {chain === "base"
-                  ? "Coinbase tokenized stocks are securities issued by Coinbase under Regulation S and are not offered to persons in the US, UK, Canada, Australia, Singapore or Switzerland — that is Coinbase's rule for the stock token, not ours. The pool itself is ordinary Uniswap v4."
-                  : "Robinhood Stock Tokens are tokenised securities issued by Robinhood and are not offered to US persons — that is Robinhood's rule for the stock token, not ours. The pool itself is ordinary Uniswap v4."}
+                  ? "Coinbase tokenized stocks are securities issued by Coinbase under Regulation S and are not offered to persons in the US, UK, Canada, Australia, Singapore or Switzerland. That is Coinbase's rule for the stock token, not ours. The pool itself is ordinary Uniswap v4."
+                  : "Robinhood Stock Tokens are tokenised securities issued by Robinhood and are not offered to US persons. That is Robinhood's rule for the stock token, not ours. The pool itself is ordinary Uniswap v4."}
               </p>
             </div>
           ) : null}
@@ -589,7 +589,7 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
               {beneficiary === "custom" ? (
                 <input className={`${input} font-mono`} value={customAddr} onChange={(e) => setCustomAddr(e.target.value.trim())} placeholder="0x…" aria-label="beneficiary address" />
               ) : null}
-              <p className={helper}>Fixed forever at launch. Not even you can change it later — that&apos;s the point.</p>
+              <p className={helper}>Fixed forever at launch. Not even you can change it later. That&apos;s the point.</p>
             </div>
           ) : (
             <p className={helper}>A 0% pool: trades cost only Uniswap gas. Nobody, including you, earns from volume.</p>
@@ -635,13 +635,14 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
           </div>
           {buyPreview ? (
             <p className="text-sm text-body">
-              You become the first holder with about <span className="font-mono font-bold text-ink tnum">{fmtCompact(buyPreview.tokensOut, 0)}</span> {symbolClean || "tokens"}{" "}
-              <span className="font-mono text-muted tnum">({fmtPct(buyPreview.pctOfSupply)} of supply{buyUsd ? ` · ≈ ${fmtUsd(buyUsd)}` : ""})</span>. Market cap after your buy:{" "}
+              Estimated buy: about <span className="font-mono font-bold text-ink tnum">{fmtCompact(buyPreview.tokensOut, 0)}</span> {symbolClean || "tokens"}{" "}
+              <span className="font-mono text-muted tnum">({fmtPct(buyPreview.pctOfSupply)} of supply{buyUsd ? ` · ≈ ${fmtUsd(buyUsd)}` : ""})</span>. Estimated market cap after your buy:{" "}
               <span className="font-mono font-bold text-ink tnum">{fmtMcap(buyPreview.fdvAfter)}</span>. Includes price impact and the pool fee; the exact amount is quoted on-chain right before the buy.
             </p>
           ) : (
-            <p className={helper}>Seed yourself as the first holder so the chart does not open empty. Skip it and the pool opens untouched.</p>
+            <p className={helper}>Buy tokens after the launch confirms, or leave this empty to launch without a buy.</p>
           )}
+          <p className={helper}>Other traders can buy before you. First-buy slippage tolerance: {FIRST_BUY_SLIPPAGE_BPS / 100}%. Network gas and pool fees apply.</p>
         </section>
 
         <section className={`${card} p-5 space-y-3`}>
@@ -665,7 +666,7 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
               if (c) connect({ connector: c });
             }}
             onSwitch={() => void switchChainAsync({ chainId: CHAIN.id })}
-            label={initialBuyRaw ? "Launch + first buy — free, gas only" : "Launch — free, gas only"}
+            label={initialBuyRaw ? "Launch + optional buy" : "Launch for free, gas only"}
           />
           <PhaseNote phase={phase} chain={chain} />
           <p className="text-xs text-muted leading-relaxed">
@@ -681,7 +682,7 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
         <div className={`${card} p-4`}>
           <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">Preview</p>
           <div className="mt-3 flex items-center gap-3">
-            <TokenAvatar token={`0x${symbolClean || "token"}`} symbol={symbolClean || "?"} image={/^https:\/\//.test(image.trim()) ? image.trim() : null} size={48} />
+            <TokenAvatar chain={chain} token={`0x${symbolClean || "token"}`} symbol={symbolClean || "?"} image={/^https:\/\//.test(image.trim()) ? image.trim() : null} size={48} />
             <div className="min-w-0">
               <div className="font-semibold text-ink truncate">{name.trim() || "Your token"}</div>
               <div className="font-mono text-xs text-muted">{symbolClean || "TICKER"}</div>
@@ -690,9 +691,9 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
           </div>
           {description.trim() ? <p className="mt-3 text-sm text-body line-clamp-3">{description.trim()}</p> : null}
           <dl className="mt-4 grid grid-cols-2 gap-2">
-            <Mini k="Opens at" v={fdvPreview !== null ? fmtMcap(fdvPreview) : "—"} sub={quote.key !== "usdg" ? previewMcapUsd : CHAIN_LABELS[chain]} />
+            <Mini k="Opens at" v={fdvPreview !== null ? fmtMcap(fdvPreview) : "N/A"} sub={quote.key !== "usdg" ? previewMcapUsd : CHAIN_LABELS[chain]} />
             <Mini k="First buy" v={initialBuyRaw ? `${initialBuy.trim()} ${quote.symbol}` : "none"} sub={buyPreview ? `~${fmtPct(buyPreview.pctOfSupply)} of supply` : "pool opens untouched"} />
-            <Mini k="Trading fee" v={FEE_PRESETS.find((f) => f.pips === feePips)?.label ?? "—"} sub={feePips === 0 ? "free pool" : beneficiary === "burn" ? "burned" : "to beneficiary"} />
+            <Mini k="Trading fee" v={FEE_PRESETS.find((f) => f.pips === feePips)?.label ?? "N/A"} sub={feePips === 0 ? "free pool" : beneficiary === "burn" ? "burned" : "to beneficiary"} />
             <Mini k="Platform fee" v="0" sub="always" accent />
           </dl>
         </div>
@@ -702,12 +703,12 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
             ["Opens a Uniswap v4 pool", `${quote.symbol} / your token on ${CHAIN_LABELS[chain]}, no hook`],
             ["Locks 100% of supply as liquidity", "the position NFT lives in an ownerless locker, forever"],
             ["Routes trading fees", feePips === 0 ? "nothing to route at 0%" : beneficiary === "burn" ? "burned at collect time" : "100% to the beneficiary, claimable any time"],
-            ...(initialBuyRaw ? [["Buys your first tokens", `${initialBuy.trim()} ${quote.symbol} right after the launch confirms — a second wallet prompt`]] : []),
+            ...(initialBuyRaw ? [["Buys your first tokens", `${initialBuy.trim()} ${quote.symbol} right after the launch confirms, with a second wallet prompt`]] : []),
           ].map(([t, d]) => (
             <li key={t} className="flex gap-2.5">
               <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-brand shrink-0" aria-hidden />
               <span>
-                <span className="font-medium text-ink">{t}</span> <span className="text-muted">— {d}</span>
+                <span className="font-medium text-ink">{t}</span> <span className="text-muted">{d}</span>
               </span>
             </li>
           ))}

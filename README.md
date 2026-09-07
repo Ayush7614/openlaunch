@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://openlaunch.lol"><img src="brand/readme-banner.png" alt="OPENLAUNCH.LOL — Launch a token. Free. Open source. Liquidity locked forever." width="100%"></a>
+  <a href="https://openlaunch.lol"><img src="brand/readme-banner-detailed.png" alt="OPENLAUNCH.LOL: Launch a token. Free. Open source. Liquidity locked forever. 0% platform fee · Base · Robinhood Chain · Uniswap v4" width="100%"></a>
 </p>
 
 <p align="center"><b>Launch a token. Free. Open source. On Base or Robinhood Chain.</b></p>
@@ -22,7 +22,7 @@
 ---
 
 **One transaction** deploys a fixed-supply ERC-20, opens a Uniswap v4 pool at the market cap you pick and
-locks **100% of the supply** as liquidity in an ownerless locker — forever. Nobody can pull it: not the
+locks **100% of the supply** as liquidity in an ownerless locker forever. Nobody can pull it: not the
 creator, not us. There is **no platform fee**: the factory and the locker have no fee address at all.
 Creators choose a 0 / 1 / 3 % trading fee that is pushed **in full** to beneficiaries they name, or burned.
 
@@ -51,7 +51,7 @@ Creators choose a 0 / 1 / 3 % trading fee that is pushed **in full** to benefici
 | Robinhood Chain (4663) | [`0x8155…de72`](https://robinhoodchain.blockscout.com/address/0x815542E8b392389A1389E22E588E4B62A67Ade72) | [`0xcd16…842a`](https://robinhoodchain.blockscout.com/address/0xcd1680D26922fcd9CabFbb8a56bA40C333fD842a) |
 
 Full addresses: factory `0x815542E8b392389A1389E22E588E4B62A67Ade72`, locker `0xcd1680D26922fcd9CabFbb8a56bA40C333fD842a`
-— identical on both chains (same deployer, first transaction each). Source verified on Basescan, Blockscout (Base and
+are identical on both chains (same deployer, first transaction each). Source verified on Basescan, Blockscout (Base and
 Robinhood Chain) and Sourcify (exact match). Every launched token is verified too. No owner, no admin, no upgrade path.
 
 ## How it works
@@ -101,13 +101,13 @@ with the four `NEXT_PUBLIC_LAUNCH_*` build args (see the top of `app/fly.toml`).
 
 ## Contributing and security
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md). Security issues: [`SECURITY.md`](SECURITY.md) — please report privately.
+See [`CONTRIBUTING.md`](CONTRIBUTING.md). Security issues: [`SECURITY.md`](SECURITY.md). Please report privately.
 CI runs lint, typecheck, unit tests and a production build for the app, and build + unit tests for the contracts,
 on every pull request.
 
 ## Security
 
-- No platform fee, no owner, no admin keys, no upgradeability — verified in the source and in the deployed bytecode.
+- No platform fee, no owner, no admin keys, no upgradeability, verified in the source and in the deployed bytecode.
 - Liquidity cannot be withdrawn by anyone; see `contracts/test/LaunchLocker.rug.fork.t.sol` for what was tried.
 - Wallet-signed, single-use-nonce authorization for every off-chain write (posts, edits); images are re-encoded
   server-side; the share-card renderer never fetches user-supplied URLs.
@@ -118,4 +118,4 @@ Found something? Open an issue or reach out on X: [@openlaunch_lol](https://x.co
 
 ## License
 
-MIT — see [`LICENSE`](LICENSE).
+MIT. See [`LICENSE`](LICENSE).

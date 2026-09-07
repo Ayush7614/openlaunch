@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fdvForStartTick, fmtEth, initialBuyPreview, minOut, poolIdOf, quoteUsdOf, startTickForFdv, sqrtPriceToTokensPerQuote, tickToTokensPerQuote } from "./math.ts";
+import { fdvForStartTick, fmtCompact, fmtEth, fmtPrice, fmtUsd, initialBuyPreview, minOut, poolIdOf, quoteUsdOf, startTickForFdv, sqrtPriceToTokensPerQuote, tickToTokensPerQuote } from "./math.ts";
 import { encodeV4ExactInSingle } from "./swap.ts";
 
 test("startTickForFdv: 10 ETH FDV on 1B supply ≈ tick 184200 (1 ETH = 100M tokens)", () => {
@@ -48,6 +48,15 @@ test("poolIdOf matches keccak(abi.encode(PoolKey)) for a known vector", () => {
 test("minOut applies bps slippage", () => {
   assert.equal(minOut(10_000n, 100), 9_900n);
   assert.equal(minOut(0n, 500), 0n);
+});
+
+test("unavailable figures use N/A without turning them into zero", () => {
+  for (const value of [NaN, Infinity, -Infinity]) {
+    for (const format of [fmtCompact, fmtEth, fmtPrice, fmtUsd]) assert.equal(format(value), "N/A");
+  }
+  assert.equal(fmtCompact(0), "0.00");
+  assert.equal(fmtEth(0), "0");
+  assert.equal(fmtUsd(0), "$0");
 });
 
 test("fmtEth trims noise", () => {

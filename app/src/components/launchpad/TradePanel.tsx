@@ -5,13 +5,16 @@ import { useRouter } from "next/navigation";
 import { useAccount, useBalance, useConfig, useConnect, useReadContract, useSwitchChain } from "wagmi";
 import { getPublicClient, getWalletClient } from "wagmi/actions";
 import { formatEther, formatUnits, maxUint160, maxUint256, parseEther, parseUnits, type Address, type Hex } from "viem";
-import { btn, input } from "@/components/ui";
+import { ArrowDown, ArrowRight, Wallet } from "lucide-react";
+import { ToggleGroup, ToggleGroupItem } from "@/components/vendor/toggle-group";
+import { btn } from "@/components/ui";
 import { toast } from "./TxToasts";
 import { ERC20_MIN_ABI, PERMIT2_ABI, UNIVERSAL_ROUTER_ABI, V4_QUOTER_ABI } from "@/lib/launchpad/abi";
 import { BUY_PRESETS, launchpad, quoteUsdOf, type Quote } from "@/lib/launchpad/config";
-import { fmtCompact, fmtUsd, minOut, units } from "@/lib/launchpad/math";
+import { fmtCompact, fmtUsd, minOut, units, pipsToPct } from "@/lib/launchpad/math";
 import { encodeV4ExactInSingle, type PoolKey } from "@/lib/launchpad/swap";
 import { CHAINS, CHAIN_LABELS, BUILDER_DATA_SUFFIX, explorerTx, type ChainKey } from "@/lib/chainPublic";
+import { tradeQuoteKey } from "@/lib/launchpad/token-market";
 import { friendlyError } from "@/lib/errors";
 import { Spinner } from "@/components/Skeleton";
 
@@ -25,6 +28,7 @@ import { Spinner } from "@/components/Skeleton";
 type Side = "buy" | "sell";
 type Phase =
   | { k: "idle" }
+  | { k: "preparing" }
   | { k: "approving"; step: "erc20" | "permit2" }
   | { k: "signing" }
   | { k: "sent"; hash: Hex }
@@ -48,7 +52,7 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
   const configured = launchpad(chain).configured;
   const isNative = quote.key === "eth";
   const quoteUsd = quoteUsdOf(quote, ethUsd);
-  const fmtQ = (raw: bigint) => `${quote.decimals <= 6 ? units(raw, quote.decimals).toFixed(2).replace(/\.00$/, "") : fmtEthLocal(units(raw, 18))} ${quote.symbol}`;
+  const fmtQ = (raw: bigint) => `${quote.decimals <= 6 ? units(raw, quote.decimals).toFixed(2).replace(/\.00$/, "") : fmtEthLocal(units(raw, quote.decimals))} ${quote.symbol}`;
   const router = useRouter();
   const config = useConfig();
   const { address, isConnected, chainId } = useAccount();
@@ -56,10 +60,11 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
   const { switchChainAsync, isPending: switching } = useSwitchChain();
   const [side, setSide] = useState<Side>("buy");
   const [amount, setAmount] = useState("");
-  const [quote_, setQuote] = useState<{ out: bigint; forAmount: string } | null>(null);
+  const [quote_, setQuote] = useState<{ out: bigint; forKey: string } | null>(null);
   const [quoting, setQuoting] = useState(false);
   const [phase, setPhase] = useState<Phase>({ k: "idle" });
   const seq = useRef(0);
+  const transactionLock = useRef(false);
 
   const eth = useBalance({ address, chainId: CHAIN.id, query: { enabled: Boolean(address) && isNative, refetchInterval: 15_000 } });
   const qbal = useReadContract({ address: quote.address, abi: ERC20_MIN_ABI, functionName: "balanceOf", args: address ? [address] : undefined, chainId: CHAIN.id, query: { enabled: Boolean(address) && !isNative, refetchInterval: 15_000 } });
@@ -75,14 +80,15 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
   }, [amount, side, quote.decimals]);
 
   const onChain = chainId === CHAIN.id;
-  const busy = phase.k === "approving" || phase.k === "signing" || phase.k === "sent";
+  const busy = phase.k === "preparing" || phase.k === "approving" || phase.k === "signing" || phase.k === "sent";
   const balance = side === "buy" ? (isNative ? eth.data?.value : (qbal.data as bigint | undefined)) : (tok.data as bigint | undefined);
   const insufficient = amountIn !== null && balance !== undefined && amountIn > balance;
 
-  // quote
+  const quoteKey = tradeQuoteKey(chain, token, side, amount);
+  // A response can only be used for the exact chain/token/side/amount requested.
   useEffect(() => {
-    if (amountIn === null) return; // a stale quote is ignored by the `forAmount === amount` checks below
     const my = ++seq.current;
+    if (amountIn === null) return;
     const quoter = V4.quoter;
     const t = setTimeout(async () => {
       setQuoting(true);
@@ -94,18 +100,21 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
           functionName: "quoteExactInputSingle",
           args: [{ poolKey, zeroForOne: side === "buy", exactAmount: amountIn, hookData: "0x" }],
         });
-        if (my === seq.current) setQuote({ out: result[0], forAmount: amount });
+        if (my === seq.current) setQuote({ out: result[0], forKey: quoteKey });
       } catch {
         if (my === seq.current) setQuote(null);
       } finally {
         if (my === seq.current) setQuoting(false);
       }
     }, 400);
-    return () => clearTimeout(t);
-  }, [amountIn, side, poolKey, config, amount, V4.quoter, CHAIN.id]);
+    return () => { clearTimeout(t); seq.current = my + 1; };
+  }, [amountIn, side, poolKey, config, amount, V4.quoter, CHAIN.id, quoteKey]);
 
   async function trade() {
-    if (!address || amountIn === null || !quote_) return;
+    if (!address || amountIn === null || !quote_ || quote_.forKey !== quoteKey || busy || insufficient || transactionLock.current) return;
+    // Lock before the first await, including wallet lookup and RPC preflight.
+    transactionLock.current = true;
+    setPhase({ k: "preparing" });
     try {
       if (!onChain) await switchChainAsync({ chainId: CHAIN.id });
       const pub = getPublicClient(config, { chainId: CHAIN.id })!;
@@ -164,96 +173,52 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
       router.refresh();
     } catch (err) {
       setPhase({ k: "error", message: friendlyError(err) });
+    } finally {
+      transactionLock.current = false;
     }
   }
 
-  const outLabel = quote_ && quote_.forAmount === amount ? (side === "buy" ? `${fmtCompact(Number(quote_.out) / 1e18)} ${symbol}` : fmtQ(quote_.out)) : null;
-  const outUsd = quote_ && side === "sell" && quoteUsd ? fmtUsd(units(quote_.out, quote.decimals) * quoteUsd) : null;
+  const outLabel = quote_ && quote_.forKey === quoteKey ? (side === "buy" ? `${fmtCompact(Number(quote_.out) / 1e18)} ${symbol}` : fmtQ(quote_.out)) : null;
+  const outUsd = quote_ && quote_.forKey === quoteKey && side === "sell" && quoteUsd ? fmtUsd(units(quote_.out, quote.decimals) * quoteUsd) : null;
   const inUsd = amountIn !== null && side === "buy" && quoteUsd ? fmtUsd(units(amountIn, quote.decimals) * quoteUsd) : null;
 
   return (
-    <section className="rounded-2xl bg-card border border-line shadow-card p-4 space-y-4 scroll-mt-20" id="trade">
-      <div className="grid grid-cols-2 gap-1 rounded-xl bg-paper p-1 border border-line">
-        {(["buy", "sell"] as Side[]).map((s) => (
-          <button
-            key={s}
-            type="button"
-            onClick={() => {
-              setSide(s);
-              setAmount("");
-              setQuote(null);
-              setPhase({ k: "idle" });
-            }}
-            className={`h-10 rounded-lg text-sm font-semibold capitalize transition-colors ${side === s ? (s === "buy" ? "bg-up text-inverse" : "bg-down text-inverse") : "text-body hover:text-ink"}`}
-            aria-pressed={side === s}
-          >
-            {s}
-          </button>
-        ))}
-      </div>
+    <section className="overflow-hidden rounded-2xl border border-line-strong bg-paper scroll-mt-24" id="trade" tabIndex={-1} aria-label={`Trade ${symbol}`}>
+      <div className="flex min-h-12 items-center justify-between gap-3 border-b border-line px-5"><h2 className="min-w-0 truncate text-sm font-semibold text-ink">Trade {symbol}</h2><span className="shrink-0 text-[11px] text-muted">{CHAIN_LABEL}</span></div>
+      <div className="space-y-4 p-4 sm:p-5">
+      <ToggleGroup aria-label="Trade side" value={[side]} onValueChange={(v) => { if (!v[0] || busy) return; setSide(v[0] as Side); setAmount(""); setQuote(null); setQuoting(false); setPhase({ k: "idle" }); }} className="grid w-full grid-cols-2">
+        {(["buy", "sell"] as Side[]).map((s) => <ToggleGroupItem key={s} value={s} disabled={busy} className={`min-h-10 text-sm ${s === "buy" ? "data-pressed:text-up" : "data-pressed:text-down-ink"}`}>{s === "buy" ? "Buy" : "Sell"}</ToggleGroupItem>)}
+      </ToggleGroup>
 
-      <div>
-        <div className="flex items-baseline justify-between text-xs text-muted mb-1.5">
-          <span>{side === "buy" ? "You pay" : "You sell"}</span>
-          {balance !== undefined ? (
-            <button
-              type="button"
-              className="font-mono tnum hover:text-ink"
-              onClick={() => setAmount(side === "buy" ? (isNative ? formatEther(balance > parseEther("0.0005") ? balance - parseEther("0.0005") : 0n) : formatUnits(balance, quote.decimals)) : formatEther(balance))}
-            >
-              bal {side === "buy" ? fmtQ(balance) : `${fmtCompact(Number(balance) / 1e18)} ${symbol}`}
-            </button>
-          ) : null}
-        </div>
-        <div className="relative">
-          <input
-            className={`${input} h-14 pr-20 font-mono text-xl tnum`}
-            value={amount}
-            onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
-            placeholder="0.0"
-            inputMode="decimal"
-            aria-label={side === "buy" ? `${quote.symbol} amount` : `${symbol} amount`}
-          />
-          <span className="absolute right-4 top-1/2 -translate-y-1/2 font-mono text-sm text-muted">{side === "buy" ? quote.symbol : symbol}</span>
-        </div>
-        {side === "buy" ? (
-          <div className="mt-2 flex gap-1.5 flex-wrap">
-            {BUY_PRESETS[quote.key].map((p) => (
-              <button key={p} type="button" onClick={() => setAmount(p)} className="h-8 px-3 rounded-full border border-line bg-card text-xs font-mono font-medium text-ink hover:border-line-strong tnum">
-                {p} {quote.symbol}
-              </button>
-            ))}
+      <div className="relative">
+        <div className="rounded-xl border border-line bg-card px-4 pt-3 pb-4">
+          <div className="flex items-center justify-between gap-2 text-[11px] text-muted"><label htmlFor={`amount-${chain}-${token}`}>{side === "buy" ? "You pay" : "You sell"}</label>
+            {balance !== undefined ? <button type="button" disabled={busy} className="max-w-[65%] truncate font-mono text-[10px] hover:text-ink" title="Use maximum available balance (reserve gas for ETH)" onClick={() => setAmount(side === "buy" ? (isNative ? formatEther(balance > parseEther("0.0005") ? balance - parseEther("0.0005") : 0n) : formatUnits(balance, quote.decimals)) : formatEther(balance))}>Bal {side === "buy" ? fmtQ(balance) : fmtCompact(Number(balance) / 1e18)}</button> : <Wallet size={12} aria-hidden />}
           </div>
-        ) : (
-          <div className="mt-2 flex gap-1.5 flex-wrap">
-            {[25, 50, 100].map((pct) => (
-              <button
-                key={pct}
-                type="button"
-                disabled={!balance}
-                onClick={() => balance !== undefined && setAmount(formatEther((balance * BigInt(pct)) / 100n))}
-                className="h-8 px-3 rounded-full border border-line bg-card text-xs font-mono font-medium text-ink hover:border-line-strong tnum disabled:opacity-40"
-              >
-                {pct}%
-              </button>
-            ))}
+          <div className="mt-2 flex items-center gap-3">
+            <input id={`amount-${chain}-${token}`} disabled={busy} className="min-w-0 w-full bg-transparent py-1 font-mono text-[30px] leading-tight text-ink outline-offset-4 placeholder:text-faint tnum" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.0" inputMode="decimal" autoComplete="off" aria-label={side === "buy" ? `${quote.symbol} amount` : `${symbol} amount`} />
+            <span className="max-w-24 shrink-0 truncate rounded-lg border border-line-strong bg-paper px-2.5 py-1.5 text-xs font-medium text-ink">{side === "buy" ? quote.symbol : symbol}</span>
           </div>
-        )}
-      </div>
-
-      <div className="rounded-xl bg-paper border border-line px-3.5 py-3 text-sm">
-        <div className="flex items-baseline justify-between gap-3">
-          <span className="text-muted text-xs">You receive</span>
-          <span className={`font-mono font-bold tnum inline-flex items-center gap-1.5 ${quoting ? "text-faint" : "text-ink"}`}>{quoting ? <Spinner size={12} className="text-muted" /> : null}{outLabel ?? (quoting ? "" : "—")}</span>
+          <div className="mt-3 grid grid-cols-4 gap-1.5">
+            {side === "buy" ? BUY_PRESETS[quote.key].map((p) => <button key={p} type="button" disabled={busy} onClick={() => setAmount(p)} aria-label={`Pay ${p} ${quote.symbol}`} className={`min-h-8 rounded-md border font-mono text-[11px] tnum hover:border-line-strong disabled:opacity-40 ${amount === p ? "border-line-strong bg-paper text-ink" : "border-line text-muted"}`}>{p}</button>) : [25, 50, 100].map((pct) => <button key={pct} type="button" disabled={busy || !balance} onClick={() => balance !== undefined && setAmount(formatEther((balance * BigInt(pct)) / 100n))} className="min-h-8 rounded-md border border-line font-mono text-[11px] text-muted tnum hover:border-line-strong disabled:opacity-40">{pct === 100 ? "Max" : `${pct}%`}</button>)}
+          </div>
         </div>
-        <div className="mt-1 flex items-baseline justify-between gap-3 text-[11px] text-muted font-mono tnum">
-          <span>{inUsd ?? outUsd ?? ""}</span>
-          <span>min {quote_ && quote_.forAmount === amount ? (side === "buy" ? fmtCompact(Number(minOut(quote_.out, SLIPPAGE_BPS)) / 1e18) : fmtQ(minOut(quote_.out, SLIPPAGE_BPS))) : "—"} · 1% slippage</span>
+        <div className="relative z-10 mx-auto -my-3 flex size-7 items-center justify-center rounded-lg border border-line bg-paper text-muted" aria-hidden><ArrowDown size={13} /></div>
+        <div className="rounded-xl border border-line bg-card px-4 pt-4 pb-3">
+          <div className="text-[11px] text-muted">You receive <span className="text-[10px]">· estimated</span></div>
+          <div className="mt-2 flex min-h-7 items-center justify-between gap-3">
+            <span className="min-w-0 break-words font-mono text-base font-bold text-ink tnum">{outLabel ?? "N/A"}</span>{quoting && amountIn !== null ? <Spinner size={13} className="shrink-0 text-muted" /> : null}
+          </div>
+          <div className="mt-1 min-h-4 text-[10px] text-muted">{inUsd ?? outUsd ?? "Quote includes the pool trading fee."}</div>
         </div>
       </div>
+      <dl className="space-y-2 text-[11px]">
+        <div className="flex justify-between gap-3"><dt className="text-muted">Minimum received</dt><dd className="text-right font-mono text-body tnum">{quote_ && quote_.forKey === quoteKey ? (side === "buy" ? `${fmtCompact(Number(minOut(quote_.out, SLIPPAGE_BPS)) / 1e18)} ${symbol}` : fmtQ(minOut(quote_.out, SLIPPAGE_BPS))) : "N/A"}</dd></div>
+        <div className="flex justify-between gap-3"><dt className="text-muted">Slippage tolerance</dt><dd className="font-mono text-body tnum">1%</dd></div>
+      </dl>
 
       {!configured ? (
-        <button type="button" disabled className={`${btn.primary} w-full min-h-12`}>
+        <button type="button" disabled className={`${btn.secondary} !border-ink !bg-ink !text-inverse w-full min-h-12`}>
           Trading unavailable
         </button>
       ) : !isConnected ? (
@@ -264,9 +229,9 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
             if (c) connect({ connector: c });
           }}
           disabled={connecting}
-          className={`${btn.primary} w-full min-h-12`}
+          className={`${btn.secondary} !border-ink !bg-ink !text-inverse w-full min-h-12`}
         >
-          {connecting ? "Connecting…" : "Connect wallet"}
+          {connecting ? "Connecting…" : <>Connect wallet <ArrowRight size={15} /></>}
         </button>
       ) : !onChain ? (
         <button type="button" onClick={() => void switchChainAsync({ chainId: CHAIN.id })} disabled={switching} className={`${btn.warm} w-full min-h-12`}>
@@ -276,10 +241,12 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
         <button
           type="button"
           onClick={() => void trade()}
-          disabled={busy || amountIn === null || !quote_ || quote_.forAmount !== amount || insufficient}
-          className={`${side === "buy" ? btn.up : `${btn.primary} bg-down hover:brightness-110`} w-full min-h-12 text-[15px]`}
+          disabled={busy || amountIn === null || !quote_ || quote_.forKey !== quoteKey || insufficient}
+          className={`${side === "buy" ? btn.up : `${btn.primary} !bg-down hover:brightness-110`} w-full min-h-12 text-[15px]`}
         >
-          {phase.k === "approving" ? (
+          {phase.k === "preparing" ? (
+            <><Spinner size={14} /> Preparing trade…</>
+          ) : phase.k === "approving" ? (
             <>
               <Spinner size={14} /> {phase.step === "erc20" ? "Approve once (1/2)…" : "Allow router (2/2)…"}
             </>
@@ -314,7 +281,9 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
           </a>
         </p>
       ) : null}
-      <p className="text-[11px] text-muted leading-relaxed">Swaps go straight to the Uniswap v4 pool on {CHAIN_LABEL} through the Universal Router. We never touch your funds.</p>
+      <p className="text-center text-[10px] leading-relaxed text-muted text-pretty">{pipsToPct(poolKey.fee)} pool fee · <span className="text-up">0% platform fee</span> · gas applies</p>
+      </div>
+      <div className="border-t border-line bg-card px-5 py-3 text-[11px] leading-relaxed text-muted text-pretty">Wallet → Uniswap v4 pool. Your funds never pass through openlaunch.</div>
     </section>
   );
 }

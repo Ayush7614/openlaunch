@@ -116,7 +116,7 @@ function ToastCard({ t, onClose }: { t: Toast; onClose: () => void }) {
   const inner = (
     <div className={`pointer-events-auto flex items-center gap-3 rounded-2xl bg-card border border-line shadow-dialog pl-3 pr-2 py-2.5 w-full sm:w-80 ${t.leaving ? "bb-toast-out" : "bb-toast-in"}`}>
       <span className={`h-9 w-1 rounded-full ${accent} shrink-0`} aria-hidden />
-      {t.token && t.symbol ? <TokenAvatar token={t.token} symbol={t.symbol} image={t.image} size={32} /> : null}
+      {t.token && t.symbol ? <TokenAvatar chain={t.chain ?? "unknown"} token={t.token} symbol={t.symbol} image={t.image} size={32} /> : null}
       <div className="min-w-0 flex-1">
         <div className="text-[13px] font-semibold text-ink truncate">{t.title}</div>
         {t.sub ? <div className="text-[11px] text-muted font-mono truncate">{t.sub}</div> : null}

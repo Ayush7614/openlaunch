@@ -1,69 +1,77 @@
 @import "tailwindcss";
 
-/* ── "Clear Sky" ──────────────────────────────────────────────────────────────
-   LIGHT is the default and the unclassed base: every value in @theme is the
-   original light palette, unchanged. DARK is an explicit choice behind the
-   header toggle: next-themes puts `.dark` on <html> and the toggler flips that
-   same class with classList.toggle("dark"), so "no class" must mean light —
-   never add a `.light` rule. The OS preference is not consulted. */
+/* Dark is the default and carries the gitlawb.com palette: black ground, an
+   alpha ramp of white for hierarchy, hairline borders, near-zero chroma greys.
+   Light is available behind the toggle.
+
+   Structure note: the BASE (@theme, unclassed) is light and `.dark` overrides
+   it — the inverse of how it reads. That is deliberate. The animated toggler
+   flips the theme with a bare `classList.toggle("dark")`, so "no class" has to
+   mean light. next-themes uses class-based themes without a value mapping,
+   and defaults to dark on first visit. */
 @custom-variant dark (&:is(.dark *));
 
-@theme {
+/* Chart code reads tokens at runtime; retain even tokens with no utility class. */
+@theme static {
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: var(--font-space-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
   --font-display: var(--font-unbounded), var(--font-inter), ui-sans-serif, system-ui, sans-serif;
 
-  /* surfaces */
-  --color-paper: #fafaf8;
-  --color-card: #ffffff;
-  --color-line: #e7e5e4;
-  --color-line-strong: #d6d3d1;
+  /* LIGHT — the unclassed base. Same ramp as dark, inverted (black over white),
+     resolved to opaque hex so opacity modifiers do not double up the alpha. */
+  --color-paper: #ffffff;
+  --color-card: #f5f5f5;
+  --color-line: #e5e5e5;
+  --color-line-strong: #cccccc;
 
-  /* text */
-  --color-ink: #0f172a;
-  --color-body: #475569;
-  --color-muted: #64748b; /* AA on paper/card at body sizes */
-  --color-faint: #94a3b8; /* decorative / placeholders only */
-  --color-inverse: #ffffff; /* text on ink / brand / up / down fills */
+  --color-ink: #000000;
+  --color-body: #4d4d4d;   /* black .70 */
+  --color-muted: #6b6b6b;  /* black .58 — .55 lands at 4.31:1 on the card, under AA */
+  --color-faint: #999999;  /* black .40 — decorative / placeholders only */
+  --color-inverse: #ffffff;
+  --color-skeleton: #ebebeb;
+  --color-skeleton-highlight: #f5f5f5;
 
-  /* accent */
   --color-brand: #0052ff;
   --color-brand-strong: #0041cc;
-  --color-brand-soft: #eaf0ff;
+  --color-brand-soft: #e6edff;
 
-  /* money: up (refund / locked), down (displaced), warm (takeover / testnet) */
+  /* money: up (locked / gain), down (loss), warm (caution / wrong chain) */
   --color-up: #15803d;
   --color-up-soft: #ecfdf3;
   --color-down: #dc2626;
-  --color-down-ink: #b91c1c; /* text on down-soft */
+  --color-down-ink: #b91c1c;
   --color-down-soft: #fef2f2;
   --color-warm: #d97706;
-  --color-warm-ink: #b45309; /* text on warm-soft / paper */
+  --color-warm-ink: #b45309;
   --color-warm-soft: #fffbeb;
-
-  /* values that used to be hardcoded in components — same light values, now themeable */
   --color-holder-good-line: #bbf7d0;
   --color-holder-good-bg: #ecfdf3;
-  --color-skeleton: #ecebe8;
-  --color-skeleton-highlight: #f5f4f1;
-  --color-scrim: #0f172a; /* modal backdrop (rendered at 40%); stays dark in both themes */
 
-  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 16px rgba(15, 23, 42, 0.04);
-  --shadow-card-hover: 0 2px 4px rgba(15, 23, 42, 0.06), 0 10px 28px rgba(15, 23, 42, 0.09);
-  --shadow-sheet: 0 -8px 40px rgba(15, 23, 42, 0.12);
-  --shadow-dialog: 0 24px 64px rgba(15, 23, 42, 0.18);
+  /* backdrop keeps its own token: deriving it from a text colour inverted it,
+     and it must stay dark in BOTH themes */
+  --color-scrim: #000000;
+  /* chart gridlines sit just above the card, below the data */
+  --color-chart-grid: #f1f0ee;
+
+  /* Flat, like gitlawb.com: separation comes from a hairline border, never a
+     drop shadow. On a #000 ground a black shadow is invisible anyway, so these
+     stay as no-ops rather than being deleted — the utilities are still spelled
+     `shadow-card` across the components and must remain valid. */
+  --shadow-card: none;
+  --shadow-card-hover: none;
+  --shadow-sheet: none;
+  --shadow-dialog: none;
 }
 
 :root {
   color-scheme: light;
-  /* Chart-only tokens live here, not in @theme: Tailwind drops @theme variables
-     that no class references, and the chart reads these with getComputedStyle. */
-  --color-chart-grid: #f1f0ee;
-  --color-chart-vol: #cbd5e1;
 }
 
-/* ── Dark: black ground, alpha ramp of white, near-zero chroma greys. The blue
-   and green brighten because the light values drop under 3:1 on black. ── */
+/* DARK — the default theme, and the gitlawb.com palette. next-themes puts this
+   class on <html>; the animated toggler flips the same class directly.
+   The blue and green brighten here: the light-mode values drop under 3:1 on
+   black, and the bright ones drop under 3:1 on white. */
 .dark {
   color-scheme: dark;
   --color-paper: #000000;
@@ -75,6 +83,8 @@
   --color-muted: #8c8c8c;  /* white .55 */
   --color-faint: #666666;  /* white .40 */
   --color-inverse: #000000;
+  --color-skeleton: #141414;
+  --color-skeleton-highlight: #1f1f1f;
   --color-brand: #4d8bff;
   --color-brand-strong: #7aa6ff;
   --color-brand-soft: #0d1b33;
@@ -88,15 +98,9 @@
   --color-warm-soft: #2a2007;
   --color-holder-good-line: #0d5233;
   --color-holder-good-bg: #06241a;
-  --color-skeleton: #141414;
-  --color-skeleton-highlight: #1f1f1f;
-  --color-scrim: #000000;
   --color-chart-grid: #1a1a1a;
-  --color-chart-vol: #333333;
-  --shadow-card: 0 1px 2px #00000026, 0 4px 16px #00000026;
-  --shadow-card-hover: 0 2px 4px #00000033, 0 10px 28px #00000040;
-  --shadow-sheet: 0 -8px 40px #00000066;
-  --shadow-dialog: 0 24px 64px #00000080;
+  /* the backdrop stays dark in both themes — that is the whole point of it */
+  --color-scrim: #000000;
 }
 
 /* Black paper does not print: a class-based theme survives into the print
@@ -106,12 +110,12 @@
     color-scheme: light;
     --color-paper: #ffffff;
     --color-card: #ffffff;
-    --color-line: #e7e5e4;
-    --color-line-strong: #d6d3d1;
-    --color-ink: #0f172a;
-    --color-body: #475569;
-    --color-muted: #64748b;
-    --color-faint: #94a3b8;
+    --color-line: #e5e5e5;
+    --color-line-strong: #cccccc;
+    --color-ink: #000000;
+    --color-body: #333333;
+    --color-muted: #595959;
+    --color-faint: #767676;
     --color-inverse: #ffffff;
   }
 }
@@ -130,15 +134,6 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   font-feature-settings: "cv11", "ss01";
-}
-
-/* faint blue wash behind the hero only */
-.bb-sky {
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 520px;
-  pointer-events: none;
-  background: radial-gradient(1200px 400px at 50% -100px, var(--color-brand-soft), transparent);
 }
 
 /* tabular numbers everywhere money shows */
@@ -176,7 +171,7 @@ body {
 }
 
 /* the sticky mobile action bar covers the bottom of the page: pad the footer */
-@media (max-width: 767px) {
+@media (max-width: 1023px) {
   body:has(.bb-action-bar) .bb-footer { padding-bottom: calc(5.5rem + env(safe-area-inset-bottom)); }
 }
 
@@ -222,7 +217,6 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 /* price / number flash when a live value changes */
 @keyframes bb-pop { 0% { transform: scale(1); } 40% { transform: scale(1.06); } 100% { transform: scale(1); } }
 .bb-pop { animation: bb-pop 320ms ease-out 1; }
-
 @media (prefers-reduced-motion: reduce) {
   .bb-toast-in, .bb-toast-out, .bb-confetti, .bb-pop { animation: none; }
   .bb-confetti { display: none; }
@@ -230,11 +224,10 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 
 /* live list highlights */
 @keyframes bb-row-new {
-  0% { box-shadow: 0 0 0 0 rgba(0, 82, 255, 0.45), var(--shadow-card); border-color: var(--color-brand); background-color: var(--color-brand-soft); }
-  60% { box-shadow: 0 0 0 10px rgba(0, 82, 255, 0), var(--shadow-card); }
-  100% { box-shadow: var(--shadow-card); border-color: var(--color-brand); background-color: var(--color-card); }
+  0% { background-color: var(--color-brand-soft); }
+  100% { background-color: var(--color-paper); }
 }
-.bb-row-new { animation: bb-row-new 1.6s ease-out 1; border-color: var(--color-brand) !important; }
+.bb-row-new { animation: bb-row-new 1.6s ease-out 1; }
 @keyframes bb-row-buy { 0% { background-color: var(--color-up-soft); border-color: var(--color-up); } 100% { background-color: var(--color-card); border-color: var(--color-line); } }
 @keyframes bb-row-sell { 0% { background-color: var(--color-down-soft); border-color: var(--color-down); } 100% { background-color: var(--color-card); border-color: var(--color-line); } }
 .bb-row-buy { animation: bb-row-buy 2.2s ease-out 1; }
@@ -242,16 +235,18 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 @media (prefers-reduced-motion: reduce) { .bb-row-new, .bb-row-buy, .bb-row-sell { animation: none; } }
 
 /* ── loading system: route progress bar, skeleton shimmer, spinner ─────────── */
-.bb-progress { position: fixed; top: 0; left: 0; height: 3px; width: 0; background: var(--color-brand); z-index: 100; opacity: 0; pointer-events: none; transition: width 0.25s ease, opacity 0.3s ease; box-shadow: 0 0 8px rgba(0, 82, 255, 0.45); }
+/* scaleX rather than width: the bar animates on the compositor instead of
+   re-running layout on every frame. transform-origin pins it to the left edge. */
+.bb-progress { position: fixed; top: 0; left: 0; height: 3px; width: 100%; transform: scaleX(0); transform-origin: left; background: var(--color-brand); z-index: 100; opacity: 0; pointer-events: none; transition: transform 0.25s ease, opacity 0.3s ease; box-shadow: 0 0 8px color-mix(in srgb, var(--color-brand) 45%, transparent); }
 .bb-progress-run { opacity: 1; animation: bb-progress-creep 12s cubic-bezier(0.1, 0.6, 0.2, 1) forwards; }
-.bb-progress-done { opacity: 0; width: 100%; transition: width 0.2s ease, opacity 0.35s ease 0.15s; }
-@keyframes bb-progress-creep { 0% { width: 0; } 10% { width: 35%; } 40% { width: 70%; } 100% { width: 92%; } }
+.bb-progress-done { opacity: 0; transform: scaleX(1); transition: transform 0.2s ease, opacity 0.35s ease 0.15s; }
+@keyframes bb-progress-creep { 0% { transform: scaleX(0); } 10% { transform: scaleX(0.35); } 40% { transform: scaleX(0.7); } 100% { transform: scaleX(0.92); } }
 .bb-skel { background: linear-gradient(90deg, var(--color-skeleton) 0%, var(--color-skeleton-highlight) 40%, var(--color-skeleton) 80%); background-size: 200% 100%; animation: bb-shimmer 1.6s ease-in-out infinite; }
 @keyframes bb-shimmer { 0% { background-position: 120% 0; } 100% { background-position: -80% 0; } }
 .bb-spin { animation: bb-rotate 0.8s linear infinite; }
 @keyframes bb-rotate { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
-  .bb-progress-run { animation: none; width: 60%; }
+  .bb-progress-run { animation: none; transform: scaleX(0.6); }
   .bb-skel { animation: none; background: var(--color-skeleton); }
   .bb-spin { animation-duration: 1.6s; }
 }
@@ -261,10 +256,10 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 @keyframes bb-beacon { 0% { transform: scale(1); opacity: 0.55; } 70% { transform: scale(2.8); opacity: 0; } 100% { transform: scale(2.8); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .bb-beacon::after { animation: none; opacity: 0; } }
 
-/* "Hot right now" card: slow warm glow around the border */
-.bb-hot { box-shadow: 0 0 0 0 rgba(217, 119, 6, 0.0); animation: bb-hot 2.8s ease-in-out infinite; }
-@keyframes bb-hot { 0%, 100% { box-shadow: 0 0 0 0 rgba(217, 119, 6, 0.0); } 50% { box-shadow: 0 0 0 4px rgba(217, 119, 6, 0.14); } }
-@media (prefers-reduced-motion: reduce) { .bb-hot { animation: none; } }
+/* One finite entry reaction for a real activity event. */
+.bb-tape-enter { animation: bb-tape-enter 240ms ease-out both; }
+@keyframes bb-tape-enter { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .bb-tape-enter { animation: none; } }
 /* ── animated theme toggle (View Transitions) ─────────────────────────────── */
 /* The toggler drives the reveal itself with a clip-path animation on
    ::view-transition-new(root), so the browser's default cross-fade has to be

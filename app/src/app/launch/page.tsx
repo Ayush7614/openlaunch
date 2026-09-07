@@ -4,7 +4,7 @@ import { ethUsd } from "@/lib/launchpad/ethPrice";
 import { isChainKey } from "@/lib/chainPublic";
 
 export const metadata: Metadata = {
-  title: "Launch a token — free",
+  title: "Launch a token for free",
   description: "Deploy a token on Base or Robinhood Chain with 100% of supply locked as Uniswap v4 liquidity. No platform fee. Gas only.",
 };
 
@@ -15,11 +15,10 @@ export default async function LaunchPage({ searchParams }: { searchParams: Promi
   const usd = await ethUsd();
   return (
     <>
-      <div className="bb-sky" aria-hidden />
       <main className="relative mx-auto max-w-6xl px-4 pt-6 sm:pt-10 pb-16 space-y-5 sm:space-y-6">
         <header className="max-w-2xl">
           <h1 className="font-display font-bold tracking-[-0.02em] text-ink text-3xl sm:text-4xl">Launch a token</h1>
-          <p className="mt-2 text-base text-body">Pick a chain, fill this in, sign once, done. No platform fee — the only thing you pay is gas.</p>
+          <p className="mt-2 text-base text-body">Pick a chain, fill this in, sign once, done. No platform fee. You only pay gas.</p>
         </header>
         <LaunchForm ethUsd={usd} initialChain={isChainKey(sp.chain) ? sp.chain : "base"} />
       </main>
