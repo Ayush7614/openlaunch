@@ -32,7 +32,8 @@ type Phase =
   | { k: "simulating" }
   | { k: "signing" }
   | { k: "sent"; hash: Hex }
-  | { k: "buying"; hash: Hex; step: "quote" | "approve" | "sign" | "sent" }
+  | { k: "buying"; hash: Hex; step: "quote" | "approve" | "sign" } // hash = the confirmed launch
+  | { k: "buying"; hash: Hex; step: "sent"; buyHash: Hex }
   | { k: "indexing"; hash: Hex }
   | { k: "done"; hash: Hex; token: string }
   | { k: "error"; message: string };
@@ -110,7 +111,7 @@ async function firstBuy(ctx: FirstBuyCtx, tokenAddr: Address, launchHash: Hex, a
   });
   setPhase({ k: "buying", hash: launchHash, step: "sign" });
   const h = await wallet.writeContract(request);
-  setPhase({ k: "buying", hash: launchHash, step: "sent" });
+  setPhase({ k: "buying", hash: launchHash, step: "sent", buyHash: h });
   const rc = await pub.waitForTransactionReceipt({ hash: h });
   if (rc.status !== "success") throw new Error("The buy reverted on-chain.");
   // the executed amount can be below the quote (down to the slippage floor): read it off the receipt
@@ -199,6 +200,9 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
   const ethBal = useBalance({ address, chainId: CHAIN.id, query: { enabled: Boolean(address) && quote.key === "eth" && Boolean(initialBuyRaw), refetchInterval: 15_000 } });
   const quoteBal = useReadContract({ address: quote.address, abi: ERC20_MIN_ABI, functionName: "balanceOf", args: address ? [address] : undefined, chainId: CHAIN.id, query: { enabled: Boolean(address) && quote.key !== "eth" && Boolean(initialBuyRaw), refetchInterval: 15_000 } });
   const buyBalance: bigint | undefined = quote.key === "eth" ? ethBal.data?.value : (quoteBal.data as bigint | undefined);
+  const buyBalanceFailed = quote.key === "eth" ? ethBal.isError : quoteBal.isError;
+  // the launch is irreversible and the buy comes after it: never let a launch through while the buy's funding is unknown
+  if (initialBuyRaw && address && buyBalance === undefined) errors.push(buyBalanceFailed ? `First buy: could not read your ${quote.symbol} balance. Retry, or clear the amount.` : "First buy: checking your balance…");
   if (initialBuyRaw && buyBalance !== undefined && initialBuyRaw + (quote.key === "eth" ? GAS_RESERVE_WEI : 0n) > buyBalance)
     errors.push(quote.key === "eth" ? "First buy: not enough ETH (leave a little for gas)." : `First buy: not enough ${quote.symbol} in this wallet.`);
   const valid = errors.length === 0;
@@ -798,9 +802,9 @@ function PhaseNote({ phase, chain }: { phase: Phase; chain: ChainKey }) {
   if (phase.k === "sent" || phase.k === "buying" || phase.k === "indexing" || phase.k === "done")
     return (
       <p className="text-xs text-muted">
-        {phase.k === "buying" ? "Launch " : "Transaction "}
-        <a href={explorerTx(chain, phase.hash)} target="_blank" rel="noreferrer" className="font-mono underline underline-offset-2 hover:text-ink">
-          {phase.hash.slice(0, 10)}…
+        {phase.k === "buying" && phase.step === "sent" ? "Launched. Buy " : phase.k === "buying" ? "Launch " : "Transaction "}
+        <a href={explorerTx(chain, phase.k === "buying" && phase.step === "sent" ? phase.buyHash : phase.hash)} target="_blank" rel="noreferrer" className="font-mono underline underline-offset-2 hover:text-ink">
+          {(phase.k === "buying" && phase.step === "sent" ? phase.buyHash : phase.hash).slice(0, 10)}…
         </a>
         {phase.k === "done"
           ? " confirmed. Taking you to your token."
@@ -811,7 +815,7 @@ function PhaseNote({ phase, chain }: { phase: Phase; chain: ChainKey }) {
                 ? " confirmed. Approve the quote token in your wallet (one time)…"
                 : phase.step === "sign"
                   ? " confirmed. Confirm the buy in your wallet…"
-                  : " confirmed. Buy sent, waiting for confirmation…"
+                  : " sent, waiting for confirmation…"
             : " sent."}
       </p>
     );
