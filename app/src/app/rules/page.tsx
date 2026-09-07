@@ -3,6 +3,7 @@ import Link from "next/link";
 import { btn, cardPad } from "@/components/ui";
 import { launchpad } from "@/lib/launchpad/config";
 import { CHAIN_KEYS, CHAIN_LABELS, explorerAddress } from "@/lib/chainPublic";
+import { BRAND_GITHUB } from "@/lib/brand";
 
 export const metadata: Metadata = { title: "How it works", description: "What a launch does on-chain, what it costs (gas), and what can never happen to your liquidity." };
 
@@ -111,7 +112,9 @@ export default function RulesPage() {
               </div>
             );
           })}
-          <p>Identical bytecode on both chains. Uniswap v4&apos;s PoolManager, PositionManager, Permit2 and Universal Router are Uniswap&apos;s canonical deployments. MIT-licensed source, verified on Sourcify.</p>
+          <p>Identical bytecode on both chains. Uniswap v4&apos;s PoolManager, PositionManager, Permit2 and Universal Router are Uniswap&apos;s canonical deployments. MIT-licensed source on{" "}
+            <a href={BRAND_GITHUB} target="_blank" rel="noreferrer" className="text-ink underline underline-offset-2">GitHub ↗</a>, verified on Basescan, Blockscout and Sourcify on both chains.
+          </p>
         </div>
       </section>
 

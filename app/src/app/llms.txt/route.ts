@@ -9,7 +9,7 @@ export function GET() {
   const r = launchpad("robinhood");
   const body = `# ${BRAND_DOMAIN}
 
-> Open-source (contracts verified on Sourcify; code release pending), zero-fee token launchpad on Base (8453) and Robinhood Chain (4663). One transaction deploys a token and locks 100% of its supply as
+> Open-source (MIT — https://github.com/Gitlawb/openlaunch; contracts verified on Basescan, Blockscout and Sourcify), zero-fee token launchpad on Base (8453) and Robinhood Chain (4663). One transaction deploys a token and locks 100% of its supply as
 > Uniswap v4 liquidity, forever. No platform fee: the factory and locker have no fee address at all.
 
 ## What a launch does
