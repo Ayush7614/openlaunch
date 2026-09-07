@@ -268,6 +268,8 @@ function PostItem({ p, now, canReply, onReply, onReport }: { p: PostRow; now: nu
 }
 
 /** The human feed (home column + /feed): latest top-level posts across tokens. */
+const COMPACT_LIMIT = 5;
+
 export function PostsFeed({ initial, compact = false }: { initial: PostRow[]; compact?: boolean }) {
   const { subscribe } = useLive();
   const [posts, setPosts] = useState<PostRow[]>(initial);
@@ -286,20 +288,57 @@ export function PostsFeed({ initial, compact = false }: { initial: PostRow[]; co
       }),
     [subscribe],
   );
-  const shown = compact ? posts.slice(0, 8) : posts;
+  // compact (home): last 5 only, collapsible; the choice is remembered per browser
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => {
+    if (!compact) return;
+    try {
+      const t = setTimeout(() => setCollapsed(localStorage.getItem("bb:posts-collapsed") === "1"), 0);
+      return () => clearTimeout(t);
+    } catch {
+      /* storage unavailable */
+    }
+  }, [compact]);
+  const toggle = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    try {
+      localStorage.setItem("bb:posts-collapsed", next ? "1" : "0");
+    } catch {
+      /* storage unavailable */
+    }
+  };
+  const shown = compact ? posts.slice(0, COMPACT_LIMIT) : posts;
   return (
     <section className="rounded-2xl bg-card border border-line shadow-card overflow-hidden">
-      <div className="px-4 h-11 flex items-center justify-between border-b border-line">
-        <h2 className="text-sm font-semibold text-ink">Posts</h2>
+      <div className={`px-4 h-11 flex items-center justify-between ${compact && collapsed ? "" : "border-b border-line"}`}>
+        <h2 className="text-sm font-semibold text-ink flex items-center gap-2">
+          Posts
+          {compact ? <span className="text-[11px] font-normal text-muted">{collapsed ? `${posts.length} recent` : "last 5"}</span> : null}
+        </h2>
         {compact ? (
-          <Link href="/feed" className="text-[11px] text-brand hover:underline underline-offset-4">
-            all posts →
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link href="/feed" className="text-[11px] text-brand hover:underline underline-offset-4">
+              all posts →
+            </Link>
+            <button
+              type="button"
+              onClick={toggle}
+              aria-expanded={!collapsed}
+              aria-controls="home-posts"
+              title={collapsed ? "Show posts" : "Hide posts"}
+              className="h-7 w-7 inline-flex items-center justify-center rounded-lg text-muted hover:text-ink hover:bg-paper"
+            >
+              <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${collapsed ? "-rotate-90" : ""}`} aria-hidden>
+                <path d="M6 9l6 6 6-6" />
+              </svg>
+            </button>
+          </div>
         ) : (
           <span className="text-[11px] text-muted">what people are saying</span>
         )}
       </div>
-      <ul className="divide-y divide-line">
+      <ul id="home-posts" className="divide-y divide-line" hidden={compact && collapsed}>
         {shown.length === 0 ? <li className="px-4 py-8 text-center text-sm text-muted">No posts yet. Holders and creators can post on any token page.</li> : null}
         {shown.map((p) => (
           <li key={p.id} className="px-4 py-3">
