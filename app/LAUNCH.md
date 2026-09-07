@@ -1,5 +1,10 @@
 # Launch runbook — basebid.lol launchpad
 
+> **Working copy:** this repo (`gitlawb-platform/openlaunch`) is the single source since 2026-09-07. Deploy from
+> `app/` with the command below; the old `basebid` deploy tree is archived. Local-only files that never enter git:
+> `app/.env.local`, `app/.env.development.local`, `app/.env.production`, `contracts/.env`, `contracts/.launchpad-deployer.address`.
+
+
 ## 0. Deploy the contracts (Base mainnet)
 Deployer key lives in the macOS keychain (service `basebid-launchpad-deployer`); address in
 `../contracts/.launchpad-deployer.address`. Fund it with ~0.001 ETH on Base (deploy ≈ 0.00006 ETH).
