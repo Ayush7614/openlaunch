@@ -89,7 +89,10 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
   const [customAddr, setCustomAddr] = useState("");
   // Generated lazily at launch time (a render-time random value would break hydration).
   const saltRef = useRef<Hex | null>(null);
-  const metaKeyRef = useRef<Hex | null>(null); // chosen once: the metadataURI is keyed by it, so findSalt can change the salt freely
+  // The metadataURI is keyed by meta_key, so findSalt can change the salt freely within one attempt. Both refs are
+  // kept across attempts so an identical retry is idempotent; when the details changed since the key was registered
+  // the server answers 409 and launch() rotates BOTH (a key is locked to the details it was first registered with).
+  const metaKeyRef = useRef<Hex | null>(null);
   const [phase, setPhase] = useState<Phase>({ k: "idle" });
 
   const presets = quote.key === "stock" ? stockMcapPresets(quote.usd ?? 0) : MCAP_PRESETS[quote.key];
@@ -122,7 +125,7 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
     if (!valid || !address || !cfg.factory || startTick === null) return;
     const FACTORY_ADDRESS = cfg.factory;
     let salt = saltRef.current ?? (saltRef.current = randomSalt());
-    const metaKey = metaKeyRef.current ?? (metaKeyRef.current = randomSalt());
+    let metaKey = metaKeyRef.current ?? (metaKeyRef.current = randomSalt());
     const register = async (s: Hex) => {
       const res = await fetch("/api/launch/meta", {
         method: "POST",
@@ -137,7 +140,10 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
       setPhase({ k: "saving" });
       let meta = await register(salt);
       if (meta.status === 409) {
-        // this salt was registered before with different details (an earlier attempt): take a fresh one
+        // An earlier attempt registered this key (and salt) with different details, and a key is locked to the
+        // details it was first registered with: start a fresh attempt with a new key AND a new salt. The new key
+        // then stays fixed for the rest of this attempt, including the salt search below.
+        metaKey = metaKeyRef.current = randomSalt();
         salt = saltRef.current = randomSalt();
         meta = await register(salt);
       }
