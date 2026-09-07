@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./src/*"],
+      "@/lib/db": ["./src/lib/db-mock.ts"],
+      "@/lib/chain": ["./src/lib/chain-mock.ts"]
+    }
+  }
+}

@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --no-warnings --test \"src/**/*.test.ts\"",
+    "test": "TEST_MOCK_DB=1 NODE_OPTIONS=--conditions=react-server tsx --tsconfig tsconfig.test.json --test \"src/**/*.test.ts\"",
+    "test:unit": "node --experimental-strip-types --no-warnings --test \"src/**/*.test.ts\"",
     "migrate": "node scripts/migrate.mjs"
   },
   "dependencies": {
@@ -36,6 +37,7 @@
     "eslint": "^9",
     "eslint-config-next": "^16.2.9",
     "tailwindcss": "^4",
+    "tsx": "^4.23.13",
     "typescript": "^5"
   },
   "overrides": {

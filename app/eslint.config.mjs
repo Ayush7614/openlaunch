@@ -5,5 +5,5 @@ import nextTs from "eslint-config-next/typescript";
 export default defineConfig([
   ...nextVitals,
   ...nextTs,
-  globalIgnores([".next/**", "out/**", "build/**", "next-env.d.ts", "skills/**", "scripts/**"]),
+  globalIgnores([".next/**", "out/**", "build/**", "next-env.d.ts", "skills/**", "scripts/**", "src/lib/db-mock.ts", "src/lib/chain-mock.ts", "src/test-loader.mjs"]),
 ]);
