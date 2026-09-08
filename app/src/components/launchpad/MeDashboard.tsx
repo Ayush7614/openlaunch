@@ -302,7 +302,7 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
                   </div>
                   <div className={styles.holdingValue}>
                     <div className="text-ink font-bold">{bal === undefined ? "Reading…" : bal === null ? "—" : fmtCompact(Number(bal) / 1e18)}</div>
-                    <div className="text-[11px] text-muted">{usd === null ? "USD unavailable" : fmtUsd(usd)}</div>
+                    <div className="text-[11px] text-muted">{bal === undefined ? "Reading…" : usd === null ? "USD unavailable" : fmtUsd(usd)}</div>
                   </div>
                 </Link>
               </li>
