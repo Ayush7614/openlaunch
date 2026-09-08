@@ -13,7 +13,7 @@ import EditTokenSheet from "./EditTokenSheet";
 import { toast } from "./TxToasts";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "@/components/vendor/tabs";
 import { LAUNCH_LOCKER_ABI, ERC20_MIN_ABI } from "@/lib/launchpad/abi";
-import { launchpad, quoteInfo } from "@/lib/launchpad/config";
+import { launchpad } from "@/lib/launchpad/config";
 import { earnedRaw, feeShareBps, holdingUsd, isBurnOnly } from "@/lib/launchpad/creator";
 import { fmtCompact, fmtQuote, fmtUsd } from "@/lib/launchpad/math";
 import type { LaunchRow, WalletTrade } from "@/lib/launchpad/queries";
@@ -233,7 +233,6 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
         ) : null}
         <ul className={styles.tokenList}>
           {me?.launches.map((l) => {
-            const q = quoteInfo(l.chain, l.quote);
             const share = feeShareBps(l.recipients, address);
             const earned = earnedRaw(l.fees_quote_collected, l.fees_quote_burned, share);
             const p = pending[key(l)];
@@ -257,11 +256,11 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
                     </div>
                   </Link>
                   <div className={styles.figure}>
-                    <div className="text-up font-bold">{l.quote_usd !== null ? fmtUsd((Number(earned) / 10 ** l.quote_decimals) * l.quote_usd) : fmtQuote(earned, q.decimals, q.symbol)}</div>
+                    <div className="text-up font-bold">{l.quote_usd !== null ? fmtUsd((Number(earned) / 10 ** l.quote_decimals) * l.quote_usd) : fmtQuote(earned, l.quote_decimals, l.quote_symbol)}</div>
                     <div className="text-[11px] text-muted">earned · {share / 100}% share</div>
                   </div>
                   <div className={styles.figure}>
-                    <div className={p && p > 0n ? "text-warm-ink font-bold" : "text-muted"}>{p === undefined ? "…" : p === null ? "—" : fmtQuote(p, q.decimals, q.symbol)}</div>
+                    <div className={p && p > 0n ? "text-warm-ink font-bold" : "text-muted"}>{p === undefined ? "…" : p === null ? "—" : fmtQuote(p, l.quote_decimals, l.quote_symbol)}</div>
                     <div className="text-[11px] text-muted">uncollected</div>
                   </div>
                   <div className={styles.rowActions}>
@@ -303,7 +302,7 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
                   </div>
                   <div className={styles.holdingValue}>
                     <div className="text-ink font-bold">{bal === undefined ? "Reading…" : bal === null ? "—" : fmtCompact(Number(bal) / 1e18)}</div>
-                    <div className="text-[11px] text-muted">{usd === null ? "USD unavailable" : fmtUsd(usd)}</div>
+                    <div className="text-[11px] text-muted">{bal === undefined ? "Reading…" : usd === null ? "USD unavailable" : fmtUsd(usd)}</div>
                   </div>
                 </Link>
               </li>
