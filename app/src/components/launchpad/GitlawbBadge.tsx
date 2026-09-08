@@ -14,11 +14,11 @@ export function GitlawbMark({ size = 16, className = "" }: { size?: number; clas
 export default function GitlawbBadge({ size = "sm", className = "", label = GITLAWB_SYMBOL }: { size?: "sm" | "md"; className?: string; label?: string }) {
   return (
     <span
-      className={`inline-flex shrink-0 items-center rounded-md border border-black/10 font-semibold whitespace-nowrap text-white dark:border-white/25 ${size === "md" ? "h-6 gap-1.5 pl-1 pr-2 text-[11px]" : "h-5 gap-1 pl-0.5 pr-1.5 text-[10px] tracking-wide"} ${className}`}
+      className={`inline-flex shrink-0 items-center rounded-md border border-black/10 font-semibold leading-none whitespace-nowrap text-white dark:border-white/25 ${size === "md" ? "h-7 gap-1.5 pl-[3px] pr-2.5 text-[11px]" : "h-[22px] gap-1 pl-[2px] pr-2 text-[10px] tracking-wide"} ${className}`}
       style={{ background: GITLAWB_LOGO_BG }}
       title="Paired with GITLAWB: buyers pay in GITLAWB and trading fees are paid, or burned, in GITLAWB."
     >
-      <GitlawbMark size={size === "md" ? 18 : 16} />
+      <GitlawbMark size={size === "md" ? 22 : 18} />
       {label}
     </span>
   );
