@@ -17,7 +17,7 @@ export default function GitlawbBadge({ size = "sm", className = "", label = GITL
     <span
       className={`inline-flex shrink-0 items-center rounded-md border border-black/10 font-semibold leading-none whitespace-nowrap text-white dark:border-white/25 ${size === "md" ? "h-6 gap-1.5 pl-[3px] pr-2 text-[11px]" : "h-5 gap-1 pl-[2px] pr-1.5 text-[10px] tracking-wide"} ${className}`}
       style={{ background: GITLAWB_LOGO_BG }}
-      title="Paired with GITLAWB: buyers pay in GITLAWB and trading fees are paid, or burned, in GITLAWB."
+      title="Paired with GITLAWB: buyers pay in GITLAWB; any trading fee is paid, or burned, in GITLAWB."
     >
       <GitlawbMark size={size === "md" ? 18 : 16} />
       {label}

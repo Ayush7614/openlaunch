@@ -42,22 +42,56 @@ export const GITLAWB_POOL_KEY = {
 } as const;
 export const GITLAWB_POOL_ID = poolIdOf(GITLAWB_POOL_KEY);
 
-/** Outside this band a reading is still used but logged: spot is ~$1e-5, so either end means the pool or ETH/USD moved 1,000× or more. */
-const PLAUSIBLE_USD: [number, number] = [1e-8, 1e-2];
+/**
+ * Manipulation cross-check: the Uniswap v3 WETH/GITLAWB 1% pool on Base (token0 WETH, token1 GITLAWB)
+ * keeps an on-chain oracle (observe), so a 30-minute time-weighted average tick is available without
+ * any off-chain service. The v4 spot is the primary price (deepest market); when it strays more than
+ * MAX_SPOT_DEVIATION from the TWAP, the TWAP is used instead, so a single-block price push in the v4
+ * pool cannot rewrite market caps, USD volume or trending scores site-wide.
+ */
+export const GITLAWB_V3_POOL = "0x72c12f0cc0e0c6e97ff9869717a482aff97e3b30" as Address;
+export const TWAP_WINDOW_S = 1800;
+export const MAX_SPOT_DEVIATION = 0.25;
+
+/** Time-weighted average tick from two tickCumulative readings `windowS` apart (Uniswap v3 semantics: floor toward -inf). */
+export function twapTick(cumulativeThen: bigint, cumulativeNow: bigint, windowS: number): number {
+  const delta = cumulativeNow - cumulativeThen;
+  const w = BigInt(windowS);
+  let tick = delta / w;
+  if (delta < 0n && delta % w !== 0n) tick -= 1n;
+  return Number(tick);
+}
+
+/** USD per GITLAWB from a WETH/GITLAWB tick (GITLAWB per WETH = 1.0001^tick; both 18-dec) and ETH/USD. */
+export function gitlawbUsdFromTick(tick: number, ethUsd: number | null): number | null {
+  if (ethUsd === null || !(ethUsd > 0) || !Number.isFinite(tick)) return null;
+  const usd = ethUsd / Math.pow(1.0001, tick);
+  return Number.isFinite(usd) && usd > 0 ? usd : null;
+}
 
 /**
- * USD per GITLAWB from the pool's sqrtPriceX96 (GITLAWB per WETH; both 18-dec) and ETH/USD.
- * null only when an input is unusable. An implausible reading is accepted (the site must not go
- * unpriced because the token moved) but reported through `onImplausible` so it shows up in logs.
+ * Pick the price to publish: the spot unless it deviates from the TWAP by more than `maxDeviation`,
+ * in which case the TWAP wins. With only one side available that side is used; with neither, null.
  */
-export function gitlawbUsdFromSqrtPrice(sqrtPriceX96: bigint, ethUsd: number | null, onImplausible?: (usd: number) => void): number | null {
+export function reconcileGitlawbUsd(spot: number | null, twap: number | null, maxDeviation = MAX_SPOT_DEVIATION): { usd: number | null; source: "spot" | "twap" | null; deviation: number | null } {
+  if (spot === null && twap === null) return { usd: null, source: null, deviation: null };
+  if (spot === null) return { usd: twap, source: "twap", deviation: null };
+  if (twap === null) return { usd: spot, source: "spot", deviation: null };
+  const deviation = Math.abs(spot - twap) / twap;
+  return deviation > maxDeviation ? { usd: twap, source: "twap", deviation } : { usd: spot, source: "spot", deviation };
+}
+
+/**
+ * USD per GITLAWB from the v4 pool's sqrtPriceX96 (GITLAWB per WETH; both 18-dec) and ETH/USD.
+ * null only when an input is unusable. Manipulation resistance comes from reconcileGitlawbUsd()
+ * (spot vs the v3 TWAP), not from a fixed dollar band.
+ */
+export function gitlawbUsdFromSqrtPrice(sqrtPriceX96: bigint, ethUsd: number | null): number | null {
   if (ethUsd === null || !(ethUsd > 0) || sqrtPriceX96 <= 0n) return null;
   const gitlawbPerEth = sqrtPriceToTokensPerQuote(sqrtPriceX96, 18);
   if (!Number.isFinite(gitlawbPerEth) || gitlawbPerEth <= 0) return null;
   const usd = ethUsd / gitlawbPerEth;
-  if (!Number.isFinite(usd) || usd <= 0) return null;
-  if (usd < PLAUSIBLE_USD[0] || usd > PLAUSIBLE_USD[1]) onImplausible?.(usd);
-  return usd;
+  return Number.isFinite(usd) && usd > 0 ? usd : null;
 }
 
 /** Starting-market-cap presets in whole GITLAWB for the same dollar targets the stock form uses; empty while the price is unknown. */
