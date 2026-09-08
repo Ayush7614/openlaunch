@@ -27,7 +27,8 @@ import GitlawbBadge from "@/components/launchpad/GitlawbBadge";
 import { fmtCompact, fmtPrice, fmtQuote, fmtUsd, pipsToPct } from "@/lib/launchpad/math";
 import { marketCount as count } from "@/lib/launchpad/token-market";
 import { marketUsd } from "@/lib/launchpad/market-format";
-import { CHAIN_LABELS, SITE_URL, explorerAddress, explorerName, explorerTx, isChainKey, shortAddr } from "@/lib/chainPublic";
+import { CHAIN_LABELS, SITE_URL, chainIdOf, explorerAddress, explorerName, explorerTx, isChainKey, shortAddr } from "@/lib/chainPublic";
+import { tokenCanonical, tokenJsonLd } from "@/lib/seo";
 import { stockByAddress } from "@/lib/launchpad/stocksServer";
 import { BRAND_DOMAIN, BRAND_X } from "@/lib/brand";
 import { clampSocial } from "@/lib/launchpad/ogcard";
@@ -45,6 +46,7 @@ export async function generateMetadata({ params }: { params: Promise<{ chain: st
   return {
     title,
     description,
+    alternates: { canonical: tokenCanonical(SITE_URL, l.chain, l.token) },
     openGraph: { siteName: BRAND_DOMAIN, type: "website", title, description: clampSocial(description), url: `${SITE_URL}/t/${l.chain}/${l.token}` },
     twitter: { card: "summary_large_image", site: `@${BRAND_X}`, title, description: clampSocial(description) },
   };
@@ -78,8 +80,27 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
   const feeRoute = mode === "free" ? "No trading fee" : `${pipsToPct(l.lp_fee)} trading fee → ${mode === "burn" ? "burned" : mode === "split" ? "beneficiaries" : "beneficiary"}`;
   const utility = "inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-line px-2.5 text-xs text-muted hover:border-line-strong hover:text-ink";
 
+  // Facts-only structured data (on-chain fields + creator metadata, no scores).
+  const jsonLd = tokenJsonLd({
+    name: l.name,
+    symbol: l.symbol,
+    chain,
+    chainId: chainIdOf(chain),
+    token: l.token,
+    launcher: l.launcher,
+    quoteSymbol: quote.symbol,
+    supply: l.supply,
+    poolId: l.pool_id,
+    startTick: l.start_tick,
+    lpFee: l.lp_fee,
+    blockTime: l.block_time,
+    description: l.description,
+    siteUrl: SITE_URL,
+  });
+
   return (
     <>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
       <main className="mx-auto max-w-6xl px-4 pt-5 pb-28 sm:pt-7 lg:pb-16">
         <nav aria-label="Breadcrumb" className="mb-5 flex min-h-8 items-center justify-between gap-3 text-xs text-muted">
           <Link href="/#launches" className="inline-flex items-center gap-2 hover:text-ink"><ArrowLeft size={13} /> All launches</Link>
