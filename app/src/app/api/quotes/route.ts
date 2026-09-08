@@ -5,12 +5,13 @@ import { ensureRegistry, stockList, stockPrices } from "@/lib/launchpad/stocksSe
 import { searchStocks } from "@/lib/launchpad/stocks";
 import { searchBaseStocks, stockTileSvg } from "@/lib/launchpad/baseStocks";
 import { memo } from "@/lib/launchpad/memo";
+import { gitlawbUsd } from "@/lib/launchpad/gitlawbServer";
 
 export const dynamic = "force-dynamic";
 
 /**
  * GET /api/quotes?chain=<base|robinhood>[&q=AAPL] → quote assets the launch form may offer on that chain:
- * the fixed ones (ETH, USDG) plus tokenized stocks from that chain's registry (with live USD):
+ * the fixed ones (ETH, USDG, GITLAWB on Base — with GITLAWB's live USD) plus tokenized stocks from that chain's registry (with live USD):
  * Coinbase tokenized stocks on Base, Robinhood Stock Tokens on Robinhood Chain.
  * Only registry addresses are ever labelled as stocks.
  */
@@ -19,7 +20,8 @@ export async function GET(req: Request) {
   const chain = u.searchParams.get("chain");
   if (!isChainKey(chain)) return NextResponse.json({ error: "bad chain" }, { status: 400 });
   const q = (u.searchParams.get("q") ?? "").slice(0, 12);
-  const fixed = launchpad(chain).quotes.map((x) => ({ ...x, usd: x.usd }));
+  const gl = chain === "base" ? await gitlawbUsd() : null;
+  const fixed = launchpad(chain).quotes.map((x) => ({ ...x, usd: x.key === "gitlawb" ? gl : x.usd }));
   const stocks = await memo(`quotes:stocks:${chain}:${q.toUpperCase()}`, 30_000, async () => {
     let hits: { address: string; symbol: string; name: string; decimals: number; logo: string | null }[];
     if (chain === "base") hits = searchBaseStocks(q, 13).map((s) => ({ ...s, logo: stockTileSvg(s.symbol) }));

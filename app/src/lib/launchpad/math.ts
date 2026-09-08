@@ -166,7 +166,8 @@ export function pipsToPct(pips: number): string {
 /** "12.5 USDG" / "0.05 ETH" from a raw amount. */
 export function fmtQuote(raw: bigint | string, decimals: number, symbol: string): string {
   const v = units(raw, decimals);
-  return `${decimals <= 6 ? (v >= 100 ? v.toFixed(0) : v.toFixed(2)).replace(/\.00$/, "") : fmtEth(v)} ${symbol}`;
+  // 18-dec quotes with big unit counts (GITLAWB: millions per dollar) read as 1.2M, never 1200000.0000
+  return `${decimals <= 6 ? (v >= 100 ? v.toFixed(0) : v.toFixed(2)).replace(/\.00$/, "") : Math.abs(v) >= 100_000 ? fmtCompact(v, 2) : fmtEth(v)} ${symbol}`;
 }
 
 export const WAD_ = WAD;

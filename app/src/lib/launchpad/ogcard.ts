@@ -1,6 +1,6 @@
 /** Pure shaping for the per-token share card (node --test loads this). */
 export type CardInput = { name: string; symbol: string; chain: "base" | "robinhood"; fdv_usd: number | null; fdv_quote: number; quote_symbol: string; change_from_launch: number; lp_fee: number; recipients: { payout: string; bps: number }[]; block_time: string };
-export type Card = { title: string; symbol: string; chainLabel: string; mcap: string; change: string; up: boolean; fee: string; age: string; quote: { symbol: string; ticker: string } | null };
+export type Card = { title: string; symbol: string; chainLabel: string; mcap: string; change: string; up: boolean; fee: string; age: string; quote: { symbol: string; ticker: string; kind: "stock" | "gitlawb" } | null };
 
 const DEAD = "0x000000000000000000000000000000000000dead";
 
@@ -41,11 +41,12 @@ export function shapeCard(l: CardInput, now: number): Card {
   };
 }
 
-/** Stock quotes get a "priced in" pill with a ticker tile; ETH / USDG / unknown ("?") do not. */
+/** Stock quotes get a "priced in" pill with a ticker tile, GITLAWB one with the Gitlawb mark; ETH / USDG / unknown ("?") get none. */
 export function stockQuoteOf(quoteSymbol: string): Card["quote"] {
   const sym = quoteSymbol.trim();
   if (!sym || sym === "?" || sym === "ETH" || sym === "USDG") return null;
-  return { symbol: sym.slice(0, 12), ticker: sym.replace(/c$/, "").toUpperCase().slice(0, 5) };
+  if (sym === "GITLAWB") return { symbol: "GITLAWB", ticker: "GL", kind: "gitlawb" };
+  return { symbol: sym.slice(0, 12), ticker: sym.replace(/c$/, "").toUpperCase().slice(0, 5), kind: "stock" };
 }
 
 /** Social previews show ~125 chars: clamp on a word boundary with an ellipsis; short text is untouched. */

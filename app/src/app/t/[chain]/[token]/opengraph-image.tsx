@@ -106,9 +106,15 @@ export default async function TokenOg({ params }: { params: Promise<{ chain: str
               <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 26 }}>
                 {card.quote ? (
                   <span style={{ display: "flex", alignItems: "center", gap: 10, height: 40, padding: "0 16px 0 7px", borderRadius: 999, border: `1px solid ${LINE}`, background: "#fff", color: BODY, fontSize: 19, fontWeight: 600, whiteSpace: "nowrap" }}>
-                    <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 8, background: BLUE, color: "#fff", fontSize: card.quote.ticker.length > 4 ? 7 : card.quote.ticker.length > 3 ? 8 : 10, fontWeight: 800, letterSpacing: -0.5, whiteSpace: "nowrap", overflow: "hidden" }}>
-                      {card.quote.ticker}
-                    </span>
+                    {card.quote.kind === "gitlawb" ? (
+                      <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 8, background: "#0a1020", overflow: "hidden" }}>
+                        <svg width="24" height="24" viewBox="0 0 100 100"><ellipse cx="50" cy="50" rx="44" ry="14" transform="rotate(-24 50 50)" fill="none" stroke="#e8edf6" strokeWidth="5.5" /><circle cx="50" cy="50" r="25" fill="#e8edf6" /><circle cx="90.19" cy="32.1" r="8" fill="#4d7dff" /></svg>
+                      </span>
+                    ) : (
+                      <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 8, background: BLUE, color: "#fff", fontSize: card.quote.ticker.length > 4 ? 7 : card.quote.ticker.length > 3 ? 8 : 10, fontWeight: 800, letterSpacing: -0.5, whiteSpace: "nowrap", overflow: "hidden" }}>
+                        {card.quote.ticker}
+                      </span>
+                    )}
                     priced in {card.quote.symbol}
                   </span>
                 ) : null}

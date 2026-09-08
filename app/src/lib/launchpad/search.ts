@@ -1,13 +1,14 @@
 /** Pure search / filter helpers (client + server; node --test loads this directly). */
-export type LaunchFilter = "fee0" | "burn" | "usdg" | "today";
+export type LaunchFilter = "fee0" | "burn" | "usdg" | "gitlawb" | "today";
 export const FILTERS: { key: LaunchFilter; label: string; title: string }[] = [
   { key: "fee0", label: "0% fee", title: "feeless pools" },
   { key: "burn", label: "fees burned", title: "no beneficiary; every fee is burned" },
   { key: "usdg", label: "USDG", title: "priced in USDG (Robinhood Chain)" },
+  { key: "gitlawb", label: "GITLAWB", title: "priced in GITLAWB (Base)" },
   { key: "today", label: "today", title: "launched in the last 24 hours" },
 ];
 export function isFilter(v: unknown): v is LaunchFilter {
-  return v === "fee0" || v === "burn" || v === "usdg" || v === "today";
+  return v === "fee0" || v === "burn" || v === "usdg" || v === "gitlawb" || v === "today";
 }
 
 /** Trim, collapse whitespace, strip a leading $ (people type $SYM), lowercase. */
@@ -34,6 +35,7 @@ export function matchesFilter(l: Matchable, f: LaunchFilter | null, now = Date.n
   if (f === "fee0") return l.lp_fee === 0;
   if (f === "burn") return l.lp_fee > 0 && l.recipients.length === 1 && l.recipients[0].payout.toLowerCase() === DEAD;
   if (f === "usdg") return l.quote_symbol === "USDG";
+  if (f === "gitlawb") return l.quote_symbol === "GITLAWB";
   return now - new Date(l.block_time).getTime() < 86_400_000;
 }
 
