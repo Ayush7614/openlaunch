@@ -8,6 +8,7 @@ import { isAddress, maxUint160, maxUint256, parseEventLogs, parseUnits, zeroAddr
 import TokenAvatar from "./TokenAvatar";
 import ImageUpload from "./ImageUpload";
 import FeeChip from "./FeeChip";
+import GitlawbBadge from "./GitlawbBadge";
 import { toast } from "./TxToasts";
 import { btn, card, helper, input, label } from "@/components/ui";
 import { ERC20_MIN_ABI, ERC20_TRANSFER_EVENT, LAUNCH_FACTORY_ABI, PERMIT2_ABI, UNIVERSAL_ROUTER_ABI, V4_QUOTER_ABI } from "@/lib/launchpad/abi";
@@ -408,6 +409,11 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
               <span className="text-xs text-muted">
                 {quote.key === "usdg" ? "Buyers pay with USDG; market cap and fees are in dollars." : quote.key === "gitlawb" ? "Buyers pay with GITLAWB; fees are paid in GITLAWB, or burned." : quote.key === "stock" ? (chain === "base" ? "Buyers pay with a Coinbase tokenized stock; fees are paid in that stock." : "Buyers pay with a Robinhood Stock Token; fees are paid in that stock.") : "Buyers pay with ETH."}
               </span>
+              {chain === "base" && quote.key !== "gitlawb" ? (
+                <button type="button" onClick={() => { setQuoteKey("gitlawb"); setMcapPick(null); setCustomMcap(""); }} className="inline-flex items-center gap-1.5 text-xs text-muted hover:text-ink" title="Pair with GITLAWB and your token carries the GITLAWB badge everywhere on the site">
+                  Pair with GITLAWB, get the <GitlawbBadge /> badge
+                </button>
+              ) : null}
             </div>
           ) : null}
           {quoteKey === "gitlawb" ? (
@@ -422,7 +428,7 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
                 {quote.usd ? <span className="font-mono text-xs opacity-80">{fmtUsd(quote.usd)}</span> : <span className="font-mono text-xs opacity-60">price loading…</span>}
               </span>
               <p className={helper}>
-                GITLAWB is Gitlawb&apos;s token on Base: an ordinary ERC-20, no transfer restrictions, no issuer switch. Name no beneficiary and every trading fee burns GITLAWB. Price from the Uniswap v4 WETH/GITLAWB pool.{" "}
+                Your token carries the <GitlawbBadge /> badge on the launch list, trending, the activity feed, its page and its share card. GITLAWB is Gitlawb&apos;s token on Base: an ordinary ERC-20, no transfer restrictions, no issuer switch. Name no beneficiary and every trading fee burns GITLAWB. Price from the Uniswap v4 WETH/GITLAWB pool.{" "}
                 <a href={GITLAWB_SITE} target="_blank" rel="noreferrer" className="underline decoration-line underline-offset-2 hover:text-ink">gitlawb.com ↗</a>
               </p>
             </div>
@@ -726,7 +732,10 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
               <div className="font-semibold text-ink truncate">{name.trim() || "Your token"}</div>
               <div className="font-mono text-xs text-muted">{symbolClean || "TICKER"}</div>
             </div>
-            <FeeChip lpFee={feePips} mode={feePips === 0 ? "free" : beneficiary === "burn" ? "burn" : "creator"} className="ml-auto" />
+            <div className="ml-auto flex items-center gap-1.5">
+              {quote.key === "gitlawb" ? <GitlawbBadge size="md" /> : null}
+              <FeeChip lpFee={feePips} mode={feePips === 0 ? "free" : beneficiary === "burn" ? "burn" : "creator"} />
+            </div>
           </div>
           {description.trim() ? <p className="mt-3 text-sm text-body line-clamp-3">{description.trim()}</p> : null}
           <dl className="mt-4 grid grid-cols-2 gap-2">

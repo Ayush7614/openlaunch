@@ -23,6 +23,7 @@ import { getLaunch, getSwaps } from "@/lib/launchpad/queries";
 import { ethUsd } from "@/lib/launchpad/ethPrice";
 import { NATIVE, TICK_SPACING, quoteKeyOf, uniswapSwapUrl, type Quote } from "@/lib/launchpad/config";
 import { GITLAWB_SITE } from "@/lib/launchpad/gitlawb";
+import GitlawbBadge from "@/components/launchpad/GitlawbBadge";
 import { fmtCompact, fmtPrice, fmtQuote, fmtUsd, pipsToPct } from "@/lib/launchpad/math";
 import { marketCount as count } from "@/lib/launchpad/token-market";
 import { marketUsd } from "@/lib/launchpad/market-format";
@@ -90,7 +91,7 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
             <TokenAvatar chain={l.chain} token={l.token} symbol={l.symbol} image={l.image_url} size={56} className="shrink-0 rounded-2xl" />
             <div className="min-w-0">
               <h1 className="break-words font-display text-2xl font-bold tracking-[-0.03em] text-ink sm:text-3xl">{l.name}</h1>
-              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted"><span className="font-mono text-body">${l.symbol}</span><span aria-hidden>·</span><span>Paired with {quote.symbol}</span><span aria-hidden>·</span><span title={new Date(l.block_time).toUTCString()}>Launched {ago(l.block_time, now)} ago</span></div>
+              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted"><span className="font-mono text-body">${l.symbol}</span><span aria-hidden>·</span>{quote.key === "gitlawb" ? <GitlawbBadge size="md" label="Paired with GITLAWB" /> : <span>Paired with {quote.symbol}</span>}<span aria-hidden>·</span><span title={new Date(l.block_time).toUTCString()}>Launched {ago(l.block_time, now)} ago</span></div>
             </div>
           </div>
           <div className="flex max-w-full flex-wrap items-center gap-2">

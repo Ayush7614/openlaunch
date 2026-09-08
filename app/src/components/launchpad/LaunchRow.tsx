@@ -8,6 +8,7 @@ import { fmtQuote, fmtUsd, pipsToPct } from "@/lib/launchpad/math";
 import { CHAIN_SHORT } from "@/lib/chainPublic";
 import { ago } from "@/lib/launchpad/time";
 import ChangeChip from "./ChangeChip";
+import GitlawbBadge, { isGitlawbQuote } from "./GitlawbBadge";
 import { marketUsd } from "@/lib/launchpad/market-format";
 
 const columns = "md:grid-cols-[minmax(0,1fr)_6.5rem_5.5rem_6rem_5rem_2.5rem]";
@@ -49,6 +50,7 @@ export default function LaunchRow({ l, rank, window = "all", hl = null, now, pop
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-2">
               <span className="truncate text-sm font-semibold text-ink">{l.name}</span>
+              {isGitlawbQuote(l.quote_symbol) ? <GitlawbBadge /> : null}
               {hl?.kind === "new" ? <span className="shrink-0 text-[10px] font-medium text-brand">New</span> : null}
             </div>
             <div className="mt-0.5 truncate text-[11px] text-muted" title={`${l.symbol} · ${CHAIN_SHORT[l.chain]} · paired with ${l.quote_symbol}`}>
