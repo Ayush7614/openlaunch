@@ -18,7 +18,7 @@ const NAV = [
   { href: "/feed", label: "Posts" },
   { href: "/rules", label: "How it works" },
   { href: "/agents", label: "Agents" },
-  { href: "/me", label: "Me" },
+  // /me is reached from the wallet menu ("Your workspace") and the footer ("Your dashboard")
 ];
 
 type Pulse = { visits: number; online: number };
