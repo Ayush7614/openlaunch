@@ -25,6 +25,7 @@ export type LaunchRow = {
   token_id: number;
   launcher: string;
   quote: string;
+  quote_key: Quote["key"]; // eth | usdg | gitlawb | stock (= any other ERC20)
   quote_symbol: string;
   quote_decimals: number;
   pool_id: string;
@@ -70,7 +71,7 @@ export type LaunchRow = {
   volume_24h_usd: number | null;
 };
 
-type Raw = Omit<LaunchRow, "chain" | "quote_symbol" | "quote_decimals" | "token_id" | "block_number" | "tick" | "trades_1h" | "traders_1h" | "trades_24h" | "price_quote" | "fdv_quote" | "change_from_launch" | "quote_usd" | "price_usd" | "fdv_usd" | "volume_usd" | "volume_1h_usd" | "volume_24h_usd"> & {
+type Raw = Omit<LaunchRow, "chain" | "quote_key" | "quote_symbol" | "quote_decimals" | "token_id" | "block_number" | "tick" | "trades_1h" | "traders_1h" | "trades_24h" | "price_quote" | "fdv_quote" | "change_from_launch" | "quote_usd" | "price_usd" | "fdv_usd" | "volume_usd" | "volume_1h_usd" | "volume_24h_usd"> & {
   token_id: bigint;
   block_number: bigint;
   tick: number | null;
@@ -95,11 +96,12 @@ function quoteInfo(chain: ChainKey, address: string): Quote {
 
 /** Warm the stock registry + prices for the stocks in use (and the GITLAWB price), so `shape()` can stay synchronous. */
 async function withStocks(): Promise<void> {
+  gitlawbUsdNow = await gitlawbUsd(); // never throws; served from cache once warm (stale-while-revalidate)
   try {
     await ensureRegistry(); // robinhood registry (fail-soft); the Base list is static
-    [stockUsdNow, gitlawbUsdNow] = await Promise.all([stockUsdInUse(), gitlawbUsd()]);
+    stockUsdNow = await stockUsdInUse();
   } catch {
-    /* fail soft: stocks / GITLAWB show without USD */
+    /* fail soft: stocks show without USD */
   }
 }
 
@@ -123,6 +125,7 @@ function shape(raw: Raw & { last_swap_block?: bigint; last_swap_log?: number; lo
   return {
     ...r,
     chain,
+    quote_key: q.key,
     quote_symbol: q.symbol,
     quote_decimals: q.decimals,
     token_id: Number(r.token_id),
@@ -257,8 +260,8 @@ export async function getSwaps(chain: ChainKey, token: string, quoteDecimals: nu
 
 /** Home tape: launches + trades across chains, newest first. */
 export type FeedItem =
-  | { kind: "launch"; chain: ChainKey; at: string; tx_hash: string; token: string; name: string; symbol: string; launcher: string; lp_fee: number; quote_symbol: string; image_url: string | null }
-  | { kind: "swap"; chain: ChainKey; at: string; tx_hash: string; token: string; name: string; symbol: string; trader: string | null; is_buy: boolean; is_dev: boolean; quote_wei: string; quote_symbol: string; quote_decimals: number; usd: number | null; image_url: string | null };
+  | { kind: "launch"; chain: ChainKey; at: string; tx_hash: string; token: string; name: string; symbol: string; launcher: string; lp_fee: number; quote_key: Quote["key"]; image_url: string | null }
+  | { kind: "swap"; chain: ChainKey; at: string; tx_hash: string; token: string; name: string; symbol: string; trader: string | null; is_buy: boolean; is_dev: boolean; quote_wei: string; quote_key: Quote["key"]; quote_symbol: string; quote_decimals: number; usd: number | null; image_url: string | null };
 
 export async function getLaunchFeed(limit = 24, ethUsd: number | null = null): Promise<FeedItem[]> {
   const db = maybeDb();
@@ -277,11 +280,11 @@ export async function getLaunchFeed(limit = 24, ethUsd: number | null = null): P
     ) x ORDER BY at DESC LIMIT ${n}`; // each arm pre-limited on an indexed time column: the union never scans the whole swaps table
   return rows.map((r) => {
     const chain = chainKeyOf(r.chain_id) ?? "base";
-    if (r.kind === "launch") return { kind: "launch", chain, at: r.at, tx_hash: r.tx_hash, token: r.token, name: r.name, symbol: r.symbol, launcher: r.who ?? "", lp_fee: r.lp_fee ?? 0, quote_symbol: quoteInfo(chain, r.quote).symbol, image_url: canonicalImageUrl(r.image_url, imagePublicBase()) };
+    if (r.kind === "launch") return { kind: "launch", chain, at: r.at, tx_hash: r.tx_hash, token: r.token, name: r.name, symbol: r.symbol, launcher: r.who ?? "", lp_fee: r.lp_fee ?? 0, quote_key: quoteInfo(chain, r.quote).key, image_url: canonicalImageUrl(r.image_url, imagePublicBase()) };
     const q = quoteInfo(chain, r.quote);
     const qu = quoteUsd(q, ethUsd);
     const wei = r.quote_wei ?? "0";
-    return { kind: "swap", chain, at: r.at, tx_hash: r.tx_hash, token: r.token, name: r.name, symbol: r.symbol, trader: r.who, is_buy: Boolean(r.is_buy), is_dev: Boolean(r.is_dev), quote_wei: wei, quote_symbol: q.symbol, quote_decimals: q.decimals, usd: qu === null ? null : units(wei, q.decimals) * qu, image_url: canonicalImageUrl(r.image_url, imagePublicBase()) };
+    return { kind: "swap", chain, at: r.at, tx_hash: r.tx_hash, token: r.token, name: r.name, symbol: r.symbol, trader: r.who, is_buy: Boolean(r.is_buy), is_dev: Boolean(r.is_dev), quote_wei: wei, quote_key: q.key, quote_symbol: q.symbol, quote_decimals: q.decimals, usd: qu === null ? null : units(wei, q.decimals) * qu, image_url: canonicalImageUrl(r.image_url, imagePublicBase()) };
   });
 }
 

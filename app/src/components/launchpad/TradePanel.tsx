@@ -11,7 +11,7 @@ import { btn } from "@/components/ui";
 import { toast } from "./TxToasts";
 import { ERC20_MIN_ABI, PERMIT2_ABI, UNIVERSAL_ROUTER_ABI, V4_QUOTER_ABI } from "@/lib/launchpad/abi";
 import { BUY_PRESETS, launchpad, quoteUsdOf, type Quote } from "@/lib/launchpad/config";
-import { fmtCompact, fmtUsd, minOut, units, pipsToPct } from "@/lib/launchpad/math";
+import { fmtCompact, fmtQuoteUnits, fmtUsd, minOut, units, pipsToPct } from "@/lib/launchpad/math";
 import { encodeV4ExactInSingle, type PoolKey } from "@/lib/launchpad/swap";
 import { CHAINS, CHAIN_LABELS, BUILDER_DATA_SUFFIX, explorerTx, type ChainKey } from "@/lib/chainPublic";
 import { tradeQuoteKey } from "@/lib/launchpad/token-market";
@@ -38,12 +38,6 @@ type Phase =
 const SLIPPAGE_BPS = 100; // 1%
 const PERMIT_EXPIRY_S = 30 * 24 * 3600;
 
-function fmtEthLocal(v: number): string {
-  if (!Number.isFinite(v) || v === 0) return "0";
-  const abs = Math.abs(v);
-  const digits = abs >= 100 ? 1 : abs >= 1 ? 3 : abs >= 0.01 ? 4 : abs >= 0.0001 ? 6 : 8;
-  return v.toFixed(digits).replace(/\.?0+$/, "");
-}
 
 export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUsd, onTraded }: { chain: ChainKey; token: Address; symbol: string; poolKey: PoolKey; quote: Quote; ethUsd: number | null; onTraded?: () => void }) {
   const CHAIN = CHAINS[chain];
@@ -52,7 +46,7 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
   const configured = launchpad(chain).configured;
   const isNative = quote.key === "eth";
   const quoteUsd = quoteUsdOf(quote, ethUsd);
-  const fmtQ = (raw: bigint) => `${quote.decimals <= 6 ? units(raw, quote.decimals).toFixed(2).replace(/\.00$/, "") : fmtEthLocal(units(raw, quote.decimals))} ${quote.symbol}`;
+  const fmtQ = (raw: bigint) => `${fmtQuoteUnits(units(raw, quote.decimals), quote.decimals)} ${quote.symbol}`;
   const router = useRouter();
   const config = useConfig();
   const { address, isConnected, chainId } = useAccount();
@@ -200,7 +194,7 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
             <span className="max-w-24 shrink-0 truncate rounded-lg border border-line-strong bg-paper px-2.5 py-1.5 text-xs font-medium text-ink">{side === "buy" ? quote.symbol : symbol}</span>
           </div>
           <div className="mt-3 grid grid-cols-4 gap-1.5">
-            {side === "buy" ? BUY_PRESETS[quote.key].map((p) => <button key={p} type="button" disabled={busy} onClick={() => setAmount(p)} aria-label={`Pay ${p} ${quote.symbol}`} className={`min-h-8 rounded-md border font-mono text-[11px] tnum hover:border-line-strong disabled:opacity-40 ${amount === p ? "border-line-strong bg-paper text-ink" : "border-line text-muted"}`}>{quote.key === "gitlawb" ? fmtCompact(Number(p), 0) : p}</button>) : [25, 50, 100].map((pct) => <button key={pct} type="button" disabled={busy || !balance} onClick={() => balance !== undefined && setAmount(formatEther((balance * BigInt(pct)) / 100n))} className="min-h-8 rounded-md border border-line font-mono text-[11px] text-muted tnum hover:border-line-strong disabled:opacity-40">{pct === 100 ? "Max" : `${pct}%`}</button>)}
+            {side === "buy" ? BUY_PRESETS[quote.key].map((p) => <button key={p} type="button" disabled={busy} onClick={() => setAmount(p)} aria-label={`Pay ${p} ${quote.symbol}`} className={`min-h-8 rounded-md border font-mono text-[11px] tnum hover:border-line-strong disabled:opacity-40 ${amount === p ? "border-line-strong bg-paper text-ink" : "border-line text-muted"}`}>{fmtQuoteUnits(Number(p), quote.decimals)}</button>) : [25, 50, 100].map((pct) => <button key={pct} type="button" disabled={busy || !balance} onClick={() => balance !== undefined && setAmount(formatEther((balance * BigInt(pct)) / 100n))} className="min-h-8 rounded-md border border-line font-mono text-[11px] text-muted tnum hover:border-line-strong disabled:opacity-40">{pct === 100 ? "Max" : `${pct}%`}</button>)}
           </div>
         </div>
         <div className="relative z-10 mx-auto -my-3 flex size-7 items-center justify-center rounded-lg border border-line bg-paper text-muted" aria-hidden><ArrowDown size={13} /></div>

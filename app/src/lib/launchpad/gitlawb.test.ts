@@ -1,41 +1,37 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { encodeAbiParameters, keccak256 } from "viem";
 import { existsSync } from "node:fs";
-import { DYNAMIC_FEE_FLAG, GITLAWB_ADDRESS, GITLAWB_LOGO_PATH, GITLAWB_POOL_ID, GITLAWB_POOL_KEY, gitlawbMcapPresets, gitlawbUsdFromSqrtPrice, isGitlawbAddress } from "./gitlawb.ts";
+import { GITLAWB_ADDRESS, GITLAWB_LOGO_PATH, GITLAWB_POOL_ID, GITLAWB_POOL_KEY, gitlawbMcapPresets, gitlawbUsdFromSqrtPrice, isGitlawbAddress } from "./gitlawb.ts";
 
-test("pool id = keccak256(abi.encode(poolKey)) for the WETH/GITLAWB dynamic-fee pool", () => {
+test("the derived pool id is the on-chain WETH/GITLAWB pool (Initialize at Base block 43,202,530)", () => {
   const k = GITLAWB_POOL_KEY;
-  const id = keccak256(
-    encodeAbiParameters(
-      [{ type: "address" }, { type: "address" }, { type: "uint24" }, { type: "int24" }, { type: "address" }],
-      [k.currency0 as `0x${string}`, k.currency1 as `0x${string}`, k.fee, k.tickSpacing, k.hooks as `0x${string}`],
-    ),
-  );
-  assert.equal(id, GITLAWB_POOL_ID);
-  assert.equal(k.fee, DYNAMIC_FEE_FLAG);
+  assert.equal(GITLAWB_POOL_ID, "0xec33256bf1ded407a57fd3c1965e7556e42ac14db09bc4e6fef57d5e2eb0b0b9");
+  assert.equal(k.fee, 0x800000, "dynamic-fee flag");
   assert.ok(BigInt(k.currency0) < BigInt(k.currency1), "WETH sorts below GITLAWB → GITLAWB is currency1");
   assert.equal(GITLAWB_ADDRESS, GITLAWB_ADDRESS.toLowerCase(), "stored lowercase (DB quote column is lowercase)");
 });
 
-test("gitlawbUsdFromSqrtPrice: live reading ≈ $1.68e-5 at tick 188117 / ETH $2,476; rejects garbage", () => {
+test("gitlawbUsdFromSqrtPrice: live reading ≈ $1.68e-5 at tick 188117 / ETH $2,476; rejects garbage; flags implausible", () => {
   // sqrtPriceX96 read from StateView on 2026-09-08 (tick 188117 → ~1.477e8 GITLAWB per ETH)
   const sqrt = 0x2f799c757751a02dcfbdb3537a4an;
-  const usd = gitlawbUsdFromSqrtPrice(sqrt, 2476);
+  const flagged: number[] = [];
+  const usd = gitlawbUsdFromSqrtPrice(sqrt, 2476, (v) => flagged.push(v));
   assert.ok(usd !== null);
   assert.ok(Math.abs(usd - 1.676e-5) / 1.676e-5 < 0.01, `≈ $1.676e-5, got ${usd}`);
+  assert.deepEqual(flagged, [], "a normal reading is not flagged");
   assert.equal(gitlawbUsdFromSqrtPrice(sqrt, null), null, "no ETH price → no USD");
   assert.equal(gitlawbUsdFromSqrtPrice(0n, 2476), null, "zero price");
   assert.equal(gitlawbUsdFromSqrtPrice(-1n, 2476), null, "negative");
-  assert.equal(gitlawbUsdFromSqrtPrice(2n ** 96n, 2476), null, "1 GITLAWB = 1 ETH is outside the sanity window");
-  assert.equal(gitlawbUsdFromSqrtPrice(2n ** 96n * 10n ** 9n, 2476), null, "absurdly cheap is rejected too");
+  const big = gitlawbUsdFromSqrtPrice(2n ** 96n, 2476, (v) => flagged.push(v));
+  assert.equal(big, 2476, "1 GITLAWB = 1 ETH is still a reading…");
+  assert.deepEqual(flagged, [2476], "…but it is reported as implausible");
 });
 
 test("presets convert dollar targets into GITLAWB units; empty without a price", () => {
   assert.deepEqual(gitlawbMcapPresets(null), []);
   assert.deepEqual(gitlawbMcapPresets(0), []);
   const p = gitlawbMcapPresets(0.00002);
-  assert.deepEqual(p, [250_000_000, 500_000_000, 1_250_000_000, 5_000_000_000]);
+  assert.deepEqual(p, [250_000_000, 500_000_000, 1_250_000_000, 5_000_000_000], "same $5K/$10K/$25K/$100K ladder as stocks, in whole GITLAWB");
 });
 
 test("logo asset ships with the app; address check is case-insensitive", () => {

@@ -38,9 +38,9 @@ test("filters: fee0 / burn / usdg / today", () => {
   assert.equal(matchesFilter(row({ lp_fee: 10_000 }), "burn"), true, "1% + dead recipient = burn");
   assert.equal(matchesFilter(row({ lp_fee: 10_000, recipients: [{ payout: "0xabc", bps: 10000 }] }), "burn"), false);
   assert.equal(matchesFilter(row(), "burn"), false, "0% pools are not 'burn'");
-  assert.equal(matchesFilter(row({ quote_symbol: "USDG" }), "usdg"), true);
-  assert.equal(matchesFilter(row({ quote_symbol: "GITLAWB" }), "gitlawb"), true);
-  assert.equal(matchesFilter(row({ quote_symbol: "ETH" }), "gitlawb"), false);
+  assert.equal(matchesFilter(row({ quote_key: "usdg" }), "usdg"), true);
+  assert.equal(matchesFilter(row({ quote_key: "gitlawb" }), "gitlawb"), true);
+  assert.equal(matchesFilter(row({ quote_key: "eth" }), "gitlawb"), false);
   assert.equal(matchesFilter(row(), "today"), true);
   assert.equal(matchesFilter(row({ block_time: new Date(Date.now() - 3 * 86_400_000).toISOString() }), "today"), false);
   assert.equal(matchesFilter(row(), null), true);

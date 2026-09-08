@@ -50,7 +50,7 @@ export default function LaunchRow({ l, rank, window = "all", hl = null, now, pop
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-2">
               <span className="truncate text-sm font-semibold text-ink">{l.name}</span>
-              {isGitlawbQuote(l.quote_symbol) ? <GitlawbBadge /> : null}
+              {isGitlawbQuote(l.quote_key) ? <GitlawbBadge /> : null}
               {hl?.kind === "new" ? <span className="shrink-0 text-[10px] font-medium text-brand">New</span> : null}
             </div>
             <div className="mt-0.5 truncate text-[11px] text-muted" title={`${l.symbol} · ${CHAIN_SHORT[l.chain]} · paired with ${l.quote_symbol}`}>

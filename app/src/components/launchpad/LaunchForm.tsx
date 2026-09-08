@@ -13,7 +13,7 @@ import { toast } from "./TxToasts";
 import { btn, card, helper, input, label } from "@/components/ui";
 import { ERC20_MIN_ABI, ERC20_TRANSFER_EVENT, LAUNCH_FACTORY_ABI, PERMIT2_ABI, UNIVERSAL_ROUTER_ABI, V4_QUOTER_ABI } from "@/lib/launchpad/abi";
 import { BPS, DEFAULT_SUPPLY, FEE_PRESETS, MCAP_PRESETS, TICK_SPACING, launchpad, quoteUsdOf, type Quote } from "@/lib/launchpad/config";
-import { fdvForStartTick, fmtCompact, fmtUsd, initialBuyPreview, minOut, startTickForFdv, tickToTokensPerQuote, units } from "@/lib/launchpad/math";
+import { fdvForStartTick, fmtCompact, fmtQuoteUnits, fmtUsd, initialBuyPreview, minOut, startTickForFdv, tickToTokensPerQuote, units } from "@/lib/launchpad/math";
 import { encodeV4ExactInSingle, type PoolKey } from "@/lib/launchpad/swap";
 import { stockMcapPresets } from "@/lib/launchpad/stocks";
 import { GITLAWB_SITE, gitlawbMcapPresets } from "@/lib/launchpad/gitlawb";
@@ -123,7 +123,7 @@ async function firstBuy(ctx: FirstBuyCtx, tokenAddr: Address, launchHash: Hex, a
   return received > 0n ? { hash: h, out: received, exact: true } : { hash: h, out, exact: false };
 }
 
-export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: number | null; initialChain?: ChainKey }) {
+export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "base" }: { ethUsd: number | null; gitlawbUsd?: number | null; initialChain?: ChainKey }) {
   const router = useRouter();
   const [chain, setChain] = useState<ChainKey>(initialChain);
   const cfg = launchpad(chain);
@@ -133,28 +133,10 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
   const [stock, setStock] = useState<Quote | null>(null);
   const [stockQ, setStockQ] = useState("");
   const [stockHits, setStockHits] = useState<Quote[]>([]);
-  // GITLAWB's USD is live (server reads the v4 pool); the static config carries null
-  const [gitlawbUsd, setGitlawbUsd] = useState<number | null>(null);
+  // GITLAWB's USD is live: the page fetched it server-side (same as ethUsd); the static config carries null
   const staticQuote: Quote = quoteKey === "stock" && stock ? stock : (cfg.quotes.find((q) => q.key === quoteKey) ?? cfg.quotes[0]);
   const quote: Quote = staticQuote.key === "gitlawb" ? { ...staticQuote, usd: gitlawbUsd } : staticQuote;
   const quoteUsd = quoteUsdOf(quote, ethUsd);
-  useEffect(() => {
-    if (quoteKey !== "gitlawb") return;
-    let alive = true;
-    (async () => {
-      try {
-        const res = await fetch(`/api/quotes?chain=${chain}`, { cache: "no-store" });
-        const d = (await res.json()) as { fixed?: Quote[] };
-        const usd = d.fixed?.find((q) => q.key === "gitlawb")?.usd ?? null;
-        if (alive) setGitlawbUsd(usd);
-      } catch {
-        if (alive) setGitlawbUsd(null);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [chain, quoteKey]);
   // stock search (per-chain registry via our server; only registry addresses are ever offered)
   useEffect(() => {
     if (quoteKey !== "stock") return;
@@ -203,7 +185,7 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
   const startTick = mcap > 0 && Number.isFinite(mcap) ? startTickForFdv(mcap, quote.decimals) : null;
   const fdvPreview = startTick !== null ? fdvForStartTick(startTick, quote.decimals) : null;
   const tokensPerEth = startTick !== null ? tickToTokensPerQuote(startTick, quote.decimals) : null;
-  const fmtMcap = (v: number) => (quote.decimals <= 6 ? `${v.toLocaleString("en-US", { maximumFractionDigits: 0 })} ${quote.symbol}` : quote.key === "gitlawb" ? `${fmtCompact(v, 1)} ${quote.symbol}` : `${v.toFixed(quote.key === "stock" ? 3 : 2)} ${quote.symbol}`);
+  const fmtMcap = (v: number) => (quote.decimals <= 6 ? `${v.toLocaleString("en-US", { maximumFractionDigits: 0 })} ${quote.symbol}` : quote.key === "stock" ? `${v.toFixed(3)} ${quote.symbol}` : `${fmtQuoteUnits(v, quote.decimals)} ${quote.symbol}`);
 
   const symbolClean = symbol.trim().toUpperCase();
   const initialBuyRaw = parseBuyAmount(initialBuy, quote.decimals);
@@ -212,7 +194,7 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
   if (!/^[A-Z0-9]{1,10}$/.test(symbolClean)) errors.push("Symbol: 1–10 letters or digits.");
   if (startTick === null) errors.push("Starting market cap must be a positive number.");
   if (quoteKey === "stock" && !stock) errors.push("Pick a stock to price the token in.");
-  if (quoteKey === "gitlawb" && quote.usd === null && !customMcap.trim()) errors.push("GITLAWB price unavailable right now: enter a custom starting market cap in GITLAWB, or retry.");
+  if (quoteKey === "gitlawb" && quote.usd === null && !customMcap.trim() && startTick === null) errors.push("GITLAWB price unavailable right now: enter a custom starting market cap in GITLAWB, or reload.");
   if (image && !/^https:\/\//.test(image.trim())) errors.push("Image must be an https URL.");
   if (website && !/^https:\/\//.test(website.trim())) errors.push("Website must be an https URL.");
   if (feePips > 0 && beneficiary === "custom" && !isAddress(customAddr.trim())) errors.push("Beneficiary: enter a valid address.");
@@ -425,7 +407,7 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
                 ) : null}
                 {quote.symbol}
                 <span className="font-normal text-xs opacity-80">{quote.name}</span>
-                {quote.usd ? <span className="font-mono text-xs opacity-80">{fmtUsd(quote.usd)}</span> : <span className="font-mono text-xs opacity-60">price loading…</span>}
+                {quote.usd ? <span className="font-mono text-xs opacity-80">{fmtUsd(quote.usd)}</span> : <span className="font-mono text-xs opacity-60">price unavailable</span>}
               </span>
               <p className={helper}>
                 Your token carries the <GitlawbBadge /> badge on the launch list, trending, the activity feed, its page and its share card. GITLAWB is Gitlawb&apos;s token on Base: an ordinary ERC-20, no transfer restrictions, no issuer switch. Name no beneficiary and every trading fee burns GITLAWB. Price from the Uniswap v4 WETH/GITLAWB pool.{" "}
@@ -659,7 +641,7 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
                   onClick={() => setInitialBuy(active ? "" : v)}
                   className={`h-11 px-4 rounded-xl border font-mono text-sm font-bold tnum ${active ? "bg-ink text-inverse border-ink" : "bg-card text-ink border-line-strong hover:border-ink/40"}`}
                 >
-                  {quote.key === "gitlawb" ? fmtCompact(Number(v), 0) : v} {quote.symbol}
+                  {fmtQuoteUnits(Number(v), quote.decimals)} {quote.symbol}
                 </button>
               );
             })}
@@ -675,7 +657,7 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-mono text-muted">{quote.symbol}</span>
             </div>
             {initialBuyRaw && buyBalance !== undefined ? (
-              <span className="text-xs font-mono text-muted tnum">balance {fmtCompact(units(buyBalance, quote.decimals), quote.decimals <= 8 ? 2 : 4)}</span>
+              <span className="text-xs font-mono text-muted tnum">balance {fmtQuoteUnits(units(buyBalance, quote.decimals), quote.decimals)}</span>
             ) : null}
           </div>
           {buyPreview ? (

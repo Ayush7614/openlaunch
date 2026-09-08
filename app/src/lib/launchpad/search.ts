@@ -1,10 +1,11 @@
 /** Pure search / filter helpers (client + server; node --test loads this directly). */
 export type LaunchFilter = "fee0" | "burn" | "usdg" | "gitlawb" | "today";
-export const FILTERS: { key: LaunchFilter; label: string; title: string }[] = [
+/** `chain`: the filter only makes sense on that chain (its quote is not offered elsewhere) → hidden when another chain is selected. */
+export const FILTERS: { key: LaunchFilter; label: string; title: string; chain?: "base" | "robinhood" }[] = [
   { key: "fee0", label: "0% fee", title: "feeless pools" },
   { key: "burn", label: "fees burned", title: "no beneficiary; every fee is burned" },
-  { key: "usdg", label: "USDG", title: "priced in USDG (Robinhood Chain)" },
-  { key: "gitlawb", label: "GITLAWB", title: "priced in GITLAWB (Base)" },
+  { key: "usdg", label: "USDG", title: "priced in USDG (Robinhood Chain)", chain: "robinhood" },
+  { key: "gitlawb", label: "GITLAWB", title: "priced in GITLAWB (Base)", chain: "base" },
   { key: "today", label: "today", title: "launched in the last 24 hours" },
 ];
 export function isFilter(v: unknown): v is LaunchFilter {
@@ -20,7 +21,7 @@ export function isAddressQuery(q: string): boolean {
 }
 
 const DEAD = "0x000000000000000000000000000000000000dead";
-type Matchable = { name: string; symbol: string; token: string; lp_fee: number; quote_symbol: string; block_time: string; recipients: { payout: string; bps: number }[] };
+type Matchable = { name: string; symbol: string; token: string; lp_fee: number; quote_key: string; block_time: string; recipients: { payout: string; bps: number }[] };
 
 /** Client-side match over an already-loaded row. Name/symbol prefix or substring, or exact address. */
 export function matchesQuery(l: Matchable, q: string): boolean {
@@ -34,8 +35,8 @@ export function matchesFilter(l: Matchable, f: LaunchFilter | null, now = Date.n
   if (!f) return true;
   if (f === "fee0") return l.lp_fee === 0;
   if (f === "burn") return l.lp_fee > 0 && l.recipients.length === 1 && l.recipients[0].payout.toLowerCase() === DEAD;
-  if (f === "usdg") return l.quote_symbol === "USDG";
-  if (f === "gitlawb") return l.quote_symbol === "GITLAWB";
+  if (f === "usdg") return l.quote_key === "usdg";
+  if (f === "gitlawb") return l.quote_key === "gitlawb";
   return now - new Date(l.block_time).getTime() < 86_400_000;
 }
 

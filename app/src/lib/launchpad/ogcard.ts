@@ -1,5 +1,5 @@
 /** Pure shaping for the per-token share card (node --test loads this). */
-export type CardInput = { name: string; symbol: string; chain: "base" | "robinhood"; fdv_usd: number | null; fdv_quote: number; quote_symbol: string; change_from_launch: number; lp_fee: number; recipients: { payout: string; bps: number }[]; block_time: string };
+export type CardInput = { name: string; symbol: string; chain: "base" | "robinhood"; fdv_usd: number | null; fdv_quote: number; quote_key: string; quote_symbol: string; change_from_launch: number; lp_fee: number; recipients: { payout: string; bps: number }[]; block_time: string };
 export type Card = { title: string; symbol: string; chainLabel: string; mcap: string; change: string; up: boolean; fee: string; age: string; quote: { symbol: string; ticker: string; kind: "stock" | "gitlawb" } | null };
 
 const DEAD = "0x000000000000000000000000000000000000dead";
@@ -37,15 +37,15 @@ export function shapeCard(l: CardInput, now: number): Card {
     up: pct >= 0,
     fee: feeLabel(l.lp_fee, l.recipients),
     age: ageLabel(l.block_time, now),
-    quote: stockQuoteOf(l.quote_symbol),
+    quote: quotePillOf(l.quote_key, l.quote_symbol),
   };
 }
 
-/** Stock quotes get a "priced in" pill with a ticker tile, GITLAWB one with the Gitlawb mark; ETH / USDG / unknown ("?") get none. */
-export function stockQuoteOf(quoteSymbol: string): Card["quote"] {
+/** "priced in" pill: registry stocks get a ticker tile, GITLAWB the Gitlawb tile; ETH / USDG / unknown ("?") get none. */
+export function quotePillOf(quoteKey: string, quoteSymbol: string): Card["quote"] {
+  if (quoteKey === "gitlawb") return { symbol: "GITLAWB", ticker: "GL", kind: "gitlawb" };
   const sym = quoteSymbol.trim();
-  if (!sym || sym === "?" || sym === "ETH" || sym === "USDG") return null;
-  if (sym === "GITLAWB") return { symbol: "GITLAWB", ticker: "GL", kind: "gitlawb" };
+  if (quoteKey !== "stock" || !sym || sym === "?") return null;
   return { symbol: sym.slice(0, 12), ticker: sym.replace(/c$/, "").toUpperCase().slice(0, 5), kind: "stock" };
 }
 

@@ -58,14 +58,14 @@ test("isNonce accepts 32 hex chars only", () => {
 
 test("share card shaping", () => {
   const now = Date.parse("2026-09-06T12:00:00Z");
-  const c = shapeCard({ name: "Dollar Dog", symbol: "DDOG", chain: "robinhood", fdv_usd: 12345, fdv_quote: 12345, quote_symbol: "USDG", change_from_launch: 0.234, lp_fee: 10000, recipients: [{ payout: DEAD, bps: 10000 }], block_time: "2026-09-06T09:30:00Z" }, now);
+  const c = shapeCard({ name: "Dollar Dog", symbol: "DDOG", chain: "robinhood", fdv_usd: 12345, fdv_quote: 12345, quote_key: "usdg", quote_symbol: "USDG", change_from_launch: 0.234, lp_fee: 10000, recipients: [{ payout: DEAD, bps: 10000 }], block_time: "2026-09-06T09:30:00Z" }, now);
   assert.deepEqual(c, { title: "Dollar Dog", symbol: "DDOG", chainLabel: "Robinhood Chain", mcap: "$12.3K", change: "+23%", up: true, fee: "1% fee, burned", age: "2h old", quote: null });
-  assert.deepEqual(shapeCard({ name: "Base Stock Test", symbol: "BSTK", chain: "base", fdv_usd: 25206, fdv_quote: 109.6, quote_symbol: "NVDAc", change_from_launch: 0, lp_fee: 10000, recipients: [{ payout: "0x00000000000000000000000000000000000c0ffe", bps: 10000 }], block_time: "2026-09-06T09:30:00Z" }, now).quote, { symbol: "NVDAc", ticker: "NVDA", kind: "stock" }, "stock quotes get a ticker tile on the card");
-  assert.deepEqual(shapeCard({ name: "Lawb Fan", symbol: "LAWB", chain: "base", fdv_usd: 9800, fdv_quote: 580_000_000, quote_symbol: "GITLAWB", change_from_launch: 0, lp_fee: 10000, recipients: [], block_time: "2026-09-06T09:30:00Z" }, now).quote, { symbol: "GITLAWB", ticker: "GL", kind: "gitlawb" }, "GITLAWB quotes get the Gitlawb mark");
+  assert.deepEqual(shapeCard({ name: "Base Stock Test", symbol: "BSTK", chain: "base", fdv_usd: 25206, fdv_quote: 109.6, quote_key: "stock", quote_symbol: "NVDAc", change_from_launch: 0, lp_fee: 10000, recipients: [{ payout: "0x00000000000000000000000000000000000c0ffe", bps: 10000 }], block_time: "2026-09-06T09:30:00Z" }, now).quote, { symbol: "NVDAc", ticker: "NVDA", kind: "stock" }, "stock quotes get a ticker tile on the card");
+  assert.deepEqual(shapeCard({ name: "Lawb Fan", symbol: "LAWB", chain: "base", fdv_usd: 9800, fdv_quote: 580_000_000, quote_key: "gitlawb", quote_symbol: "GITLAWB", change_from_launch: 0, lp_fee: 10000, recipients: [], block_time: "2026-09-06T09:30:00Z" }, now).quote, { symbol: "GITLAWB", ticker: "GL", kind: "gitlawb" }, "GITLAWB quotes get the Gitlawb mark");
   assert.equal(feeLabel(0, []), "0% fee");
   assert.equal(feeLabel(30000, [{ payout: "0x1", bps: 10000 }]), "3% fee → beneficiary");
   assert.equal(ageLabel("2026-09-06T11:59:30Z", now), "1m old");
-  assert.equal(shapeCard({ name: "X", symbol: "X", chain: "base", fdv_usd: null, fdv_quote: 2.5, quote_symbol: "ETH", change_from_launch: -0.5, lp_fee: 0, recipients: [], block_time: "2026-09-01T00:00:00Z" }, now).mcap, "2.50 ETH");
+  assert.equal(shapeCard({ name: "X", symbol: "X", chain: "base", fdv_usd: null, fdv_quote: 2.5, quote_key: "eth", quote_symbol: "ETH", change_from_launch: -0.5, lp_fee: 0, recipients: [], block_time: "2026-09-01T00:00:00Z" }, now).mcap, "2.50 ETH");
 });
 
 test("clampSocial: ≤125 chars on a word boundary with an ellipsis; short text untouched; whitespace collapsed", () => {
