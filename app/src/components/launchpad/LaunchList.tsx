@@ -238,7 +238,7 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
       </div>
       <div className="space-y-3 border-t border-line px-4 py-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <ToggleGroup aria-label="Chain" value={[chain ?? "all"]} onValueChange={(values) => { const value = values[0]; if (value) pick(sort, window_, value === "all" ? null : value as ChainKey); }}>
+          <ToggleGroup aria-label="Chain" value={[chain ?? "all"]} onValueChange={(values) => { const value = values[0]; if (!value) return; const c = value === "all" ? null : (value as ChainKey); const keep = !filter || FILTERS.some((f) => f.key === filter && (!f.chain || !c || f.chain === c)); pick(sort, window_, c, keep ? filter : null); }}>
             {CHAIN_FILTERS.map((c) => <ToggleGroupItem key={c.key ?? "all"} value={c.key ?? "all"}>{c.label}</ToggleGroupItem>)}
           </ToggleGroup>
           {showWindow ? <ToggleGroup aria-label="Volume window" value={[window_]} onValueChange={(values) => { if (values[0]) pick(sort, values[0] as VolumeWindow); }}>
@@ -248,7 +248,7 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
         <div className="flex items-start gap-2">
           <SlidersHorizontal aria-hidden="true" size={13} className="mt-3.5 shrink-0 text-muted" />
           <ToggleGroup aria-label="Quick filter" value={filter ? [filter] : []} onValueChange={(values) => pick(sort, window_, chain, (values[0] as LaunchFilter | undefined) ?? null)} className="min-w-0 gap-1 overflow-x-auto rounded-none border-0 bg-transparent p-0 bb-scroll">
-            {FILTERS.map((f) => <ToggleGroupItem key={f.key} value={f.key} title={f.title} className="min-h-10 px-2.5 text-[11px] data-pressed:bg-card">{f.label}</ToggleGroupItem>)}
+            {FILTERS.filter((f) => !f.chain || !chain || f.chain === chain).map((f) => <ToggleGroupItem key={f.key} value={f.key} title={f.title} className="min-h-10 px-2.5 text-[11px] data-pressed:bg-card">{f.label}</ToggleGroupItem>)}
           </ToggleGroup>
         </div>
       </div>

@@ -21,7 +21,9 @@ import { memo } from "@/lib/launchpad/memo";
 import { ago, nowMs } from "@/lib/launchpad/time";
 import { getLaunch, getSwaps } from "@/lib/launchpad/queries";
 import { ethUsd } from "@/lib/launchpad/ethPrice";
-import { NATIVE, TICK_SPACING, uniswapSwapUrl, type Quote } from "@/lib/launchpad/config";
+import { NATIVE, TICK_SPACING, quoteKeyOf, uniswapSwapUrl, type Quote } from "@/lib/launchpad/config";
+import { GITLAWB_SITE } from "@/lib/launchpad/gitlawb";
+import GitlawbBadge from "@/components/launchpad/GitlawbBadge";
 import { fmtCompact, fmtPrice, fmtQuote, fmtUsd, pipsToPct } from "@/lib/launchpad/math";
 import { marketCount as count } from "@/lib/launchpad/token-market";
 import { marketUsd } from "@/lib/launchpad/market-format";
@@ -55,7 +57,7 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
   const l = await getLaunch(chain, token, usd);
   if (!l) notFound();
   const quote: Quote = {
-    key: l.quote === NATIVE ? "eth" : l.quote_symbol === "USDG" ? "usdg" : "stock",
+    key: quoteKeyOf(chain, l.quote),
     address: l.quote as Address,
     symbol: l.quote_symbol,
     decimals: l.quote_decimals,
@@ -89,7 +91,7 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
             <TokenAvatar chain={l.chain} token={l.token} symbol={l.symbol} image={l.image_url} size={56} className="shrink-0 rounded-2xl" />
             <div className="min-w-0">
               <h1 className="break-words font-display text-2xl font-bold tracking-[-0.03em] text-ink sm:text-3xl">{l.name}</h1>
-              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted"><span className="font-mono text-body">${l.symbol}</span><span aria-hidden>·</span><span>Paired with {quote.symbol}</span><span aria-hidden>·</span><span title={new Date(l.block_time).toUTCString()}>Launched {ago(l.block_time, now)} ago</span></div>
+              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted"><span className="font-mono text-body">${l.symbol}</span><span aria-hidden>·</span>{quote.key === "gitlawb" ? <GitlawbBadge label="Paired with GITLAWB" /> : <span>Paired with {quote.symbol}</span>}<span aria-hidden>·</span><span title={new Date(l.block_time).toUTCString()}>Launched {ago(l.block_time, now)} ago</span></div>
             </div>
           </div>
           <div className="flex max-w-full flex-wrap items-center gap-2">
@@ -140,6 +142,7 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
                   <Row k="Launched" v={new Date(l.block_time).toUTCString().replace(" GMT", " UTC")} />
                 </dl>
                 {stockQuote ? <p className="mt-4 text-xs leading-relaxed text-muted text-pretty">Paired with {stockQuote.name} ({stockQuote.symbol}), a third-party tokenized stock. These securities are not offered to US persons. The quote asset is identified from the issuer registry, not its token name.</p> : null}
+                {quote.key === "gitlawb" ? <p className="mt-4 text-xs leading-relaxed text-muted text-pretty">Paired with GITLAWB, <a href={GITLAWB_SITE} target="_blank" rel="noreferrer" className="underline decoration-line underline-offset-2 hover:text-ink">Gitlawb</a>&apos;s token{chain === "robinhood" ? " (bridged 1:1 from Base over LayerZero; one supply, two chains)" : " on Base"}. {mode === "free" ? "This pool has no trading fee." : mode === "burn" ? "Every trading fee on this pool is burned as GITLAWB." : "Trading fees on this pool are paid out in GITLAWB."} USD figures use the Uniswap v4 WETH/GITLAWB pool price on Base.</p> : null}
               </section>}
             />
           </div>

@@ -8,6 +8,7 @@ import { getPublicClient, getWalletClient } from "wagmi/actions";
 import type { Address } from "viem";
 import TokenAvatar from "./TokenAvatar";
 import ChainBadge from "./ChainBadge";
+import GitlawbBadge, { isGitlawbQuote } from "./GitlawbBadge";
 import FeeChip, { feeModeOf } from "./FeeChip";
 import EditTokenSheet from "./EditTokenSheet";
 import { toast } from "./TxToasts";
@@ -246,6 +247,7 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
                         <span className="font-semibold text-[15px] text-ink truncate">{l.name}</span>
                         <span className="font-mono text-xs text-muted">{l.symbol}</span>
                         <ChainBadge chain={l.chain} />
+                        {isGitlawbQuote(l.quote_key) ? <GitlawbBadge /> : null}
                       </div>
                       <div className={styles.tokenMeta}>
                         <FeeChip lpFee={l.lp_fee} mode={feeModeOf(l.lp_fee, l.recipients)} />
@@ -295,6 +297,7 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
                       <span className="font-semibold text-ink truncate">{t.name}</span>
                       <span className="font-mono text-xs text-muted">{t.symbol}</span>
                       <ChainBadge chain={t.chain} />
+                      {isGitlawbQuote(t.quote_key) ? <GitlawbBadge /> : null}
                     </div>
                     <div className={styles.tokenMeta}>
                       {t.my_buys} buys · {t.my_sells} sells · mc {t.fdv_usd !== null ? fmtUsd(t.fdv_usd, { compact: true }) : "—"}

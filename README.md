@@ -32,7 +32,8 @@ Creators choose a 0 / 1 / 3 % trading fee that is pushed **in full** to benefici
 - **Rug-proof liquidity.** The position NFT lives in a locker with no owner, no pause, no upgrade path and
   no transfer function. Proven with an adversarial fork suite against the live deployment.
 - **Two chains, one set of addresses.** Base and Robinhood Chain, same contracts, same rules.
-- **Any quote asset.** ETH, USDG, or a **tokenized stock**: Coinbase's B20 stocks on Base
+- **Any quote asset.** ETH, USDG, **GITLAWB** ([Gitlawb](https://gitlawb.com)'s token, on Base and bridged 1:1 to
+  Robinhood Chain; priced from its Base Uniswap v4 WETH pool; fees paid or burned in GITLAWB), or a **tokenized stock**: Coinbase's B20 stocks on Base
   (NVDAc, AAPLc, TSLAc, …, priced from Chainlink on-chain feeds) and Robinhood Stock Tokens on Robinhood Chain.
 - **Trade in-page.** Buys and sells go straight to the Uniswap v4 pool through the Universal Router; the site
   never touches funds.

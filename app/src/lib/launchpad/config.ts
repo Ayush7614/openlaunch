@@ -1,5 +1,6 @@
 import { isAddress, type Address } from "viem";
 import { CHAIN_KEYS, SITE_URL, type ChainKey } from "@/lib/chainPublic";
+import { GITLAWB_ADDRESS, GITLAWB_ADDRESS_ROBINHOOD, GITLAWB_DECIMALS, GITLAWB_LOGO_PATH, GITLAWB_NAME, GITLAWB_SYMBOL } from "./gitlawb";
 
 /**
  * CLIENT-SAFE launchpad config, per chain. Only NEXT_PUBLIC_* vars are read here.
@@ -13,12 +14,15 @@ export const DEAD = "0x000000000000000000000000000000000000dEaD" as const;
 export const NATIVE = "0x0000000000000000000000000000000000000000" as const;
 export const BPS = 10_000;
 
-export type Quote = { key: "eth" | "usdg" | "stock"; address: Address; symbol: string; decimals: number; usd: number | null /* fixed USD price (stables); live for stocks */; name?: string; logo?: string | null };
+export type Quote = { key: "eth" | "usdg" | "gitlawb" | "stock"; address: Address; symbol: string; decimals: number; usd: number | null /* fixed USD price (stables); live for stocks + GITLAWB (server-filled) */; name?: string; logo?: string | null };
 export type V4 = { poolManager: Address; positionManager: Address; stateView: Address; quoter: Address; universalRouter: Address; permit2: Address; swapLayout: "v1" | "v2" };
 export type ChainLaunchpad = { key: ChainKey; factory: Address | null; locker: Address | null; v4: V4; quotes: Quote[]; configured: boolean };
 
 const ETH: Quote = { key: "eth", address: NATIVE, symbol: "ETH", decimals: 18, usd: null };
 const USDG: Quote = { key: "usdg", address: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168", symbol: "USDG", decimals: 6, usd: 1 };
+/** GITLAWB: usd is null here (client-safe static); the server fills the live price (gitlawbServer.ts). Robinhood's is the LayerZero OFT of the Base token. */
+const GITLAWB: Quote = { key: "gitlawb", address: GITLAWB_ADDRESS as Address, symbol: GITLAWB_SYMBOL, decimals: GITLAWB_DECIMALS, usd: null, name: GITLAWB_NAME, logo: GITLAWB_LOGO_PATH };
+const GITLAWB_RH: Quote = { ...GITLAWB, address: GITLAWB_ADDRESS_ROBINHOOD as Address };
 
 /** Canonical Uniswap v4 deployments (developers.uniswap.org/docs/protocols/v4/deployments). */
 const V4_BY_CHAIN: Record<ChainKey, V4> = {
@@ -42,7 +46,7 @@ const V4_BY_CHAIN: Record<ChainKey, V4> = {
   },
 };
 /** Quote assets offered per chain, first = default. */
-const QUOTES_BY_CHAIN: Record<ChainKey, Quote[]> = { base: [ETH], robinhood: [USDG, ETH] };
+const QUOTES_BY_CHAIN: Record<ChainKey, Quote[]> = { base: [ETH, GITLAWB], robinhood: [USDG, ETH, GITLAWB_RH] };
 
 function addr(v: string | undefined): Address | null {
   const raw = (v ?? "").trim();
@@ -85,6 +89,11 @@ export function quoteInfo(key: ChainKey, address: string): Quote {
   return QUOTES_BY_CHAIN[key].find((q) => q.address.toLowerCase() === a) ?? { key: "stock", address: address as Address, symbol: "?", decimals: 18, usd: null };
 }
 
+/** Quote key for a stored quote address: a fixed quote's key, else "stock" (= some ERC20, priced only if a registry knows it). */
+export function quoteKeyOf(key: ChainKey, address: string): Quote["key"] {
+  return quoteInfo(key, address).key;
+}
+
 export { quoteUsdOf } from "./math";
 
 /** LP fee presets offered in the form (pips). */
@@ -95,9 +104,9 @@ export const FEE_PRESETS = [
 ] as const;
 
 /** Starting market cap presets per quote (fully diluted, in quote units). */
-export const MCAP_PRESETS: Record<Quote["key"], number[]> = { eth: [1, 5, 10, 25], usdg: [5_000, 10_000, 25_000, 100_000], stock: [] /* derived from the live price */ };
+export const MCAP_PRESETS: Record<Quote["key"], number[]> = { eth: [1, 5, 10, 25], usdg: [5_000, 10_000, 25_000, 100_000], gitlawb: [] /* derived from the live price */, stock: [] /* derived from the live price */ };
 /** Buy amount presets per quote. */
-export const BUY_PRESETS: Record<Quote["key"], string[]> = { eth: ["0.01", "0.05", "0.1", "0.5"], usdg: ["5", "25", "100", "500"], stock: ["0.1", "0.5", "1", "5"] };
+export const BUY_PRESETS: Record<Quote["key"], string[]> = { eth: ["0.01", "0.05", "0.1", "0.5"], usdg: ["5", "25", "100", "500"], gitlawb: ["100000", "500000", "1000000", "5000000"], stock: ["0.1", "0.5", "1", "5"] };
 
 /** Browser RPC: dev override per chain, else our same-origin proxy (→ Alchemy/public, key stays server-side). */
 export function browserRpc(key: ChainKey): string {

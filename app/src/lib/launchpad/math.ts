@@ -163,10 +163,22 @@ export function pipsToPct(pips: number): string {
   return `${Number.isInteger(pct) ? pct : pct.toFixed(2)}%`;
 }
 
-/** "12.5 USDG" / "0.05 ETH" from a raw amount. */
+const COMPACT = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 2 });
+
+/**
+ * Whole quote units for display. ≤6-dec quotes (stables) show 2 decimals; 18-dec quotes show ETH-style
+ * precision below 100K units and compact above (GITLAWB: millions per dollar → "1.2M", never
+ * "1200000.0000"; 999,999 → "1M", not "1000.00K").
+ */
+export function fmtQuoteUnits(v: number, decimals: number): string {
+  if (!Number.isFinite(v)) return "—";
+  if (decimals <= 6) return (Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(2)).replace(/\.00$/, "");
+  return Math.round(Math.abs(v)) >= 100_000 ? COMPACT.format(v) : fmtEth(v);
+}
+
+/** "12.5 USDG" / "0.05 ETH" / "1.2M GITLAWB" from a raw amount. */
 export function fmtQuote(raw: bigint | string, decimals: number, symbol: string): string {
-  const v = units(raw, decimals);
-  return `${decimals <= 6 ? (v >= 100 ? v.toFixed(0) : v.toFixed(2)).replace(/\.00$/, "") : fmtEth(v)} ${symbol}`;
+  return `${fmtQuoteUnits(units(raw, decimals), decimals)} ${symbol}`;
 }
 
 export const WAD_ = WAD;

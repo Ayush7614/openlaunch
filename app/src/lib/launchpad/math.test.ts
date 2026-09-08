@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fdvForStartTick, fmtCompact, fmtEth, fmtPrice, fmtUsd, initialBuyPreview, minOut, poolIdOf, quoteUsdOf, startTickForFdv, sqrtPriceToTokensPerQuote, tickToTokensPerQuote } from "./math.ts";
+import { fdvForStartTick, fmtCompact, fmtEth, fmtQuoteUnits, fmtPrice, fmtUsd, initialBuyPreview, minOut, poolIdOf, quoteUsdOf, startTickForFdv, sqrtPriceToTokensPerQuote, tickToTokensPerQuote } from "./math.ts";
 import { encodeV4ExactInSingle } from "./swap.ts";
 
 test("startTickForFdv: 10 ETH FDV on 1B supply ≈ tick 184200 (1 ETH = 100M tokens)", () => {
@@ -124,4 +124,15 @@ test("initialBuyPreview: the LP fee reduces output; quote decimals are honoured"
   const u = initialBuyPreview({ startTick: t6, amountInRaw: 10n * 10n ** 6n, quoteDecimals: 6 });
   assert.ok(u.pctOfSupply > 0.9 && u.pctOfSupply < 1.0, `got ${u.pctOfSupply}`);
   assert.ok(u.fdvAfter > 1_000 && u.fdvAfter < 1_100, `fdv after ${u.fdvAfter}`);
+});
+
+test("fmtQuoteUnits: stables 2dp, 18-dec ETH-style below 100K, compact above with suffix promotion", () => {
+  assert.equal(fmtQuoteUnits(12.5, 6), "12.50");
+  assert.equal(fmtQuoteUnits(250, 6), "250");
+  assert.equal(fmtQuoteUnits(0.0421, 18), "0.0421");
+  assert.equal(fmtQuoteUnits(99_999.99999999999, 18), "100K", "float noise at the boundary still compacts");
+  assert.equal(fmtQuoteUnits(150_000, 18), "150K");
+  assert.equal(fmtQuoteUnits(999_999, 18), "1M", "no 1000.00K");
+  assert.equal(fmtQuoteUnits(1_234_567, 18), "1.23M");
+  assert.equal(fmtQuoteUnits(594_540_000, 18), "594.54M");
 });
