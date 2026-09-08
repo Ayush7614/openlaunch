@@ -8,6 +8,7 @@ import { ArrowRight, Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Navbar, NavBody, MobileNav, MobileNavHeader, MobileNavMenu } from "./navigation-shell";
 import Mark, { Wordmark } from "./launchpad/Mark";
+import { BRAND_X } from "@/lib/brand";
 import ConnectButton from "./ConnectButton";
 import ThemeToggle from "./ThemeToggle";
 import LivePulse from "./launchpad/LivePulse";
@@ -176,6 +177,29 @@ function LaunchCta({ compact = false, block = false, quiet = false, onNavigate }
   );
 }
 
+/** The official account: a labelled row in the mobile menu (the desktop strip stays uncrowded; the footer carries it). */
+function XLink({ block = false }: { block?: boolean }) {
+  const href = `https://x.com/${BRAND_X}`;
+  const icon = (
+    <svg viewBox="0 0 24 24" width={15} height={15} fill="currentColor" aria-hidden>
+      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+    </svg>
+  );
+  if (block) {
+    return (
+      <a href={href} target="_blank" rel="noreferrer" className="min-h-12 px-3 flex items-center justify-between gap-3 rounded-xl text-base font-medium text-ink hover:bg-line">
+        <span>@{BRAND_X} <span className="text-muted">· on X</span></span>
+        {icon}
+      </a>
+    );
+  }
+  return (
+    <a href={href} target="_blank" rel="noreferrer" aria-label={`@${BRAND_X} on X`} title={`@${BRAND_X} on X`} className="h-9 w-9 inline-flex items-center justify-center rounded-full border border-line bg-card text-body hover:text-ink hover:border-line-strong">
+      {icon}
+    </a>
+  );
+}
+
 // ── mobile ───────────────────────────────────────────────────────────────────
 
 function Mobile({ visible = false, pulse, isActive }: { visible?: boolean; pulse: Pulse; isActive: (href: string) => boolean }) {
@@ -234,6 +258,7 @@ function Mobile({ visible = false, pulse, isActive }: { visible?: boolean; pulse
           })}
           <LivePulse initial={pulse} block />
           <div className="my-1 border-t border-line" aria-hidden />
+          <XLink block />
           <ThemeToggle block />
           <ConnectButton block onNavigate={() => setOpen(false)} />
           <LaunchCta block onNavigate={() => setOpen(false)} />

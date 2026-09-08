@@ -18,7 +18,7 @@ export default function LaunchMechanism() {
     <dl className="mt-4 grid grid-cols-3 gap-3">
       <Metric label="Tokens launched" value={count(t.launches)} />
       <Metric label="All-time volume" value={fmtUsd(t.volume_usd, { compact: true })} title={fmtUsd(t.volume_usd)} />
-      <Metric label="Fees to recipients" value={fmtUsd(t.fees_to_creators_usd, { compact: true })} title={fmtUsd(t.fees_to_creators_usd)} />
+      <Metric label="Fees to recipients" value={fmtUsd(t.fees_to_creators_usd, { compact: true })} title={fmtUsd(t.fees_to_creators_usd)} accent />
     </dl>
     <details className="group mt-3">
       <summary className="flex min-h-9 w-fit cursor-pointer list-none items-center gap-1.5 text-[11px] text-muted hover:text-ink [&::-webkit-details-marker]:hidden">Across Base & Robinhood<ChevronDown size={12} aria-hidden className="group-open:rotate-180" /><span className="sr-only">. Show the network breakdown</span></summary>
@@ -33,6 +33,6 @@ export default function LaunchMechanism() {
   </div>;
 }
 
-function Metric({ label, value, title }: { label: string; value: string; title?: string }) {
-  return <div className="min-w-0"><dt className="min-h-7 sm:min-h-0 text-[10px] sm:text-[11px] text-muted">{label}</dt><dd title={title} className="mt-1.5 break-words font-mono text-xl sm:text-2xl font-bold tracking-[-0.05em] text-ink tnum">{value}</dd></div>;
+function Metric({ label, value, title, accent = false }: { label: string; value: string; title?: string; accent?: boolean }) {
+  return <div className="min-w-0"><dt className="min-h-7 sm:min-h-0 text-[10px] sm:text-[11px] text-muted">{label}</dt><dd title={title} className={`mt-1.5 break-words font-mono text-xl sm:text-2xl font-bold tracking-[-0.05em] tnum ${accent ? "text-up" : "text-ink"}`}>{value}</dd></div>;
 }

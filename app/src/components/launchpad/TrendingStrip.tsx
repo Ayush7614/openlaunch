@@ -74,8 +74,10 @@ export default function TrendingStrip({ initial }: { initial: Snap }) {
             const volume = snap.window === "1h" ? row.volume_1h_usd : row.volume_24h_usd;
             const quoteVolume = snap.window === "1h" ? row.volume_1h : row.volume_24h;
             const volumeLabel = volume !== null ? marketUsd(volume) : fmtQuote(quoteVolume, row.quote_decimals, row.quote_symbol);
+            // `relative`: the cards hold sr-only (absolutely positioned) labels; without a positioned ancestor inside
+            // the scroller they resolve against <main> and stretch the whole page sideways on phones
             return (
-              <li key={launchKey(row)} className="min-w-0 snap-start">
+              <li key={launchKey(row)} className="relative min-w-0 snap-start">
                 <Link href={`/t/${row.chain}/${row.token}`} className={`group block h-full rounded-xl border bg-card p-3.5 transition-colors hover:border-muted motion-reduce:transition-none ${index === 0 ? "border-line-strong" : "border-line"}`}>
                   <div className="mb-3 flex items-center justify-between text-[11px] text-muted">
                     <span className="font-mono tnum">0{index + 1}<span className="sr-only"> ranked</span></span>
