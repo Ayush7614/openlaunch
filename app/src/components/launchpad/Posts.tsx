@@ -12,8 +12,9 @@ import { btn } from "@/components/ui";
 import { buildModMessage, buildPostMessage, buildReportMessage, POST_MAX, REPORT_REASONS, validateBody, type ReportReason } from "@/lib/launchpad/posts";
 import type { PostRow } from "@/lib/launchpad/postsServer";
 import { ago, nowMs } from "@/lib/launchpad/time";
-import { CHAINS, shortAddr, type ChainKey } from "@/lib/chainPublic";
+import { CHAINS, CHAIN_SHORT, shortAddr, type ChainKey } from "@/lib/chainPublic";
 import { friendlyError } from "@/lib/errors";
+import { ChevronDown, MessageSquare } from "lucide-react";
 
 function nonce(): string {
   const b = new Uint8Array(16);
@@ -38,7 +39,7 @@ async function signed(config: ReturnType<typeof useConfig>, chain: ChainKey, mes
  * (creator, holder, or has traded/launched here) and a free signature. One
  * reply level. Report and (for the creator) mute are signatures too.
  */
-export default function TokenComments({ chain, token, symbol, launcher }: { chain: ChainKey; token: string; symbol: string; launcher: string }) {
+export default function TokenComments({ chain, token, symbol, launcher, embedded = false }: { chain: ChainKey; token: string; symbol: string; launcher: string; embedded?: boolean }) {
   const { address, isConnected } = useAccount();
   const { connect, connectors, isPending: connecting } = useConnect();
   const config = useConfig();
@@ -149,7 +150,7 @@ export default function TokenComments({ chain, token, symbol, launcher }: { chai
   const c = connectors.find((x) => x.id === "coinbaseWallet") ?? connectors[0];
 
   return (
-    <section className="rounded-2xl bg-card border border-line shadow-card overflow-hidden" id="comments">
+    <section className={embedded ? "overflow-hidden bg-paper" : "rounded-2xl bg-card border border-line overflow-hidden"} id="comments">
       <div className="px-4 h-11 flex items-center justify-between border-b border-line">
         <h2 className="text-sm font-semibold text-ink">
           Comments <span className="ml-1 text-xs font-normal text-muted font-mono tnum">{posts.length}</span>
@@ -292,12 +293,10 @@ export function PostsFeed({ initial, compact = false }: { initial: PostRow[]; co
   const [collapsed, setCollapsed] = useState(false);
   useEffect(() => {
     if (!compact) return;
-    try {
-      const t = setTimeout(() => setCollapsed(localStorage.getItem("bb:posts-collapsed") === "1"), 0);
-      return () => clearTimeout(t);
-    } catch {
-      /* storage unavailable */
-    }
+    const t = setTimeout(() => {
+      try { setCollapsed(localStorage.getItem("bb:posts-collapsed") === "1"); } catch { /* storage unavailable */ }
+    }, 0);
+    return () => clearTimeout(t);
   }, [compact]);
   const toggle = () => {
     const next = !collapsed;
@@ -310,28 +309,28 @@ export function PostsFeed({ initial, compact = false }: { initial: PostRow[]; co
   };
   const shown = compact ? posts.slice(0, COMPACT_LIMIT) : posts;
   return (
-    <section className="rounded-2xl bg-card border border-line shadow-card overflow-hidden">
-      <div className={`px-4 h-11 flex items-center justify-between ${compact && collapsed ? "" : "border-b border-line"}`}>
+    <section className={`rounded-2xl border border-line overflow-hidden ${compact ? "bg-paper" : "bg-card"}`}>
+      <div className={`px-4 ${compact ? "min-h-14" : "h-11"} flex items-center justify-between gap-2 ${compact && collapsed ? "" : "border-b border-line"}`}>
         <h2 className="text-sm font-semibold text-ink flex items-center gap-2">
+          {compact ? <MessageSquare size={14} aria-hidden="true" className="text-muted" /> : null}
           Posts
-          {compact ? <span className="text-[11px] font-normal text-muted">{collapsed ? `${posts.length} recent` : "last 5"}</span> : null}
+          {compact && posts.length > 0 ? <span className="font-mono text-[11px] font-normal text-muted tnum" title={`Showing the latest ${Math.min(COMPACT_LIMIT, posts.length)} of ${posts.length} recent posts`}>{posts.length}</span> : null}
         </h2>
         {compact ? (
           <div className="flex items-center gap-2">
-            <Link href="/feed" className="text-[11px] text-brand hover:underline underline-offset-4">
-              all posts →
+            <Link href="/feed" className="inline-flex min-h-10 items-center text-[11px] text-muted hover:text-ink">
+              View all ↗
             </Link>
             <button
               type="button"
               onClick={toggle}
               aria-expanded={!collapsed}
               aria-controls="home-posts"
+              aria-label={collapsed ? "Show posts" : "Hide posts"}
               title={collapsed ? "Show posts" : "Hide posts"}
-              className="h-7 w-7 inline-flex items-center justify-center rounded-lg text-muted hover:text-ink hover:bg-paper"
+              className="h-10 w-10 inline-flex items-center justify-center rounded-lg text-muted hover:text-ink hover:bg-card"
             >
-              <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${collapsed ? "-rotate-90" : ""}`} aria-hidden>
-                <path d="M6 9l6 6 6-6" />
-              </svg>
+              <ChevronDown size={14} className={`transition-transform motion-reduce:transition-none ${collapsed ? "-rotate-90" : ""}`} aria-hidden="true" />
             </button>
           </div>
         ) : (
@@ -339,19 +338,22 @@ export function PostsFeed({ initial, compact = false }: { initial: PostRow[]; co
         )}
       </div>
       <ul id="home-posts" className="divide-y divide-line" hidden={compact && collapsed}>
-        {shown.length === 0 ? <li className="px-4 py-8 text-center text-sm text-muted">No posts yet. Holders and creators can post on any token page.</li> : null}
+        {shown.length === 0 ? <li className={`px-4 py-6 ${compact ? "" : "text-center"}`}><p className="text-xs font-medium text-ink">The conversation starts on a token page.</p><p className="mt-1.5 text-pretty text-xs leading-relaxed text-muted">No posts yet. Holders, traders and creators can join with a wallet signature.</p></li> : null}
         {shown.map((p) => (
           <li key={p.id} className="px-4 py-3">
             <Link href={`/t/${p.chain}/${p.token}#comments`} className="flex items-start gap-2.5 min-w-0">
-              <TokenAvatar token={p.token} symbol={p.symbol ?? "?"} size={28} />
+              <TokenAvatar chain={p.chain} token={p.token} symbol={p.symbol ?? "?"} size={28} />
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5 text-[11px] text-muted font-mono min-w-0">
+                {compact ? <>
+                  <div className="flex min-w-0 items-center justify-between gap-2 text-[11px]"><span className="truncate font-semibold text-ink">{p.symbol}</span><time dateTime={p.created_at} className="shrink-0 font-mono text-muted tnum" suppressHydrationWarning>{now ? ago(p.created_at, now) : ""}</time></div>
+                  <p className="mt-0.5 truncate text-[10px] text-muted">{CHAIN_SHORT[p.chain]}{p.tag ? ` · ${p.tag}` : ""} · <span className="font-mono">{shortAddr(p.wallet)}</span></p>
+                </> : <div className="flex items-center gap-1.5 text-[11px] text-muted font-mono min-w-0">
                   <span className="text-ink font-sans font-semibold shrink-0">{p.symbol}</span>
                   <ChainBadge chain={p.chain} className="shrink-0" />
                   <TagChip tag={p.tag} />
                   {!compact ? <span className="truncate">{shortAddr(p.wallet)}</span> : null}
                   <span className="ml-auto shrink-0" suppressHydrationWarning>{now ? ago(p.created_at, now) : ""}</span>
-                </div>
+                </div>}
                 <p className={`mt-0.5 text-[13px] text-ink whitespace-pre-wrap break-words ${compact ? "line-clamp-3" : ""}`}>{p.body}</p>
               </div>
             </Link>

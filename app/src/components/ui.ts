@@ -11,7 +11,8 @@ export const btn = {
   soft: `${btnBase} min-h-11 px-5 bg-brand-soft text-brand hover:bg-brand hover:text-inverse`,
   softSm: `${btnBase} min-h-9 px-3.5 text-[13px] bg-brand-soft text-brand hover:bg-brand hover:text-inverse`,
   up: `${btnBase} min-h-11 px-5 bg-up text-inverse hover:brightness-110`,
-  warm: `${btnBase} min-h-11 px-5 bg-warm text-inverse hover:brightness-110`,
+  // bg-warm-ink, not bg-warm: white on #d97706 is 3.19:1, below AA for a filled control.
+  warm: `${btnBase} min-h-11 px-5 bg-warm-ink text-inverse hover:brightness-110`,
   warmOutline: `${btnBase} min-h-11 px-5 bg-warm-soft text-warm-ink border border-warm/40 hover:border-warm`,
   icon: `${btnBase} h-10 w-10 rounded-xl text-ink hover:bg-paper border border-transparent hover:border-line`,
 };

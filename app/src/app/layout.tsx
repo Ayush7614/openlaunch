@@ -7,10 +7,9 @@ import TxToasts from "@/components/launchpad/TxToasts";
 import LiveProvider from "@/components/launchpad/LiveProvider";
 import { getLaunchFeed, getLaunchTotals } from "@/lib/launchpad/queries";
 import { ethUsd } from "@/lib/launchpad/ethPrice";
-import { SITE_URL, explorerAddress } from "@/lib/chainPublic";
-import { launchpad } from "@/lib/launchpad/config";
-import { BRAND, BRAND_DOMAIN, BRAND_GITHUB, BRAND_TLD, BRAND_X, SITE_DESCRIPTION, SITE_TITLE, SOCIAL_DESCRIPTION } from "@/lib/brand";
-import Mark from "@/components/launchpad/Mark";
+import { SITE_URL } from "@/lib/chainPublic";
+import { BRAND, BRAND_DOMAIN, BRAND_X, SITE_DESCRIPTION, SITE_TITLE, SOCIAL_DESCRIPTION } from "@/lib/brand";
+import Footer from "@/components/Footer";
 import RouteProgress from "@/components/RouteProgress";
 import ThemeProvider from "@/components/ThemeProvider";
 import { Suspense } from "react";
@@ -33,17 +32,15 @@ export const metadata: Metadata = {
 };
 
 // Light is the default; dark is a class the header toggle adds, never an OS preference, so the
-// pre-CSS hints stay light (as on main). ThemeProvider keeps theme-color in step after a toggle.
+// pre-CSS hints stay light. ThemeProvider keeps theme-color in step after a toggle.
 export const viewport: Viewport = { themeColor: "#FAFAF8", colorScheme: "light", width: "device-width", initialScale: 1, viewportFit: "cover" };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const usd = await ethUsd();
   const [feed, totals] = await Promise.all([getLaunchFeed(24, usd).catch(() => []), getLaunchTotals(usd)]);
-  const b = launchpad("base");
-  const r = launchpad("robinhood");
   return (
     <html lang="en" className={`${inter.variable} ${spaceMono.variable} ${unbounded.variable}`} suppressHydrationWarning>
-      <body className="min-h-screen flex flex-col">
+      <body id="site-top" tabIndex={-1} className="min-h-screen flex flex-col">
         <ThemeProvider>
         <Web3Provider>
           <LiveProvider initial={{ at: 0, feed, totals, ethUsd: usd }}>
@@ -53,36 +50,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <Header />
           <TxToasts />
           <div className="flex-1 min-w-0">{children}</div>
-          <footer className="bb-footer mx-auto w-full max-w-6xl px-4 py-10 text-xs text-muted flex flex-wrap items-center gap-x-5 gap-y-2">
-            <span className="font-semibold text-ink inline-flex items-center gap-1.5">
-              <Mark size={16} />
-              {BRAND}<span className="text-brand">{BRAND_TLD}</span>
-            </span>
-            <span>free · open source · Base + Robinhood Chain · agents welcome</span>
-            <a href="/launch" className="hover:text-ink">launch</a>
-            <a href="/rules" className="hover:text-ink">how it works</a>
-            <a href="/agents" className="hover:text-ink">agents</a>
-            <a href="/llms.txt" className="hover:text-ink">llms.txt</a>
-            <a href={BRAND_GITHUB} target="_blank" rel="noreferrer" className="hover:text-ink">
-              source · GitHub ↗
-            </a>
-            {b.factory ? (
-              <a href={explorerAddress("base", b.factory)} target="_blank" rel="noreferrer" className="hover:text-ink">
-                factory · Base ↗
-              </a>
-            ) : null}
-            {r.factory ? (
-              <a href={explorerAddress("robinhood", r.factory)} target="_blank" rel="noreferrer" className="hover:text-ink">
-                factory · Robinhood ↗
-              </a>
-            ) : null}
-            <a href="/rules#contracts" className="hover:text-ink">
-              verified contracts
-            </a>
-            <a href={`https://x.com/${BRAND_X}`} className="hover:text-ink" target="_blank" rel="noreferrer">
-              @{BRAND_X}
-            </a>
-          </footer>
+          <Footer />
           </LiveProvider>
         </Web3Provider>
         </ThemeProvider>

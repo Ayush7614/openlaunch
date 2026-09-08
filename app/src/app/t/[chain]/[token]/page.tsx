@@ -2,8 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { isAddress, type Address } from "viem";
+import { ArrowLeft, ArrowUpRight, Globe, Share2 } from "lucide-react";
 import TokenAvatar from "@/components/launchpad/TokenAvatar";
-import FeeChip, { feeModeOf } from "@/components/launchpad/FeeChip";
+import { feeModeOf } from "@/components/launchpad/FeeChip";
 import TradePanel from "@/components/launchpad/TradePanel";
 import CollectPanel from "@/components/launchpad/CollectPanel";
 import CopyChip from "@/components/launchpad/CopyChip";
@@ -12,14 +13,18 @@ import PriceChart from "@/components/launchpad/PriceChart";
 import TokenComments from "@/components/launchpad/Posts";
 import ChangeChip from "@/components/launchpad/ChangeChip";
 import HoldersPanel from "@/components/launchpad/HoldersPanel";
+import TokenDetails from "@/components/launchpad/TokenDetails";
+import TokenTrades from "@/components/launchpad/TokenTrades";
+import LaunchReceipt from "@/components/launchpad/LaunchReceipt";
 import { getHolderPanel } from "@/lib/launchpad/holdersServer";
 import { memo } from "@/lib/launchpad/memo";
 import { ago, nowMs } from "@/lib/launchpad/time";
-import ChainBadge from "@/components/launchpad/ChainBadge";
 import { getLaunch, getSwaps } from "@/lib/launchpad/queries";
 import { ethUsd } from "@/lib/launchpad/ethPrice";
 import { NATIVE, TICK_SPACING, uniswapSwapUrl, type Quote } from "@/lib/launchpad/config";
-import { fmtCompact, fmtPrice, fmtQuote, fmtUsd } from "@/lib/launchpad/math";
+import { fmtCompact, fmtPrice, fmtQuote, fmtUsd, pipsToPct } from "@/lib/launchpad/math";
+import { marketCount as count } from "@/lib/launchpad/token-market";
+import { marketUsd } from "@/lib/launchpad/market-format";
 import { CHAIN_LABELS, SITE_URL, explorerAddress, explorerName, explorerTx, isChainKey, shortAddr } from "@/lib/chainPublic";
 import { stockByAddress } from "@/lib/launchpad/stocksServer";
 import { BRAND_DOMAIN, BRAND_X } from "@/lib/brand";
@@ -32,7 +37,7 @@ export async function generateMetadata({ params }: { params: Promise<{ chain: st
   const l = isChainKey(chain) && isAddress(token) ? await getLaunch(chain, token) : null;
   if (!l) return { title: "Token not found" };
   const title = `${l.name} (${l.symbol})`;
-  const description = clampSocial(l.description ?? `${l.name} launched on openlaunch.lol — 100% of supply locked as Uniswap v4 liquidity on ${CHAIN_LABELS[l.chain]}, ${l.lp_fee === 0 ? "0% trading fee" : "no platform fee"}.`, 155);
+  const description = clampSocial(l.description ?? `${l.name} launched on openlaunch.lol. 100% of supply locked as Uniswap v4 liquidity on ${CHAIN_LABELS[l.chain]}, ${l.lp_fee === 0 ? "0% trading fee" : "no platform fee"}.`, 155);
   // Next replaces nested metadata objects rather than merging them, so repeat the site-level fields here:
   // og:site_name (Discord shows it above the title) and twitter summary_large_image (full-width card).
   return {
@@ -65,213 +70,92 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
   const fdvUsd = l.fdv_usd;
   const chainLabel = CHAIN_LABELS[chain];
   const fdvQuoteLabel = fmtQuote(BigInt(Math.round(l.fdv_quote * 10 ** quote.decimals)), quote.decimals, quote.symbol);
-  const shareText = `${l.name} ($${l.symbol}) on ${chainLabel} — ${l.lp_fee === 0 ? "0% fee" : mode === "burn" ? "fees burned" : "no platform fee"}, liquidity locked forever`;
+  const shareText = `${l.name} ($${l.symbol}) on ${chainLabel}. ${l.lp_fee === 0 ? "0% fee" : mode === "burn" ? "fees burned" : "no platform fee"}, liquidity locked forever`;
+
+  const supplyLabel = fmtCompact(Number(BigInt(l.supply)) / 1e18, 0);
+  const feeRoute = mode === "free" ? "No trading fee" : `${pipsToPct(l.lp_fee)} trading fee → ${mode === "burn" ? "burned" : mode === "split" ? "beneficiaries" : "beneficiary"}`;
+  const utility = "inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-line px-2.5 text-xs text-muted hover:border-line-strong hover:text-ink";
 
   return (
     <>
-      <div className="bb-sky" aria-hidden />
-      <main className="relative mx-auto max-w-6xl px-4 pt-6 sm:pt-8 pb-24 md:pb-16 space-y-6">
-        <nav className="text-xs text-muted">
-          <Link href="/" className="hover:text-ink">
-            Launchpad
-          </Link>
-          <span className="mx-1.5">/</span>
-          <span className="text-body">{l.symbol}</span>
-          <span className="mx-1.5">·</span>
-          <ChainBadge chain={chain} />
+      <main className="mx-auto max-w-6xl px-4 pt-5 pb-28 sm:pt-7 lg:pb-16">
+        <nav aria-label="Breadcrumb" className="mb-5 flex min-h-8 items-center justify-between gap-3 text-xs text-muted">
+          <Link href="/#launches" className="inline-flex items-center gap-2 hover:text-ink"><ArrowLeft size={13} /> All launches</Link>
+          <span className="flex items-center gap-2"><span>{chainLabel}</span><span aria-hidden>·</span><span>Uniswap v4</span></span>
         </nav>
 
-        {/* header */}
-        <header className="flex flex-col sm:flex-row sm:items-start gap-3 sm:gap-4">
-          <TokenAvatar token={l.token} symbol={l.symbol} image={l.image_url} size={72} className="rounded-2xl hidden sm:block" />
-          <TokenAvatar token={l.token} symbol={l.symbol} image={l.image_url} size={48} className="rounded-xl sm:hidden" />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2.5 flex-wrap">
-              <h1 className="font-display font-bold tracking-[-0.02em] text-ink text-2xl sm:text-3xl break-words">{l.name}</h1>
-              <span className="font-mono text-base text-muted">{l.symbol}</span>
-              <FeeChip lpFee={l.lp_fee} mode={mode} />
-              <ChainBadge chain={chain} size="md" />
-            </div>
-            {l.description ? <p className="mt-1.5 text-[15px] text-body max-w-2xl">{l.description}</p> : null}
-            <div className="mt-3 flex items-center gap-2 flex-wrap">
-              <CopyChip value={l.token} />
-              <a href={explorerAddress(chain, l.token)} target="_blank" rel="noreferrer" className="h-7 px-2.5 inline-flex items-center rounded-full border border-line bg-card text-[11px] font-medium text-body hover:text-ink hover:border-line-strong">
-                {explorerName(chain)} ↗
-              </a>
-              <a href={uniswapSwapUrl(chain, l.token)} target="_blank" rel="noreferrer" className="h-7 px-2.5 inline-flex items-center rounded-full border border-line bg-card text-[11px] font-medium text-body hover:text-ink hover:border-line-strong">
-                {chain === "base" ? "Uniswap" : "pools.trade"} ↗
-              </a>
-              {l.website ? (
-                <a href={l.website} target="_blank" rel="noreferrer nofollow" className="h-7 px-2.5 inline-flex items-center rounded-full border border-line bg-card text-[11px] font-medium text-body hover:text-ink hover:border-line-strong">
-                  {new URL(l.website).host} ↗
-                </a>
-              ) : null}
-              {l.x_handle ? (
-                <a href={`https://x.com/${l.x_handle}`} target="_blank" rel="noreferrer nofollow" className="h-7 px-2.5 inline-flex items-center rounded-full border border-line bg-card text-[11px] font-medium text-body hover:text-ink hover:border-line-strong">
-                  @{l.x_handle}
-                </a>
-              ) : null}
-              <a
-                href={`https://x.com/intent/post?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(`${SITE_URL}/t/${chain}/${l.token}`)}`}
-                target="_blank"
-                rel="noreferrer"
-                className="h-7 px-2.5 inline-flex items-center rounded-full border border-line bg-card text-[11px] font-medium text-body hover:text-ink hover:border-line-strong"
-              >
-                Share on X
-              </a>
+        <header className="mb-6 flex flex-wrap items-center justify-between gap-x-6 gap-y-4">
+          <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+            <TokenAvatar chain={l.chain} token={l.token} symbol={l.symbol} image={l.image_url} size={56} className="shrink-0 rounded-2xl" />
+            <div className="min-w-0">
+              <h1 className="break-words font-display text-2xl font-bold tracking-[-0.03em] text-ink sm:text-3xl">{l.name}</h1>
+              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted"><span className="font-mono text-body">${l.symbol}</span><span aria-hidden>·</span><span>Paired with {quote.symbol}</span><span aria-hidden>·</span><span title={new Date(l.block_time).toUTCString()}>Launched {ago(l.block_time, now)} ago</span></div>
             </div>
           </div>
-          <div className="sm:text-right shrink-0 flex items-baseline justify-between sm:block gap-3">
-            <div className="font-display font-bold tracking-[-0.02em] text-ink text-3xl sm:text-4xl tnum">{fdvUsd !== null ? fmtUsd(fdvUsd, { compact: true }) : fdvQuoteLabel}</div>
-            <div className="sm:mt-1 flex sm:justify-end items-center gap-2 text-xs text-muted">
-              <span>market cap</span>
-              <ChangeChip v={l.change_from_launch} />
-              {stockQuote ? (
-                <span className="inline-flex items-center gap-1.5 h-6 pl-1 pr-2 rounded-full border border-line bg-card text-[11px] font-semibold text-ink" title={`${stockQuote.name} · quote asset`}>
-                  {stockQuote.logo ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={stockQuote.logo} alt="" width={16} height={16} className={stockQuote.logo.startsWith("data:") ? "rounded" : "rounded-full"} referrerPolicy="no-referrer" />
-                  ) : null}
-                  priced in {stockQuote.symbol}
-                </span>
-              ) : null}
-            </div>
+          <div className="flex max-w-full flex-wrap items-center gap-2">
+            <CopyChip value={l.token} className="!min-h-9 !rounded-lg" />
+            <a href={explorerAddress(chain, l.token)} target="_blank" rel="noreferrer" className={utility}>{explorerName(chain)}<ArrowUpRight size={12} /></a>
+            <a href={`https://x.com/intent/post?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(`${SITE_URL}/t/${chain}/${l.token}`)}`} target="_blank" rel="noreferrer" className={utility} aria-label="Share token on X"><Share2 size={13} /> Share</a>
           </div>
         </header>
 
-        <div className="grid lg:grid-cols-[minmax(0,1fr)_22rem] gap-6 items-start">
-          <div className="min-w-0 space-y-6 order-2 lg:order-1">
-            <PriceChart chain={chain} token={l.token} symbol={l.symbol} launchedAt={l.block_time} />
-            {/* stats */}
-            <dl className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-              <Stat k="Price" v={priceUsd !== null ? fmtUsd(priceUsd) : `${fmtPrice(l.price_quote)} ${quote.symbol}`} sub={priceUsd !== null ? `${fmtPrice(l.price_quote)} ${quote.symbol}` : null} />
-              <Stat k="Volume" v={fmtQuote(l.volume_quote, quote.decimals, quote.symbol)} sub={l.volume_usd !== null ? fmtUsd(l.volume_usd, { compact: true }) : null} />
-              <Stat k="Trades" v={`${l.buys + l.sells}`} sub={`${l.buys} buys · ${l.sells} sells`} />
-              <Stat k="Supply" v={fmtCompact(Number(BigInt(l.supply)) / 1e18, 0)} sub="100% in the pool" />
-              <Stat k="Launched" v={`${ago(l.block_time, now)} ago`} sub={new Date(l.block_time).toUTCString().replace(" GMT", " UTC")} />
-              <Stat k="Platform fee" v="0" sub="by construction" accent />
+        <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_21rem] lg:gap-6 lg:grid-rows-[min-content_1fr]">
+          <div className="min-w-0 lg:col-start-1 lg:row-start-1">
+            <PriceChart key={`${chain}:${l.token}`} chain={chain} token={l.token} symbol={l.symbol} launchedAt={l.block_time} />
+            <dl className="mt-4 grid grid-cols-2 divide-x divide-line overflow-hidden rounded-xl border border-line bg-card sm:grid-cols-4">
+              <Stat k={priceUsd !== null ? "Price / USD" : `Price / ${quote.symbol}`} v={priceUsd !== null ? fmtUsd(priceUsd) : `${fmtPrice(l.price_quote)} ${quote.symbol}`} sub={`${fmtPrice(l.price_quote)} ${quote.symbol}`} />
+              <Stat k="Volume / all time" v={l.volume_usd !== null ? marketUsd(l.volume_usd) : fmtQuote(l.volume_quote, quote.decimals, quote.symbol)} sub={fmtQuote(l.volume_quote, quote.decimals, quote.symbol)} />
+              <Stat k="Buys / sells" v={<><span className="text-up">{count(l.buys)}</span><span className="px-1 text-muted">/</span><span className="text-down-ink">{count(l.sells)}</span></>} sub={`${count(l.buys + l.sells)} total trades`} />
+              <Stat k="Since launch" v={<ChangeChip v={l.change_from_launch} plain />} sub="Market cap change" />
             </dl>
-
-            {/* holders & trust */}
-            <HoldersPanel chain={chain} symbol={l.symbol} p={holders} />
-
-            {/* trades */}
-            <section className="rounded-2xl bg-card border border-line shadow-card overflow-hidden">
-              <div className="px-4 h-11 flex items-center justify-between border-b border-line">
-                <h2 className="text-sm font-semibold text-ink">Trades</h2>
-                <span className="text-[11px] text-muted">latest {swaps.length}</span>
-              </div>
-              {swaps.length === 0 ? (
-                <p className="px-4 py-10 text-center text-sm text-muted">No trades yet. Be the first.</p>
-              ) : (
-                <div className="overflow-x-auto bb-scroll">
-                  <table className="w-full text-sm">
-                    <thead className="text-[11px] uppercase tracking-[0.08em] text-muted">
-                      <tr className="border-b border-line">
-                        <th className="text-left font-semibold px-4 py-2">Side</th>
-                        <th className="text-right font-semibold px-4 py-2">{quote.symbol}</th>
-                        <th className="text-right font-semibold px-4 py-2">{l.symbol}</th>
-                        <th className="text-right font-semibold px-4 py-2 hidden sm:table-cell">Price</th>
-                        <th className="text-left font-semibold px-4 py-2 hidden md:table-cell">Trader</th>
-                        <th className="text-right font-semibold px-4 py-2">Age</th>
-                      </tr>
-                    </thead>
-                    <tbody className="font-mono tnum">
-                      {swaps.map((s) => {
-                        const q = BigInt(s.amount0);
-                        const t = BigInt(s.amount1);
-                        return (
-                          <tr key={`${s.tx_hash}:${s.log_index}`} className="border-b border-line last:border-0 hover:bg-paper">
-                            <td className="px-4 py-2">
-                              <span className={`font-sans font-semibold ${s.is_buy ? "text-up" : "text-down-ink"}`}>{s.is_buy ? "Buy" : "Sell"}</span>
-                            </td>
-                            <td className="px-4 py-2 text-right text-ink">{fmtQuote(q < 0n ? -q : q, quote.decimals, "").trim()}</td>
-                            <td className="px-4 py-2 text-right text-body">{fmtCompact(Number(t < 0n ? -t : t) / 1e18)}</td>
-                            <td className="px-4 py-2 text-right text-muted hidden sm:table-cell">{l.quote_usd !== null ? fmtUsd(s.price_quote * l.quote_usd) : `${fmtPrice(s.price_quote)} ${quote.symbol}`}</td>
-                            <td className="px-4 py-2 text-left text-muted hidden md:table-cell">
-                              {s.trader ? (
-                                <a href={explorerAddress(chain, s.trader)} target="_blank" rel="noreferrer" className="hover:text-ink">
-                                  {shortAddr(s.trader)}
-                                </a>
-                              ) : (
-                                "—"
-                              )}
-                            </td>
-                            <td className="px-4 py-2 text-right text-muted">
-                              <a href={explorerTx(chain, s.tx_hash)} target="_blank" rel="noreferrer" className="hover:text-ink">
-                                {ago(s.block_time, now)}
-                              </a>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
-
-            <TokenComments chain={chain} token={l.token} symbol={l.symbol} launcher={l.launcher} />
-
-            {/* details */}
-            <section className="rounded-2xl bg-card border border-line shadow-card p-4">
-              <h2 className="text-sm font-semibold text-ink">On-chain</h2>
-              <dl className="mt-3 grid sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
-                <Row k="Chain" v={<span className="text-body">{chainLabel}</span>} />
-                <Row k="Token" v={<A href={explorerAddress(chain, l.token)}>{shortAddr(l.token)}</A>} />
-                <Row k="Creator" v={<A href={explorerAddress(chain, l.launcher)}>{shortAddr(l.launcher)}</A>} />
-                <Row k="Launch tx" v={<A href={explorerTx(chain, l.tx_hash)}>{shortAddr(l.tx_hash)}</A>} />
-                <Row k="Pool id" v={<span className="font-mono text-muted">{shortAddr(l.pool_id)}</span>} />
-                <Row k="Pool" v={<span className="text-body">{quote.symbol} / {l.symbol} · Uniswap v4 · no hook</span>} />
-                <Row k="Liquidity" v={<span className="text-up font-medium">locked forever in the locker</span>} />
-              </dl>
-            </section>
           </div>
 
-          <div className="lg:sticky lg:top-20 min-w-0 space-y-4 order-1 lg:order-2">
+          <aside className="min-w-0 space-y-4 lg:sticky lg:top-24 lg:col-start-2 lg:row-span-2 lg:row-start-1">
             <TradePanel chain={chain} token={l.token as Address} symbol={l.symbol} poolKey={poolKey} quote={quote} ethUsd={usd} />
-            <CollectPanel
-              chain={chain}
-              quote={quote}
-              tokenId={l.token_id}
-              symbol={l.symbol}
-              lpFee={l.lp_fee}
-              recipients={l.recipients}
-              collectedQuote={l.fees_quote_collected}
-              burnedQuote={l.fees_quote_burned}
-              burnedToken={l.fees_token_burned}
-              ethUsd={usd}
+            <LaunchReceipt chain={chain} symbol={l.symbol} supply={supplyLabel} txHash={l.tx_hash} />
+            <CollectPanel chain={chain} quote={quote} tokenId={l.token_id} symbol={l.symbol} lpFee={l.lp_fee} recipients={l.recipients} collectedQuote={l.fees_quote_collected} burnedQuote={l.fees_quote_burned} burnedToken={l.fees_token_burned} ethUsd={usd} />
+          </aside>
+
+          <div className="min-w-0 lg:col-start-1 lg:row-start-2">
+            <TokenDetails
+              trades={<TokenTrades chain={chain} symbol={l.symbol} quote={quote} swaps={swaps} now={now} />}
+              holders={<HoldersPanel chain={chain} symbol={l.symbol} p={holders} embedded />}
+              conversation={<TokenComments chain={chain} token={l.token} symbol={l.symbol} launcher={l.launcher} embedded />}
+              about={<section className="p-5">
+                <h2 className="text-base font-semibold text-ink">Behind {l.symbol}</h2>
+                <p className="mt-2 max-w-xl whitespace-pre-wrap break-words text-sm leading-relaxed text-body text-pretty">{l.description || "The creator has not added a description yet. The contract details below are recorded on-chain."}</p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {l.website ? <a href={l.website} target="_blank" rel="noreferrer nofollow" className={utility}><Globe size={13} /> Website ↗</a> : null}
+                  {l.x_handle ? <a href={`https://x.com/${l.x_handle}`} target="_blank" rel="noreferrer nofollow" className={utility}>@{l.x_handle} ↗</a> : null}
+                  <a href={uniswapSwapUrl(chain, l.token)} target="_blank" rel="noreferrer" className={utility}>Open in {chain === "base" ? "Uniswap" : "pools.trade"} ↗</a>
+                </div>
+                <dl className="mt-5 divide-y divide-line border-y border-line text-xs">
+                  <Row k="Creator" v={<A href={explorerAddress(chain, l.launcher)}>{shortAddr(l.launcher)} ↗</A>} />
+                  <Row k="Token contract" v={<A href={explorerAddress(chain, l.token)}>{shortAddr(l.token)} ↗</A>} />
+                  <Row k="Launch transaction" v={<A href={explorerTx(chain, l.tx_hash)}>{shortAddr(l.tx_hash)} ↗</A>} />
+                  <Row k="Pool ID" v={<CopyChip value={l.pool_id} />} />
+                  <Row k="Market" v={`${quote.symbol} / ${l.symbol} · Uniswap v4 · no hook`} />
+                  <Row k="Trading fee" v={feeRoute} />
+                  <Row k="Fixed supply" v={`${supplyLabel} ${l.symbol}`} />
+                  <Row k="Launched" v={new Date(l.block_time).toUTCString().replace(" GMT", " UTC")} />
+                </dl>
+                {stockQuote ? <p className="mt-4 text-xs leading-relaxed text-muted text-pretty">Paired with {stockQuote.name} ({stockQuote.symbol}), a third-party tokenized stock. These securities are not offered to US persons. The quote asset is identified from the issuer registry, not its token name.</p> : null}
+              </section>}
             />
           </div>
         </div>
       </main>
-
       <MobileBuyBar symbol={l.symbol} mcap={fdvUsd !== null ? fmtUsd(fdvUsd, { compact: true }) : fdvQuoteLabel} />
     </>
   );
 }
 
-function Stat({ k, v, sub, accent }: { k: string; v: string; sub?: string | null; accent?: boolean }) {
-  return (
-    <div className="rounded-xl bg-card border border-line shadow-card px-3.5 py-3 min-w-0">
-      <dt className="text-xs text-muted truncate">{k}</dt>
-      <dd className={`mt-0.5 font-mono font-bold text-lg tnum truncate ${accent ? "text-up" : "text-ink"}`}>{v}</dd>
-      {sub ? <dd className="text-[11px] font-mono tnum text-muted truncate">{sub}</dd> : null}
-    </div>
-  );
+function Stat({ k, v, sub }: { k: string; v: React.ReactNode; sub: string }) {
+  return <div className="min-w-0 px-4 py-3"><dt className="text-[10px] text-muted">{k}</dt><dd className="mt-1 truncate font-mono text-sm font-bold text-ink tnum">{v}</dd><dd className="mt-1 truncate font-mono text-[10px] text-muted tnum" title={sub}>{sub}</dd></div>;
 }
 function Row({ k, v }: { k: string; v: React.ReactNode }) {
-  return (
-    <div className="flex items-baseline justify-between gap-3 py-1 border-b border-line last:border-0 sm:[&:nth-last-child(2)]:border-0">
-      <dt className="text-muted">{k}</dt>
-      <dd className="font-mono tnum text-right min-w-0 truncate">{v}</dd>
-    </div>
-  );
+  return <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-3"><dt className="text-muted">{k}</dt><dd className="min-w-0 break-words text-right font-mono text-body tnum">{v}</dd></div>;
 }
 function A({ href, children }: { href: string; children: React.ReactNode }) {
-  return (
-    <a href={href} target="_blank" rel="noreferrer" className="text-ink hover:underline underline-offset-2">
-      {children}
-    </a>
-  );
+  return <a href={href} target="_blank" rel="noreferrer" className="text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink">{children}</a>;
 }

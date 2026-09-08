@@ -9,21 +9,27 @@ export function hueOf(addr: string): number {
   return h;
 }
 
-/** Token image with a graceful fallback: a soft gradient tile with the first letter of the symbol. */
-export default function TokenAvatar({ token, symbol, image, size = 40, className = "" }: { token: string; symbol: string; image?: string | null; size?: number; className?: string }) {
-  const [broken, setBroken] = useState(false);
+/**
+ * Token image with a graceful fallback: a soft gradient tile with the first letter of the symbol
+ * (the openlaunch default mark). `chain` is accepted so call sites can pass the token's chain, but the
+ * fallback is keyed on the address alone so a token looks the same everywhere.
+ */
+export default function TokenAvatar({ token, symbol, image, size = 40, className = "" }: { chain?: string; token: string; symbol: string; image?: string | null; size?: number; className?: string }) {
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const src = image?.trim() || null;
   const h = hueOf(token);
   const style = { width: size, height: size, fontSize: Math.max(11, Math.round(size * 0.42)) };
-  if (image && !broken) {
+  if (src && src !== failedSrc) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
-        src={image}
+        key={src}
+        src={src}
         alt=""
         width={size}
         height={size}
         referrerPolicy="no-referrer"
-        onError={() => setBroken(true)}
+        onError={() => setFailedSrc(src)}
         className={`shrink-0 rounded-xl object-cover bg-paper border border-line ${className}`}
         style={style}
       />

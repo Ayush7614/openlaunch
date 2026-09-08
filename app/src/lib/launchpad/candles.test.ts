@@ -1,11 +1,38 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { bucketStart, defaultInterval, fillCandles, highLow, isInterval, mergeTail, scaleCandles } from "./candles.ts";
+import { INTERVALS, MAX_CANDLE_BUCKETS, boundedCandleFrom, bucketStart, defaultInterval, fillCandles, highLow, isInterval, mergeTail, scaleCandles } from "./candles.ts";
 
 test("bucketStart floors to the interval", () => {
   assert.equal(bucketStart(1000, 300), 900);
   assert.equal(bucketStart(900, 300), 900);
   assert.equal(bucketStart(899, 300), 600);
+});
+
+test("boundedCandleFrom includes whole first buckets, even when launch is inside one", () => {
+  assert.equal(boundedCandleFrom(1234, 1111, 3000, 300), 1200);
+  assert.equal(boundedCandleFrom(1000, 1111, 3000, 300), 900);
+  assert.equal(boundedCandleFrom(900, 1111, 3000, 300), 900);
+  assert.equal(boundedCandleFrom(4000, 1111, 3037, 300), 3000, "future requests clamp to the current bucket");
+});
+
+test("boundedCandleFrom caps inclusive windows at 2,000 buckets for every interval", () => {
+  const asOf = 1_800_000_037;
+  for (const intervalS of Object.values(INTERVALS)) {
+    const from = boundedCandleFrom(1, 1, asOf, intervalS);
+    const count = (bucketStart(asOf, intervalS) - from) / intervalS + 1;
+    assert.equal(count, MAX_CANDLE_BUCKETS);
+    assert.equal(from % intervalS, 0);
+    assert.equal(boundedCandleFrom(from, 1, asOf, intervalS), from);
+    assert.equal(boundedCandleFrom(from - 1, 1, asOf, intervalS), from);
+  }
+});
+
+test("boundedCandleFrom defaults missing or invalid starts without requesting pre-launch history", () => {
+  const asOf = 100_037;
+  for (const from of [null, undefined, NaN, Infinity, -Infinity, -1, 0]) {
+    assert.equal(boundedCandleFrom(from, 1, asOf, 60), bucketStart(asOf - 300 * 60, 60));
+    assert.equal(boundedCandleFrom(from, 99_999, asOf, 60), bucketStart(99_999, 60));
+  }
 });
 
 test("fillCandles seeds from the launch price and carries the previous close through gaps", () => {
@@ -25,6 +52,16 @@ test("fillCandles snaps raw bucket timestamps to the interval", () => {
   assert.equal(cs.length, 1);
   assert.equal(cs[0].t, 600);
   assert.equal(cs[0].close, 1);
+});
+
+test("quiet historical windows carry the actual preceding close without inventing trades", () => {
+  const cs = fillCandles([], 300, 900, 1500, 42);
+  assert.deepEqual(cs.map((c) => [c.open, c.high, c.low, c.close, c.volume, c.trades, c.filled]), [
+    [42, 42, 42, 42, 0, 0, true],
+    [42, 42, 42, 42, 0, 0, true],
+    [42, 42, 42, 42, 0, 0, true],
+  ]);
+  assert.equal(highLow(cs), null, "a carried baseline is not traded OHLCV");
 });
 
 test("scaleCandles scales prices, not volume", () => {
@@ -54,4 +91,5 @@ test("defaultInterval by age; isInterval guard", () => {
   assert.equal(defaultInterval(30 * 86400), "4h");
   assert.equal(isInterval("5m"), true);
   assert.equal(isInterval("2m"), false);
+  for (const invalid of ["toString", "constructor", "__proto__", null, 60]) assert.equal(isInterval(invalid), false);
 });

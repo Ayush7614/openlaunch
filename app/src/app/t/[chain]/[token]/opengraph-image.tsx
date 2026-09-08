@@ -124,7 +124,7 @@ export default async function TokenOg({ params }: { params: Promise<{ chain: str
           <div style={{ flex: 1, display: "flex", alignItems: "center", padding: "0 64px", fontSize: 40, color: MUTED }}>Token not found</div>
         )}
         <div style={{ padding: "0 64px 40px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{ fontSize: 20, color: MUTED }}>Free. Open source. No platform fee — ever.</span>
+          <span style={{ fontSize: 20, color: MUTED }}>Free. Open source. No platform fee. Ever.</span>
           {/* call to action: the one thing a reader can do from this card */}
           <span style={{ display: "flex", alignItems: "center", gap: 10, height: 52, padding: "0 26px", borderRadius: 999, background: BLUE, color: "#fff", fontSize: 22, fontWeight: 700 }}>
             {card ? `Trade ${card.symbol} on ${BRAND}${BRAND_TLD}` : `Launch a token on ${BRAND}${BRAND_TLD}`} →

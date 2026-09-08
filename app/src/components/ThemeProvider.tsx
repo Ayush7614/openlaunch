@@ -9,16 +9,24 @@ const THEME_COLOR = { light: "#FAFAF8", dark: "#000000" } as const;
 function ThemeColorSync() {
   const { resolvedTheme } = useTheme();
   useEffect(() => {
-    const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
-    if (meta) meta.content = resolvedTheme === "dark" ? THEME_COLOR.dark : THEME_COLOR.light;
+    const sync = () => {
+      const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+      const color = resolvedTheme === "dark" ? THEME_COLOR.dark : THEME_COLOR.light;
+      if (meta && meta.content !== color) meta.content = color;
+    };
+    sync();
+    // App Router can reapply layout metadata after navigation without changing
+    // the theme. Watch those replacements too; the equality guard avoids loops.
+    const observer = new MutationObserver(sync);
+    observer.observe(document.head, { childList: true, subtree: true, attributes: true, attributeFilter: ["content"] });
+    return () => observer.disconnect();
   }, [resolvedTheme]);
   return null;
 }
 
 /**
  * Light by default (the shipped design) with an explicit dark option behind the
- * header toggle. Two states, stored as "light" | "dark"; the OS preference is
- * not consulted so the first paint matches what everyone has seen so far.
+ * header toggle. Two persisted states, "light" | "dark", independent of OS preference.
  *
  * Class-based: Tailwind's dark variant resolves against `.dark` on <html>
  * (see @custom-variant at the top of globals.css).

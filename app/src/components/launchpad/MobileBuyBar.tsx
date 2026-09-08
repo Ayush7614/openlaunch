@@ -14,16 +14,17 @@ export default function MobileBuyBar({ symbol, mcap }: { symbol: string; mcap: s
   }, []);
   return (
     <div
-      className={`bb-action-bar lg:hidden fixed inset-x-0 bottom-0 z-30 border-t border-line bg-paper/90 backdrop-blur supports-[backdrop-filter]:bg-paper/80 pb-[env(safe-area-inset-bottom)] transition-transform duration-200 ${show ? "translate-y-0" : "translate-y-full"}`}
+      className={`bb-action-bar lg:hidden fixed inset-x-0 bottom-0 z-30 border-t border-line bg-paper/90 backdrop-blur supports-[backdrop-filter]:bg-paper/80 pb-[env(safe-area-inset-bottom)] transition-transform duration-200 motion-reduce:transition-none ${show ? "translate-y-0" : "translate-y-full"}`}
       aria-hidden={!show}
+      inert={!show}
     >
       <div className="px-4 h-16 flex items-center justify-between gap-3">
         <div className="min-w-0">
           <div className="text-xs text-muted">{symbol} · market cap</div>
           <div className="font-mono font-bold text-ink tnum">{mcap}</div>
         </div>
-        <a href="#trade" onClick={(e) => { e.preventDefault(); document.getElementById("trade")?.scrollIntoView({ behavior: "smooth", block: "start" }); }} className="inline-flex items-center justify-center min-h-11 px-6 rounded-xl bg-up text-inverse text-sm font-semibold">
-          Buy {symbol}
+        <a href="#trade" onClick={(e) => { e.preventDefault(); const panel = document.getElementById("trade"); panel?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start" }); panel?.focus({ preventScroll: true }); }} className="inline-flex items-center justify-center min-h-11 px-6 rounded-xl bg-up text-inverse text-sm font-semibold">
+          Trade {symbol}
         </a>
       </div>
     </div>

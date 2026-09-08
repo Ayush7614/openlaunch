@@ -2,83 +2,68 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { Activity, ArrowDownLeft, ArrowUpRight, Plus } from "lucide-react";
 import { useLive } from "./LiveProvider";
 import TokenAvatar from "./TokenAvatar";
 import type { FeedItem } from "@/lib/launchpad/queries";
 import { fmtQuote } from "@/lib/launchpad/math";
-import ChainBadge from "./ChainBadge";
-import { shortAddr } from "@/lib/chainPublic";
+import { CHAIN_SHORT, shortAddr } from "@/lib/chainPublic";
 import { ago } from "@/lib/launchpad/time";
 
-/** Live tape of launches + trades, fed by LiveProvider. New rows flash once. */
+/** Shared live tape; animate only genuine new events, never a looping demo. */
 export default function LaunchTape({ initial }: { initial: FeedItem[] }) {
   const { subscribe } = useLive();
-  const [items, setItems] = useState<FeedItem[]>(initial);
+  const [items, setItems] = useState(initial);
   const [fresh, setFresh] = useState<Set<string>>(new Set());
-  const seen = useRef<Set<string>>(new Set(initial.map(key)));
+  const seen = useRef(new Set(initial.map(key)));
+  const clearFresh = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
-  useEffect(
-    () =>
-      subscribe((snap) => {
-        const incoming = snap.feed ?? [];
-        const newOnes = new Set(incoming.filter((i) => !seen.current.has(key(i))).map(key));
-        incoming.forEach((i) => seen.current.add(key(i)));
-        setItems(incoming);
-        if (newOnes.size) {
-          setFresh(newOnes);
-          setTimeout(() => setFresh(new Set()), 2000);
-        }
-      }),
-    [subscribe],
-  );
-
   useEffect(() => {
-    const clock = setInterval(() => setNow(Date.now()), 10_000);
-    return () => clearInterval(clock);
-  }, []);
+    const unsubscribe = subscribe((snap) => {
+      const incoming = snap.feed ?? [];
+      const entering = new Set(incoming.filter((item) => !seen.current.has(key(item))).map(key));
+      seen.current = new Set(incoming.map(key));
+      setItems(incoming);
+      if (entering.size) {
+        setFresh(entering);
+        if (clearFresh.current) clearTimeout(clearFresh.current);
+        clearFresh.current = setTimeout(() => setFresh(new Set()), 1_800);
+      }
+    });
+    const clock = setInterval(() => setNow(Date.now()), 5_000);
+    return () => { unsubscribe(); clearInterval(clock); if (clearFresh.current) clearTimeout(clearFresh.current); };
+  }, [subscribe]);
 
   return (
-    <section className="rounded-2xl bg-card border border-line shadow-card overflow-hidden">
-      <div className="px-4 h-11 flex items-center justify-between border-b border-line">
-        <h2 className="text-sm font-semibold text-ink flex items-center gap-2">
-          <span className="relative inline-flex h-2 w-2">
-            <span className="absolute inline-flex h-full w-full rounded-full bg-up opacity-60 bb-pulse" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-up" />
-          </span>
-          Live
-        </h2>
-        <span className="text-[11px] text-muted">launches &amp; trades</span>
+    <section aria-labelledby="activity-heading" className="overflow-hidden rounded-2xl border border-line bg-paper">
+      <div className="flex min-h-14 items-center justify-between border-b border-line px-4">
+        <h2 id="activity-heading" className="flex items-center gap-2 text-sm font-semibold text-ink"><Activity size={14} aria-hidden="true" className="text-muted" />Activity</h2>
+        <span className="text-[11px] text-muted">Launches & trades</span>
       </div>
-      <ul className="divide-y divide-line max-h-[34rem] overflow-y-auto bb-scroll">
-        {items.length === 0 ? <li className="px-4 py-8 text-center text-sm text-muted">Nothing yet. The first launch shows up here.</li> : null}
-        {items.map((i) => {
-          const k = key(i);
-          const isFresh = fresh.has(k);
+      <ul aria-label="Recent launches and trades" tabIndex={0} className="max-h-[27rem] overflow-y-auto overscroll-contain divide-y divide-line bb-scroll">
+        {items.length === 0 ? <li className="px-4 py-8"><p className="text-sm text-ink">Waiting for the first launch.</p><p className="mt-1 text-xs leading-relaxed text-muted">New launches and trades will appear here.</p></li> : null}
+        {items.map((item) => {
+          const k = key(item);
+          const buy = item.kind === "swap" && item.is_buy;
+          const Icon = item.kind === "launch" ? Plus : buy ? ArrowDownLeft : ArrowUpRight;
+          const tone = item.kind === "launch" ? "text-body" : buy ? "text-up" : "text-down-ink";
           return (
-            <li key={k} className={`px-4 py-2.5 ${isFresh ? (i.kind === "swap" && !i.is_buy ? "bb-flash-down" : "bb-flash-up") : ""}`}>
-              <Link href={`/t/${i.chain}/${i.token}`} className="flex items-center gap-2.5 min-w-0">
-                <TokenAvatar token={i.token} symbol={i.symbol} image={i.image_url} size={28} />
-                <div className="min-w-0 flex-1 text-[13px] leading-tight">
-                  {i.kind === "launch" ? (
-                    <div className="truncate">
-                      <span className="font-semibold text-ink">{i.name}</span> <span className="text-muted">launched</span>
-                      <span className="ml-1 font-mono text-[11px] text-muted">{i.lp_fee === 0 ? "0% fee" : ""}</span>
-                    </div>
-                  ) : (
-                    <div className="truncate">
-                      <span className={`font-semibold ${i.is_buy ? "text-up" : "text-down-ink"}`}>{i.is_buy ? "Buy" : "Sell"}</span>{" "}
-                      {i.is_dev ? <span className={`inline-flex items-center h-4 px-1 mr-1 rounded border text-[10px] font-bold uppercase tracking-wide ${i.is_buy ? "border-brand/40 bg-brand-soft text-brand" : "border-warm/40 bg-warm-soft text-warm-ink"}`}>dev</span> : null}
-                      <span className="font-mono tnum text-ink">{fmtQuote(i.quote_wei, i.quote_decimals, i.quote_symbol)}</span> <span className="text-muted">of</span>{" "}
-                      <span className="font-semibold text-ink">{i.symbol}</span>
-                    </div>
-                  )}
-                  <div className="text-[11px] text-muted font-mono truncate flex items-center gap-1.5">
-                    <ChainBadge chain={i.chain} />
-                    {shortAddr(i.kind === "launch" ? i.launcher : i.trader)}
-                  </div>
+            <li key={k} className={fresh.has(k) ? "bb-tape-enter" : ""}>
+              <Link href={`/t/${item.chain}/${item.token}`} className="block px-4 py-3 transition-colors hover:bg-card motion-reduce:transition-none">
+                <div className="flex min-w-0 items-center gap-2">
+                  <TokenAvatar chain={item.chain} token={item.token} symbol={item.symbol} image={item.image_url} size={28} className="shrink-0 rounded-lg" />
+                  <span className="min-w-0 flex-1 truncate text-xs font-semibold text-ink">{item.name}</span>
+                  <time dateTime={item.at} className="shrink-0 font-mono text-[10px] text-muted tnum" title={new Date(item.at).toUTCString()} suppressHydrationWarning>{ago(item.at, now)}</time>
                 </div>
-                <span className="font-mono text-[11px] text-faint tnum shrink-0" suppressHydrationWarning>{ago(i.at, now)}</span>
+                <div className="mt-2 flex items-center gap-1.5 text-[11px]">
+                  <Icon size={12} aria-hidden="true" className={tone} />
+                  <span className={tone}>{item.kind === "launch" ? "Launched" : buy ? "Buy" : "Sell"}</span>
+                  {item.kind === "swap" ? <span className="min-w-0 truncate font-mono text-body tnum">{fmtQuote(item.quote_wei, item.quote_decimals, item.quote_symbol)}</span> : null}
+                  {item.kind === "swap" && item.is_dev ? <span className="text-warm-ink">· creator</span> : null}
+                  <span className="ml-auto shrink-0 text-[10px] text-muted">{CHAIN_SHORT[item.chain]}</span>
+                </div>
+                <p className="mt-1 font-mono text-[10px] text-muted">{shortAddr(item.kind === "launch" ? item.launcher : item.trader)}{item.kind === "launch" && item.lp_fee === 0 ? <span className="font-sans"> · 0% trading fee</span> : null}</p>
               </Link>
             </li>
           );
@@ -88,6 +73,6 @@ export default function LaunchTape({ initial }: { initial: FeedItem[] }) {
   );
 }
 
-function key(i: FeedItem): string {
-  return `${i.kind}:${i.tx_hash}:${i.token}${i.kind === "swap" ? `:${i.quote_wei}` : ""}`;
+function key(item: FeedItem): string {
+  return `${item.chain}:${item.kind}:${item.tx_hash}:${item.token}${item.kind === "swap" ? `:${item.quote_wei}` : ""}`;
 }

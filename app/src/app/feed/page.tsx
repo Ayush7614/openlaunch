@@ -1,19 +1,22 @@
 import type { Metadata } from "next";
-import { PostsFeed } from "@/components/launchpad/Posts";
+import Link from "next/link";
+import { ArrowUpRight } from "lucide-react";
+import CommunityFeed from "@/components/sections/CommunityFeed";
+import SectionIntro from "@/components/sections/SectionIntro";
+import styles from "@/components/sections/SectionShell.module.css";
 import { listFeed } from "@/lib/launchpad/postsServer";
 
 export const metadata: Metadata = { title: "Posts", description: "What people are saying about tokens launched on openlaunch.lol." };
 export const dynamic = "force-dynamic";
 
 export default async function FeedPage() {
-  const posts = await listFeed(100);
+  const result = await listFeed(100).then((posts) => ({ posts, failed: false })).catch(() => ({ posts: [], failed: true }));
   return (
-    <main className="mx-auto max-w-3xl px-4 pt-8 sm:pt-10 pb-16 space-y-6">
-      <header>
-        <h1 className="font-display font-bold tracking-[-0.02em] text-ink text-3xl sm:text-4xl">Posts</h1>
-        <p className="mt-2 text-base text-body">Comments from holders, traders and creators, across every token. Posting happens on the token pages.</p>
-      </header>
-      <PostsFeed initial={posts} />
+    <main className={styles.page}>
+      <SectionIntro eyebrow="Community / Posts" title="Behind every token." description="Holders, traders and creators, in their own words. Follow the conversation across Base and Robinhood Chain.">
+        <Link href="/#launches" className={styles.action}>Explore tokens <ArrowUpRight size={16} aria-hidden="true" /></Link>
+      </SectionIntro>
+      <CommunityFeed initial={result.posts} loadError={result.failed} />
     </main>
   );
 }

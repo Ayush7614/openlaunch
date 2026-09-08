@@ -2,7 +2,7 @@
 export type LaunchFilter = "fee0" | "burn" | "usdg" | "today";
 export const FILTERS: { key: LaunchFilter; label: string; title: string }[] = [
   { key: "fee0", label: "0% fee", title: "feeless pools" },
-  { key: "burn", label: "fees burned", title: "no beneficiary — every fee is burned" },
+  { key: "burn", label: "fees burned", title: "no beneficiary; every fee is burned" },
   { key: "usdg", label: "USDG", title: "priced in USDG (Robinhood Chain)" },
   { key: "today", label: "today", title: "launched in the last 24 hours" },
 ];

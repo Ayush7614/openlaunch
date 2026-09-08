@@ -12,6 +12,7 @@ import { DEAD, launchpad, quoteUsdOf, type Quote } from "@/lib/launchpad/config"
 import { fmtQuote, fmtTokens, fmtUsd, pipsToPct, units } from "@/lib/launchpad/math";
 import { BUILDER_DATA_SUFFIX, CHAINS, explorerAddress, explorerTx, shortAddr, type ChainKey } from "@/lib/chainPublic";
 import { friendlyError } from "@/lib/errors";
+import { feeModeOf } from "./FeeChip";
 import { Spinner } from "@/components/Skeleton";
 
 /**
@@ -60,7 +61,7 @@ export default function CollectPanel({
     query: { enabled: Boolean(address && LOCKER_ADDRESS), refetchInterval: 20_000 },
   });
 
-  const isBurnOnly = recipients.length === 1 && recipients[0].payout.toLowerCase() === DEAD.toLowerCase();
+  const isBurnOnly = feeModeOf(lpFee, recipients) === "burn";
   const collected = BigInt(collectedQuote);
   const burned = BigInt(burnedQuote);
   const toPeople = collected - burned;
@@ -82,7 +83,8 @@ export default function CollectPanel({
         hash = await wallet.writeContract(request);
       }
       setPhase({ k: "sent", hash });
-      await pub.waitForTransactionReceipt({ hash });
+      const receipt = await pub.waitForTransactionReceipt({ hash });
+      if (receipt.status !== "success") throw new Error("Transaction reverted on-chain.");
       await fetch(`/api/launch/sync?chain=${chain}&tx=${hash}`, { method: "POST" }).catch(() => {});
       void mine.refetch();
       router.refresh();
@@ -98,17 +100,18 @@ export default function CollectPanel({
   const myClaimable = (mine.data as bigint | undefined) ?? 0n;
 
   return (
-    <section className="rounded-2xl bg-card border border-line shadow-card p-4 space-y-3">
+    <section className="rounded-2xl bg-paper border border-line p-5 space-y-3">
       <div className="flex items-baseline justify-between gap-3">
-        <h2 className="text-sm font-semibold text-ink">Trading fee</h2>
+        <h2 className="text-sm font-semibold text-ink">Where the fees go</h2>
         <span className="font-mono font-bold text-ink tnum">{pipsToPct(lpFee)}</span>
       </div>
 
       {lpFee === 0 ? (
-        <p className="text-sm text-body">This pool charges no fee. Nobody earns from trades — not the creator, not us.</p>
+        <p className="text-sm text-body">This pool charges no fee. Nobody earns from trades, including the creator and us.</p>
       ) : (
         <>
           <ul className="space-y-1.5">
+            {isBurnOnly && recipients.length === 0 ? <li className="flex items-center justify-between text-sm"><span className="text-warm-ink">Burned</span><span className="font-mono text-body tnum">100%</span></li> : null}
             {recipients.map((r) => {
               const burn = r.payout.toLowerCase() === DEAD.toLowerCase();
               return (
@@ -145,13 +148,13 @@ export default function CollectPanel({
               {phase.k === "busy" && phase.what === "collect" ? <><Spinner size={13} /> Collecting…</> : phase.k === "sent" ? <><Spinner size={13} /> Confirming…</> : "Collect fees"}
             </button>
             {myClaimable > 0n ? (
-              <button type="button" onClick={() => void send("claim")} disabled={busy || !onChain} className={`${btn.primarySm} flex-1`} title="A payout to you could not be delivered and was credited instead">
+              <button type="button" onClick={() => void send("claim")} disabled={busy || !onChain} className={`${btn.secondarySm} flex-1`} title="A payout to you could not be delivered and was credited instead">
                 {phase.k === "busy" && phase.what === "claim" ? <><Spinner size={13} /> Claiming…</> : `Claim ${fq(myClaimable)}`}
               </button>
             ) : null}
           </div>
           <p className="text-[11px] text-muted leading-relaxed">
-            Anyone can collect — it pulls accrued fees out of the pool and {isBurnOnly ? "burns them on the spot" : "pays the beneficiaries directly, in the same transaction"}. Liquidity never moves.
+            Anyone can collect. Collecting pulls accrued fees out of the pool and {isBurnOnly ? "burns them on the spot" : "pays the beneficiaries directly, in the same transaction"}. Liquidity never moves.
           </p>
         </>
       )}

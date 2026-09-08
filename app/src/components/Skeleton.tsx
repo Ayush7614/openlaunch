@@ -8,7 +8,17 @@ export function Sk({ className = "", style }: { className?: string; style?: Reac
 }
 
 /** One launch row, matching LaunchRow's grid. */
-export function SkRow({ i }: { i: number }) {
+export function SkRow({ i, ledger = false }: { i: number; ledger?: boolean }) {
+  if (ledger) return (
+    <li className="border-t border-line px-4 py-3.5">
+      <div className="grid grid-cols-[minmax(0,1fr)_7rem] items-center gap-3 md:grid-cols-[minmax(0,1fr)_6.5rem_5.5rem_6rem_5rem_2.5rem]">
+        <div className="flex min-w-0 items-center gap-2.5"><Sk className="h-9 w-9 shrink-0 rounded-lg" /><div className="min-w-0 flex-1 space-y-2"><Sk className="h-3.5 w-3/4" /><Sk className="h-2.5 w-full max-w-32" /><Sk className="h-2.5 w-2/3" /></div></div>
+        <div className="space-y-2"><Sk className="ml-auto h-3.5 w-16" /><Sk className="ml-auto h-2.5 w-14" /></div>
+        {[0, 1, 2, 3].map((n) => <Sk key={n} className="ml-auto hidden h-3 w-full max-w-12 md:block" />)}
+        <div className="col-span-2 grid grid-cols-4 gap-4 border-t border-line pt-3 md:hidden">{[0, 1, 2, 3].map((n) => <div key={n} className="space-y-2"><Sk className="h-2 w-full" /><Sk className="h-3 w-3/4" /></div>)}</div>
+      </div>
+    </li>
+  );
   return (
     <li className="px-3 sm:px-4 py-3 border-t border-line first:border-t-0">
       <div className="grid md:grid-cols-[minmax(0,1fr)_7rem_6rem_6rem_4rem] items-center gap-3">

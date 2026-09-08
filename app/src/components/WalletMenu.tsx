@@ -1,0 +1,159 @@
+"use client";
+
+import Link from "next/link";
+import { useRef, useState } from "react";
+import { Popover } from "@base-ui/react/popover";
+import { ArrowDownUp, ArrowRight, ArrowUpRight, Check, ChevronDown, Copy, LayoutDashboard, LogOut, X } from "lucide-react";
+import { CHAIN_KEYS, CHAIN_LABELS, CHAIN_SHORT, chainKeyOf, explorerAddress, explorerName, shortAddr, type ChainKey } from "@/lib/chainPublic";
+import { walletMark } from "@/lib/wallet-mark";
+import styles from "./WalletMenu.module.css";
+
+type WalletMenuProps = {
+  address: string;
+  chainId?: number;
+  connectorName?: string;
+  block?: boolean;
+  switching?: boolean;
+  disconnecting?: boolean;
+  onSwitchChain: (chain: ChainKey) => Promise<unknown>;
+  onDisconnect: () => Promise<unknown>;
+  onNavigate?: () => void;
+};
+
+/** Presentation is separate from wagmi so account actions can be reviewed safely. */
+export default function WalletMenu(props: WalletMenuProps) {
+  // Replacing an account closes its old panel and discards pending feedback.
+  return <AccountMenu key={props.address.toLowerCase()} {...props} />;
+}
+
+function AccountMenu({ address, chainId, connectorName, block = false, switching = false, disconnecting = false, onSwitchChain, onDisconnect, onNavigate }: WalletMenuProps) {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [localBusy, setLocalBusy] = useState<ChainKey | "disconnect" | null>(null);
+  const actionLock = useRef(false);
+  const popupRef = useRef<HTMLDivElement>(null);
+  const key = chainKeyOf(chainId);
+  const busy = switching || disconnecting || localBusy !== null;
+  const network = key ? CHAIN_SHORT[key] : "Unsupported network";
+
+  async function copyAddress() {
+    try {
+      await navigator.clipboard.writeText(address);
+      setCopied(true);
+      setNotice("Address copied.");
+    } catch {
+      setCopied(false);
+      setNotice("Couldn’t copy. Select the address above to copy it manually.");
+    }
+  }
+
+  async function runAction(target: ChainKey | "disconnect") {
+    if (busy || actionLock.current || target === key) return;
+    actionLock.current = true;
+    setLocalBusy(target);
+    setNotice("");
+    try {
+      if (target === "disconnect") {
+        await onDisconnect();
+        setOpen(false);
+      } else {
+        await onSwitchChain(target);
+        setNotice(`Switched to ${CHAIN_LABELS[target]}.`);
+      }
+    } catch {
+      setNotice(target === "disconnect" ? "Couldn’t disconnect. Try again." : "Network switch wasn’t completed. Try again in your wallet.");
+    } finally {
+      actionLock.current = false;
+      setLocalBusy(null);
+    }
+  }
+
+  return (
+    <Popover.Root modal={block} open={open} onOpenChange={(nextOpen) => { setOpen(nextOpen); setCopied(false); setNotice(""); }}>
+      <Popover.Trigger
+        className={`${styles.trigger} ${block ? styles.block : ""}`}
+        aria-label={`Wallet ${shortAddr(address)}, ${network}. Open account menu`}
+        data-unsupported={!key || undefined}
+      >
+        <span className={styles.triggerMark}><WalletMark address={address} /><span className={styles.connectionDot} /></span>
+        <span className={styles.triggerAddress}>{shortAddr(address)}</span>
+        <span className={styles.triggerNetwork}>{key ? CHAIN_SHORT[key] : "Switch"}</span>
+        <ChevronDown size={13} className={styles.chevron} aria-hidden />
+      </Popover.Trigger>
+      <Popover.Portal>
+        {block ? <Popover.Backdrop className={styles.backdrop} /> : null}
+        <Popover.Positioner side="bottom" align="end" sideOffset={10} collisionPadding={12} positionMethod="fixed" className={`${styles.positioner} ${block ? styles.mobilePositioner : ""}`}>
+          <Popover.Popup
+            ref={popupRef}
+            initialFocus={popupRef}
+            aria-modal={block || undefined}
+            className={styles.popup}
+            data-wallet-popup=""
+            onKeyDown={(event) => {
+              // Escape dismisses this level, not the mobile navigation behind it.
+              if (event.key === "Escape") { event.stopPropagation(); setOpen(false); }
+            }}
+          >
+            <div className={styles.panelHeader}>
+              <Popover.Title className={styles.title}><span className={styles.statusDot} />Connected wallet</Popover.Title>
+              <Popover.Close aria-label="Close wallet menu" className={styles.close}><X size={16} aria-hidden /></Popover.Close>
+            </div>
+            <div className={styles.identity}>
+              <WalletMark address={address} large />
+              <div className={styles.identityText}>
+                <p className={styles.account}>{shortAddr(address)}</p>
+                <Popover.Description className={styles.provider}>{connectorName || "Wallet"}</Popover.Description>
+              </div>
+            </div>
+            <p className={styles.fullAddress} aria-label="Full wallet address">{address}</p>
+            <div className={styles.shortcuts}>
+              <button type="button" onClick={copyAddress} className={styles.shortcut}>
+                {copied ? <Check size={15} aria-hidden /> : <Copy size={15} aria-hidden />}
+                {copied ? "Copied" : "Copy address"}
+              </button>
+              {key ? (
+                <a className={styles.shortcut} href={explorerAddress(key, address)} target="_blank" rel="noreferrer" aria-label={`View wallet on ${explorerName(key)} (opens in new tab)`}>
+                  <ArrowUpRight size={16} aria-hidden />Explorer
+                </a>
+              ) : null}
+            </div>
+            <div className={styles.networkSection}>
+              <div className={styles.sectionLabel}><span>Network</span><ArrowDownUp size={13} aria-hidden /></div>
+              {!key ? <p className={styles.unsupported}>This network isn’t supported. Choose one below.</p> : null}
+              <div className={styles.networks} role="group" aria-label="Wallet network">
+                {CHAIN_KEYS.map((chain) => (
+                  <button type="button" key={chain} className={styles.networkButton} aria-pressed={chain === key} disabled={busy} onClick={() => void runAction(chain)}>
+                    <span className={`${styles.networkGlyph} ${chain === "robinhood" ? styles.robinhood : ""}`} aria-hidden>{chain === "base" ? "B" : "R"}</span>
+                    <span>{CHAIN_SHORT[chain]}</span>
+                    {localBusy === chain ? <span className={styles.pendingDot} aria-label="Switching" /> : chain === key ? <Check size={14} className={styles.networkCheck} aria-hidden /> : null}
+                  </button>
+                ))}
+              </div>
+              <p className={styles.networkNote}>{switching || (localBusy && localBusy !== "disconnect") ? "Confirm the network in your wallet…" : key ? `Connected to ${CHAIN_LABELS[key]}` : "A network switch needs wallet approval."}</p>
+            </div>
+            <Link href="/me" className={styles.workspace} onClick={() => { setOpen(false); onNavigate?.(); }}>
+              <LayoutDashboard size={17} aria-hidden />
+              <span><strong>Your workspace</strong><small>Launches, holdings & activity</small></span>
+              <ArrowRight size={16} aria-hidden />
+            </Link>
+            <div className={styles.bottom}>
+              <button type="button" className={styles.disconnect} disabled={busy} onClick={() => void runAction("disconnect")}><LogOut size={15} aria-hidden />{disconnecting || localBusy === "disconnect" ? "Disconnecting…" : "Disconnect"}</button>
+              <span>This site only</span>
+            </div>
+            <p className={styles.notice} role="status" aria-live="polite">{notice}</p>
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
+function WalletMark({ address, large = false }: { address: string; large?: boolean }) {
+  return (
+    <svg viewBox="0 0 40 40" width={large ? 48 : 28} height={large ? 48 : 28} className={styles.mark} aria-hidden="true">
+      <circle cx="20" cy="20" r="19.5" className={styles.markBase} />
+      {walletMark(address).map(({ x, y }) => <rect key={`${x}:${y}`} x={x} y={y} width="3.5" height="3.5" rx="0.8" fill="currentColor" />)}
+    </svg>
+  );
+}

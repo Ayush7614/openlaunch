@@ -362,11 +362,11 @@ export async function searchLaunches(q: string, opts: { chain?: ChainKey | null;
 }
 
 /**
- * OHLCV buckets from the swap log (sparse — the client fills gaps). Prices are
+ * OHLCV buckets from the swap log (sparse; the client fills gaps). Prices are
  * whole quote units per token, derived from each swap's post-trade sqrtPrice.
  * `from` = earliest bucket start (unix seconds).
  */
-export async function getCandles(chain: ChainKey, token: string, intervalS: number, from: number, quoteDecimals: number): Promise<RawCandle[]> {
+export async function getCandles(chain: ChainKey, token: string, intervalS: number, from: number, quoteDecimals: number, asOf = Math.floor(Date.now() / 1000)): Promise<RawCandle[]> {
   const db = maybeDb();
   if (!db) return [];
   // quote-per-token = 1 / ((sqrt/2^96)^2 · 10^(qd-18))
@@ -377,7 +377,8 @@ export async function getCandles(chain: ChainKey, token: string, intervalS: numb
              1.0 / (power(sqrt_price_x96::double precision / 79228162514264337593543950336.0, 2) * ${scale}) AS p,
              abs(amount0) AS v, block_number, log_index
         FROM bb_launch_swaps
-       WHERE chain_id = ${chainIdOf(chain)} AND token = ${token.toLowerCase()} AND block_time >= to_timestamp(${from})
+       WHERE chain_id = ${chainIdOf(chain)} AND token = ${token.toLowerCase()}
+         AND block_time >= to_timestamp(${from}) AND block_time <= to_timestamp(${asOf})
     )
     SELECT t::int AS t,
            (array_agg(p ORDER BY block_number, log_index))[1] AS open,
@@ -388,13 +389,31 @@ export async function getCandles(chain: ChainKey, token: string, intervalS: numb
   return rows.map((r) => ({ t: Number(r.t), open: Number(r.open), high: Number(r.high), low: Number(r.low), close: Number(r.close), volume: units(r.volume, quoteDecimals), trades: Number(r.trades) }));
 }
 
-/** Trades by one wallet on one token (for the chart's own-trade markers). */
-export async function getWalletSwaps(chain: ChainKey, token: string, wallet: string, limit = 200): Promise<{ t: number; is_buy: boolean; quote: string }[]> {
+/**
+ * Seed an empty leading chart bucket from actual earlier history, not launch.
+ * The chain/token index supplies chain order including multiple swaps per block;
+ * the strict time boundary keeps the first requested bucket in the OHLCV query.
+ */
+export async function getCandleBaseline(chain: ChainKey, token: string, from: number, quoteDecimals: number): Promise<number | null> {
+  const db = maybeDb();
+  if (!db) return null;
+  const rows = await db<{ sqrt_price_x96: string }[]>`
+    SELECT sqrt_price_x96 FROM bb_launch_swaps
+     WHERE chain_id = ${chainIdOf(chain)} AND token = ${token.toLowerCase()}
+       AND block_time < to_timestamp(${from})
+     ORDER BY block_number DESC, log_index DESC LIMIT 1`;
+  return rows[0] ? quotePerToken(BigInt(rows[0].sqrt_price_x96), quoteDecimals) : null;
+}
+
+/** Trades by one wallet on one token, bounded to the chart snapshot's time. */
+export async function getWalletSwaps(chain: ChainKey, token: string, wallet: string, asOf: number, limit = 200): Promise<{ t: number; is_buy: boolean; quote: string }[]> {
+  if (!Number.isFinite(asOf)) return [];
   const db = maybeDb();
   if (!db) return [];
   const rows = await db<{ t: number; is_buy: boolean; quote: string }[]>`
     SELECT extract(epoch FROM block_time)::int AS t, is_buy, abs(amount0)::text AS quote FROM bb_launch_swaps
      WHERE chain_id = ${chainIdOf(chain)} AND token = ${token.toLowerCase()} AND trader = ${wallet.toLowerCase()}
+       AND block_time <= to_timestamp(${asOf})
      ORDER BY block_number DESC, log_index DESC LIMIT ${Math.min(500, limit)}`;
   return rows.map((r) => ({ t: Number(r.t), is_buy: r.is_buy, quote: r.quote }));
 }
