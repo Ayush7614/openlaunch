@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { GITLAWB_ADDRESS, GITLAWB_LOGO_PATH, GITLAWB_POOL_ID, GITLAWB_POOL_KEY, gitlawbMcapPresets, gitlawbUsdFromSqrtPrice, isGitlawbAddress } from "./gitlawb.ts";
+import { GITLAWB_ADDRESS, GITLAWB_ADDRESS_ROBINHOOD, GITLAWB_ADDRESSES, GITLAWB_LOGO_PATH, GITLAWB_POOL_ID, GITLAWB_POOL_KEY, gitlawbMcapPresets, gitlawbUsdFromSqrtPrice, isGitlawbAddress } from "./gitlawb.ts";
 
 test("the derived pool id is the on-chain WETH/GITLAWB pool (Initialize at Base block 43,202,530)", () => {
   const k = GITLAWB_POOL_KEY;
@@ -39,4 +39,8 @@ test("logo asset ships with the app; address check is case-insensitive", () => {
   assert.ok(existsSync(new URL(`../../../public${GITLAWB_LOGO_PATH}`, import.meta.url)), "public/gitlawb-mark.png exists");
   assert.ok(isGitlawbAddress("0x5F980Dcfc4c0fa3911554cf5ab288ed0eb13DBa3"));
   assert.ok(!isGitlawbAddress("0x5F980Dcfc4c0fa3911554cf5ab288ed0eb13DBa4"));
+  assert.ok(isGitlawbAddress("0xd1b0d44E4f6ed940fcC7A9F59Bf30Daf62cCFe3D", "robinhood"), "the Robinhood OFT (community repo contracts.ts)");
+  assert.ok(!isGitlawbAddress("0xd1b0d44E4f6ed940fcC7A9F59Bf30Daf62cCFe3D", "base"), "the Robinhood address is not GITLAWB on Base");
+  assert.equal(GITLAWB_ADDRESSES.robinhood, GITLAWB_ADDRESS_ROBINHOOD);
+  assert.equal(GITLAWB_ADDRESS_ROBINHOOD, GITLAWB_ADDRESS_ROBINHOOD.toLowerCase());
 });

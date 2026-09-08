@@ -5,7 +5,7 @@ export const FILTERS: { key: LaunchFilter; label: string; title: string; chain?:
   { key: "fee0", label: "0% fee", title: "feeless pools" },
   { key: "burn", label: "fees burned", title: "no beneficiary; every fee is burned" },
   { key: "usdg", label: "USDG", title: "priced in USDG (Robinhood Chain)", chain: "robinhood" },
-  { key: "gitlawb", label: "GITLAWB", title: "priced in GITLAWB (Base)", chain: "base" },
+  { key: "gitlawb", label: "GITLAWB", title: "priced in GITLAWB (Base or Robinhood Chain)" },
   { key: "today", label: "today", title: "launched in the last 24 hours" },
 ];
 export function isFilter(v: unknown): v is LaunchFilter {

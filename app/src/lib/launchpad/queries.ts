@@ -4,7 +4,7 @@ import { CHAIN_KEYS, chainIdOf, chainKeyOf, type ChainKey } from "@/lib/chainPub
 import { quoteInfo as staticQuoteInfo, quoteUsdOf, type Quote } from "./config";
 import { ensureRegistry, stockByAddress, stockUsdInUse } from "./stocksServer";
 import { gitlawbUsd } from "./gitlawbServer";
-import { GITLAWB_ADDRESS } from "./gitlawb";
+import { GITLAWB_ADDRESS, GITLAWB_ADDRESS_ROBINHOOD } from "./gitlawb";
 import { canonicalImageUrl } from "./images";
 import { rankTrending } from "./trending";
 import { imagePublicBase } from "./imageStore";
@@ -164,7 +164,8 @@ export const VOLUME_WINDOWS: VolumeWindow[] = ["1h", "24h", "all"];
 
 export type ListOpts = { sort?: LaunchSort; window?: VolumeWindow; chain?: ChainKey | null; filter?: LaunchFilter | null; limit?: number; offset?: number; launcher?: string; ethUsd?: number | null };
 const USDG_ADDR = "0x5fc5360d0400a0fd4f2af552add042d716f1d168";
-const BASE_ID = chainIdOf("base"); // GITLAWB is a Base quote only: the same address on another chain is not GITLAWB
+const BASE_ID = chainIdOf("base");
+const RH_ID = chainIdOf("robinhood");
 const NATIVE_ADDR = "0x0000000000000000000000000000000000000000";
 const DEAD_ADDR = "0x000000000000000000000000000000000000dead";
 
@@ -194,13 +195,15 @@ export async function listLaunchesPage(opts: ListOpts = {}): Promise<ListPage> {
   if (opts.filter === "fee0") conds.push(db`l.lp_fee = 0`);
   if (opts.filter === "burn") conds.push(db`l.lp_fee > 0 AND jsonb_array_length(l.recipients) = 1 AND lower(l.recipients->0->>'payout') = ${DEAD_ADDR}`);
   if (opts.filter === "usdg") conds.push(db`l.quote = ${USDG_ADDR}`);
-  if (opts.filter === "gitlawb") conds.push(db`l.chain_id = ${BASE_ID} AND l.quote = ${GITLAWB_ADDRESS}`);
+  // GITLAWB has a different address per chain; each match is chain-scoped so a same-address token elsewhere is never GITLAWB
+  const isGitlawb = () => db`((l.chain_id = ${BASE_ID} AND l.quote = ${GITLAWB_ADDRESS}) OR (l.chain_id = ${RH_ID} AND l.quote = ${GITLAWB_ADDRESS_ROBINHOOD}))`;
+  if (opts.filter === "gitlawb") conds.push(db`${isGitlawb()}`);
   if (opts.filter === "today") conds.push(db`l.block_time > now() - interval '24 hours'`);
   const where = conds.length ? db`WHERE ${conds.reduce((a, c) => db`${a} AND ${c}`)}` : db``;
   // per-row USD factor and quote decimals (USDG is the only non-18-dec quote we list)
   const stockCase = stockEntries.length ? stockEntries.map(([a, v]) => db`WHEN l.quote = ${a} THEN ${v}::double precision`).reduce((acc, c) => db`${acc} ${c}`) : db``;
   const gitlawbFactor = gitlawbUsdNow !== null && gitlawbUsdNow > 0 ? gitlawbUsdNow : 0; // unknown → 0 weight, like an unknown stock
-  const usdPerUnit = db`(CASE WHEN l.quote = ${USDG_ADDR} THEN 1.0 ${stockCase} WHEN l.chain_id = ${BASE_ID} AND l.quote = ${GITLAWB_ADDRESS} THEN ${gitlawbFactor}::double precision WHEN l.quote = ${NATIVE_ADDR} THEN ${ethFactor}::double precision ELSE 0.0 END)`;
+  const usdPerUnit = db`(CASE WHEN l.quote = ${USDG_ADDR} THEN 1.0 ${stockCase} WHEN ${isGitlawb()} THEN ${gitlawbFactor}::double precision WHEN l.quote = ${NATIVE_ADDR} THEN ${ethFactor}::double precision ELSE 0.0 END)`;
   const stockDec = stockEntries.map(([a]) => [a, stockByAddress("base", a)?.decimals ?? stockByAddress("robinhood", a)?.decimals ?? 18] as [string, number]).filter(([, d]) => d !== 18);
   const decCase = stockDec.length ? stockDec.map(([a, d]) => db`WHEN l.quote = ${a} THEN ${d}`).reduce((acc, c) => db`${acc} ${c}`) : db``;
   const qd = db`(CASE WHEN l.quote = ${USDG_ADDR} THEN 6 ${decCase} ELSE 18 END)`;

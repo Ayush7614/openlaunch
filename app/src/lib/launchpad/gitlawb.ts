@@ -1,9 +1,10 @@
 /**
- * GITLAWB as a quote asset on Base — pure logic (node --test loads this directly).
+ * GITLAWB as a quote asset on Base and Robinhood Chain — pure logic (node --test loads this directly).
  *
- * GITLAWB is Gitlawb's token: an ordinary 18-decimal ERC-20 on Base, no transfer restrictions,
- * no issuer switch. Pools quoted in it work exactly like any other ERC-20 quote (Permit2 path);
- * trading fees are paid out in GITLAWB, or burned when the launch names no beneficiary.
+ * GITLAWB is Gitlawb's token: an ordinary 18-decimal ERC-20 on Base (bridged 1:1 to Robinhood Chain
+ * over LayerZero OFT), no transfer restrictions, no issuer switch. Pools quoted in it work exactly like
+ * any other ERC-20 quote (Permit2 path); trading fees are paid out in GITLAWB, or burned when the
+ * launch names no beneficiary.
  *
  * USD comes from the deepest GITLAWB market: the Uniswap v4 WETH/GITLAWB pool (dynamic-fee hook,
  * tick spacing 200), read on-chain through StateView.getSlot0(poolId) and multiplied by ETH/USD.
@@ -14,6 +15,14 @@ import { poolIdOf, sqrtPriceToTokensPerQuote } from "./math.ts";
 import { stockMcapPresets } from "./stocks.ts";
 
 export const GITLAWB_ADDRESS = "0x5f980dcfc4c0fa3911554cf5ab288ed0eb13dba3";
+/**
+ * GITLAWB on Robinhood Chain (4663): a LayerZero V2 OFT, minted 1:1 against GITLAWB locked in the
+ * GitlawbOFTAdapter on Base (0x3308384bc308d09b3eba9a8f11cc36e993a273a4). Same token, one supply, two
+ * chains — see the community repo's contracts.ts. Priced from the Base pool (the deep market); the
+ * bridge keeps the two within arbitrage of each other.
+ */
+export const GITLAWB_ADDRESS_ROBINHOOD = "0xd1b0d44e4f6ed940fcc7a9f59bf30daf62ccfe3d";
+export const GITLAWB_ADDRESSES: Record<"base" | "robinhood", string> = { base: GITLAWB_ADDRESS, robinhood: GITLAWB_ADDRESS_ROBINHOOD };
 export const GITLAWB_SYMBOL = "GITLAWB";
 export const GITLAWB_NAME = "Gitlawb";
 export const GITLAWB_DECIMALS = 18;
@@ -65,6 +74,6 @@ export const GITLAWB_LOGO_PATH = "/gitlawb-mark.png";
 /** The tile's ground — badges use the same black so the tile and the pill read as one piece. */
 export const GITLAWB_LOGO_BG = "#000000";
 
-export function isGitlawbAddress(address: string): boolean {
-  return address.toLowerCase() === GITLAWB_ADDRESS;
+export function isGitlawbAddress(address: string, chain: "base" | "robinhood" = "base"): boolean {
+  return address.toLowerCase() === GITLAWB_ADDRESSES[chain];
 }

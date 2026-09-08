@@ -142,7 +142,7 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
                   <Row k="Launched" v={new Date(l.block_time).toUTCString().replace(" GMT", " UTC")} />
                 </dl>
                 {stockQuote ? <p className="mt-4 text-xs leading-relaxed text-muted text-pretty">Paired with {stockQuote.name} ({stockQuote.symbol}), a third-party tokenized stock. These securities are not offered to US persons. The quote asset is identified from the issuer registry, not its token name.</p> : null}
-                {quote.key === "gitlawb" ? <p className="mt-4 text-xs leading-relaxed text-muted text-pretty">Paired with GITLAWB, <a href={GITLAWB_SITE} target="_blank" rel="noreferrer" className="underline decoration-line underline-offset-2 hover:text-ink">Gitlawb</a>&apos;s token on Base. {mode === "free" ? "This pool has no trading fee." : mode === "burn" ? "Every trading fee on this pool is burned as GITLAWB." : "Trading fees on this pool are paid out in GITLAWB."} USD figures use the Uniswap v4 WETH/GITLAWB pool price.</p> : null}
+                {quote.key === "gitlawb" ? <p className="mt-4 text-xs leading-relaxed text-muted text-pretty">Paired with GITLAWB, <a href={GITLAWB_SITE} target="_blank" rel="noreferrer" className="underline decoration-line underline-offset-2 hover:text-ink">Gitlawb</a>&apos;s token{chain === "robinhood" ? " (bridged 1:1 from Base over LayerZero; one supply, two chains)" : " on Base"}. {mode === "free" ? "This pool has no trading fee." : mode === "burn" ? "Every trading fee on this pool is burned as GITLAWB." : "Trading fees on this pool are paid out in GITLAWB."} USD figures use the Uniswap v4 WETH/GITLAWB pool price on Base.</p> : null}
               </section>}
             />
           </div>

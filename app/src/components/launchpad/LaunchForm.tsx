@@ -362,7 +362,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
                   aria-pressed={active}
                 >
                   <div className={`font-semibold text-sm ${active ? "text-brand" : "text-ink"}`}>{CHAIN_LABELS[k]}</div>
-                  <div className="text-xs text-body mt-0.5 leading-snug">{k === "base" ? "Priced in ETH, GITLAWB or a Coinbase tokenized stock. Gas ≈ cents." : ok ? "Priced in USDG (dollars), ETH or a Robinhood Stock Token. Gas ≈ cents." : "Coming soon."}</div>
+                  <div className="text-xs text-body mt-0.5 leading-snug">{k === "base" ? "Priced in ETH, GITLAWB or a Coinbase tokenized stock. Gas ≈ cents." : ok ? "Priced in USDG (dollars), ETH, GITLAWB or a Robinhood Stock Token. Gas ≈ cents." : "Coming soon."}</div>
                 </button>
               );
             })}
@@ -391,7 +391,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
               <span className="text-xs text-muted">
                 {quote.key === "usdg" ? "Buyers pay with USDG; market cap and fees are in dollars." : quote.key === "gitlawb" ? "Buyers pay with GITLAWB; fees are paid in GITLAWB, or burned." : quote.key === "stock" ? (chain === "base" ? "Buyers pay with a Coinbase tokenized stock; fees are paid in that stock." : "Buyers pay with a Robinhood Stock Token; fees are paid in that stock.") : "Buyers pay with ETH."}
               </span>
-              {chain === "base" && quote.key !== "gitlawb" ? (
+              {cfg.quotes.some((q) => q.key === "gitlawb") && quote.key !== "gitlawb" ? (
                 <button type="button" onClick={() => { setQuoteKey("gitlawb"); setMcapPick(null); setCustomMcap(""); }} className="inline-flex items-center gap-1.5 text-xs text-muted hover:text-ink" title="Pair with GITLAWB and your token carries the GITLAWB badge everywhere on the site">
                   Pair with GITLAWB, get the <GitlawbBadge /> badge
                 </button>
@@ -410,7 +410,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
                 {quote.usd ? <span className="font-mono text-xs opacity-80">{fmtUsd(quote.usd)}</span> : <span className="font-mono text-xs opacity-60">price unavailable</span>}
               </span>
               <p className={helper}>
-                Your token carries the <GitlawbBadge /> badge on the launch list, trending, the activity feed, its page and its share card. GITLAWB is Gitlawb&apos;s token on Base: an ordinary ERC-20, no transfer restrictions, no issuer switch. Name no beneficiary and every trading fee burns GITLAWB. Price from the Uniswap v4 WETH/GITLAWB pool.{" "}
+                Your token carries the <GitlawbBadge /> badge on the launch list, trending, the activity feed, its page and its share card. GITLAWB is Gitlawb&apos;s token{chain === "robinhood" ? ", bridged 1:1 from Base to Robinhood Chain over LayerZero" : " on Base"}: an ordinary ERC-20, no transfer restrictions, no issuer switch. Name no beneficiary and every trading fee burns GITLAWB. Price from the Uniswap v4 WETH/GITLAWB pool on Base.{" "}
                 <a href={GITLAWB_SITE} target="_blank" rel="noreferrer" className="underline decoration-line underline-offset-2 hover:text-ink">gitlawb.com ↗</a>
               </p>
             </div>
