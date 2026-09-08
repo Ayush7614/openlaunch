@@ -54,13 +54,13 @@ export function gitlawbMcapPresets(usdPrice: number | null, usdTargets = [5_000,
 }
 
 /**
- * Gitlawb's logo (the white branch-and-key mark on black), served from our own origin.
- * Source: gitlawb.com's `public/logo.png` (web main branch, byte-identical to the live site), trimmed and
- * downscaled to 160px in `public/gitlawb-mark.png`.
+ * Gitlawb's logo (planet, orbit ring, blue satellite) as a navy rounded tile with the mark in white, served
+ * from our own origin. Generated from the web repo's `public/logo.png` by recolouring the mark and cropping
+ * (see the commit that added `public/gitlawb-mark.png`); 160px, transparent corners.
  */
 export const GITLAWB_LOGO_PATH = "/gitlawb-mark.png";
-/** The logo's own ground — badges and tiles use the same colour so the mark never sits in a box of a different shade. */
-export const GITLAWB_LOGO_BG = "#000000";
+/** The tile's ground — badges use the same navy so the tile and the pill read as one piece. */
+export const GITLAWB_LOGO_BG = "#0a1020";
 
 export function isGitlawbAddress(address: string): boolean {
   return address.toLowerCase() === GITLAWB_ADDRESS;
