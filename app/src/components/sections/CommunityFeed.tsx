@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ArrowRight, ArrowUpRight, MessageSquare, RefreshCw, Search, Signature, X } from "lucide-react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/vendor/toggle-group";
 import TokenAvatar from "@/components/launchpad/TokenAvatar";
+import WalletAvatar from "@/components/WalletAvatar";
 import { useLive } from "@/components/launchpad/LiveProvider";
 import { CHAIN_SHORT, shortAddr, type ChainKey } from "@/lib/chainPublic";
 import { ago, nowMs } from "@/lib/launchpad/time";
@@ -79,15 +80,23 @@ export default function CommunityFeed({ initial, loadError = false }: { initial:
           <article className={styles.post}>
             <Link href={`/t/${post.chain}/${post.token}#comments`} className={styles.postLink}>
               <div className={styles.postHeading}>
-                <TokenAvatar chain={post.chain} token={post.token} symbol={post.symbol ?? "?"} size={40} />
-                <div className={styles.postToken}><h3>{post.name || post.symbol || shortAddr(post.token)}</h3><p>{post.symbol ? `$${post.symbol} · ` : ""}{CHAIN_SHORT[post.chain]}</p></div>
+                <WalletAvatar address={post.wallet} size={40} />
+                <div className={styles.postAuthor}>
+                  <h3 title={post.wallet}><span className="sr-only">Post by </span>{shortAddr(post.wallet)}</h3>
+                  <p>
+                    {post.tag ? <span className={styles.role}>{post.tag}</span> : null}
+                    <time dateTime={post.created_at} title={post.created_at} suppressHydrationWarning>{now ? `${ago(post.created_at, now)} ago` : ""}</time>
+                  </p>
+                </div>
                 <ArrowUpRight size={16} className={styles.postArrow} aria-hidden="true" />
               </div>
               <p className={styles.postBody}>{post.body}</p>
               <div className={styles.postMeta}>
-                <span className={styles.wallet} title={post.wallet}>{shortAddr(post.wallet)}</span>
-                {post.tag ? <span className={styles.role}>{post.tag}</span> : null}
-                <time dateTime={post.created_at} title={post.created_at} suppressHydrationWarning>{now ? `${ago(post.created_at, now)} ago` : ""}</time>
+                <TokenAvatar chain={post.chain} token={post.token} symbol={post.symbol ?? "?"} size={20} />
+                <span className={styles.postToken}>
+                  <span>On <strong>{post.name || post.symbol || shortAddr(post.token)}</strong></span>
+                  <span>{post.symbol ? `$${post.symbol} · ` : ""}{CHAIN_SHORT[post.chain]}</span>
+                </span>
               </div>
               <span className={styles.discussion}>Open conversation <ArrowRight size={13} aria-hidden="true" /></span>
             </Link>

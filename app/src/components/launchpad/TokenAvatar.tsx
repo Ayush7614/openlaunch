@@ -1,24 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
+import { cn } from "@/lib/utils";
+import { tokenIdentity } from "@/lib/launchpad/token-identity";
+import styles from "./TokenAvatar.module.css";
 
-/** Deterministic hue from an address — same identity trick as the tape dots. */
-export function hueOf(addr: string): number {
-  let h = 0;
-  for (let i = 2; i < Math.min(addr.length, 18); i++) h = (h * 31 + addr.charCodeAt(i)) % 360;
-  return h;
-}
+export { tokenHue as hueOf } from "@/lib/launchpad/token-identity";
 
 /**
- * Token image with a graceful fallback: a soft gradient tile with the first letter of the symbol
- * (the openlaunch default mark). `chain` is accepted so call sites can pass the token's chain, but the
- * fallback is keyed on the address alone so a token looks the same everywhere.
+ * Uploaded logos first; otherwise a two-color mosaic from the complete address.
+ * `chain` stays optional for callers, but does not change the token identity.
  */
 export default function TokenAvatar({ token, symbol, image, size = 40, className = "" }: { chain?: string; token: string; symbol: string; image?: string | null; size?: number; className?: string }) {
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const src = image?.trim() || null;
-  const h = hueOf(token);
-  const style = { width: size, height: size, fontSize: Math.max(11, Math.round(size * 0.42)) };
+  const dimensions = { width: size, height: size };
   if (src && src !== failedSrc) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
@@ -29,19 +25,33 @@ export default function TokenAvatar({ token, symbol, image, size = 40, className
         width={size}
         height={size}
         referrerPolicy="no-referrer"
+        data-token-avatar="image"
         onError={() => setFailedSrc(src)}
-        className={`shrink-0 rounded-xl object-cover bg-paper border border-line ${className}`}
-        style={style}
+        className={cn("shrink-0 rounded-xl object-cover bg-paper border border-line", className)}
+        style={dimensions}
       />
     );
   }
+  const identity = tokenIdentity(token);
   return (
-    <div
-      aria-hidden
-      className={`shrink-0 rounded-xl grid place-items-center font-display font-bold text-white select-none ${className}`}
-      style={{ ...style, background: `linear-gradient(135deg, hsl(${h} 70% 55%), hsl(${(h + 40) % 360} 75% 45%))` }}
+    <span
+      aria-hidden="true"
+      data-token-avatar="generated"
+      title={`${symbol || "Token"} · generated icon`}
+      className={cn("shrink-0", size < 32 ? "rounded-md" : "rounded-xl", styles.mosaic, className)}
+      style={{
+        ...dimensions,
+        "--token-hue": identity.primaryHue,
+        "--token-accent-hue": identity.secondaryHue,
+        "--token-bg-hue": identity.backgroundHue.light,
+        "--token-bg-dark-hue": identity.backgroundHue.dark,
+      } as CSSProperties}
     >
-      {symbol.slice(0, 1).toUpperCase()}
-    </div>
+      <svg viewBox="0 0 48 48" className={styles.drawing} aria-hidden="true" focusable="false">
+        {identity.cells.map((cell, index) => <g key={index} transform={`translate(${cell.x} ${cell.y})`}>
+          <path d={cell.path} transform={`rotate(${cell.rotation} 5.5 5.5)`} className={styles[cell.tone]} />
+        </g>)}
+      </svg>
+    </span>
   );
 }
