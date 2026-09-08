@@ -49,7 +49,7 @@ asserts the per-`collect` invariant `Paid + Credited + Burned == Collected`.
 | `Launched(token, tokenId, launcher, quote, poolId, startTick, lpFee, supply, metadataURI)` (factory) | `token, tokenId, launcher` | `quote, poolId, startTick, lpFee, supply, metadataURI` | `bb_launches` row (one per launch) |
 | `Registered(tokenId, token, quote, recipients)` (locker) | `tokenId, token, quote` | `recipients[{payout,bps}]` | `bb_launches.recipients`; empty launch input is stored as `[DEAD: 100%]` |
 | `Collected(tokenId, token, quoteAmount, tokenAmount)` (locker) | `tokenId, token` | `quoteAmount, tokenAmount` (one leg is 0 on buy-only / sell-only collects) | `bb_launch_fee_events` `kind='collected'` |
-| `Paid(tokenId, account, currency, amount)` (locker) | `tokenId, account, currency` | `amount` | `kind='paid'`; one row per recipient pushed in this `collect` |
+| `Paid(tokenId, account, currency, amount)` (locker) | `tokenId, account, currency` | `amount` | `kind='paid'`; one row per recipient pushed in this `collect`. `amount` may be `0`: `_tryPay` succeeds trivially on a zero share (integer-division dust on a tiny collect), emitting `Paid` with no outbound transfer — indexers must not treat every `Paid` as an actual push |
 | `Credited(account, currency, amount)` (locker) | `account, currency` | `amount` | `kind='credited'`; `token_id` is null — the push failed, pull later with `claim` |
 | `Claimed(account, currency, amount)` (locker) | `account, currency` | `amount` | `kind='claimed'`; emitted by `claim` / `claimFor` |
 | `Burned(tokenId, currency, amount)` (locker) | `tokenId, currency` | `amount` | `kind='burned'`; immediate send to `DEAD`, never reserved or claimable |
