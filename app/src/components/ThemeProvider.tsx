@@ -39,9 +39,9 @@ function ThemeColorSync() {
  * would be the tidier model, but next-themes calls classList.remove(value) and
  * throws on an empty token.)
  */
-export default function ThemeProvider({ children }: { children: React.ReactNode }) {
+export default function ThemeProvider({ children, nonce }: { children: React.ReactNode; nonce?: string }) {
   return (
-    <NextThemes attribute="class" defaultTheme="light" enableSystem={false} disableTransitionOnChange>
+    <NextThemes attribute="class" defaultTheme="light" enableSystem={false} disableTransitionOnChange nonce={nonce}>
       <ThemeColorSync />
       {children}
     </NextThemes>

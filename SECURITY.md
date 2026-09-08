@@ -31,3 +31,5 @@ denial-of-service against public RPC endpoints, and findings that require a comp
 - Every off-chain write is authorized by a wallet signature with a single-use nonce and a time window.
 - Uploaded images are re-encoded server-side; the share-card renderer never fetches user-supplied URLs.
 - Tokenized stocks are recognized only from their issuers' registries, never from on-chain names.
+- Every page ships a nonce-based Content-Security-Policy (`app/src/lib/security-headers.ts`): only scripts carrying the
+  request's nonce run, the site cannot be framed, and the browser talks only to the site itself and the wallet endpoints listed there.
