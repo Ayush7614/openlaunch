@@ -18,6 +18,10 @@ type MockState = {
   metaInsertShouldThrow: boolean;
   verifyShouldThrow: boolean;
   verifyResult: boolean;
+  // When set, publicClient (chain-mock) returns a real viem client with an
+  // unreachable transport, so the RPC-outage path is exercised through viem
+  // itself rather than a hand-rolled stub.
+  transportOutage: boolean;
 };
 
 declare global {
@@ -33,6 +37,7 @@ export function resetMock() {
     metaInsertShouldThrow: false,
     verifyShouldThrow: false,
     verifyResult: true,
+    transportOutage: false,
   };
 }
 

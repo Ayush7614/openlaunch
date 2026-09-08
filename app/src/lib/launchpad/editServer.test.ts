@@ -86,6 +86,27 @@ test("applySignedEdit: invalid signature does NOT consume the nonce (returns 401
   assert.equal(m.nonceRows[NONCE].used_at, null, "nonce must not be consumed on invalid signature");
 });
 
+test("applySignedEdit: transport-level outage returns 503, not 401 (verifyMessage returns false on an offline transport)", async () => {
+  // viem 2.55.19's verifyMessage returns false (rather than throwing) when the
+  // RPC transport is unreachable, so without a liveness probe an outage would
+  // surface as 401 "signature does not match". This drives a REAL viem client
+  // with a dead transport through applySignedEdit (transportOutage swaps the
+  // chain mock for createPublicClient with an unreachable URL), exercising the
+  // same RPC-dependent verifyErc6492 path used for smart-wallet verification.
+  resetMock();
+  seedNonce();
+  seedLauncher();
+  const m = getMock();
+  m.transportOutage = true;
+
+  const r = await ed.applySignedEdit(editRequest());
+
+  assert.equal(r.ok, false, "should fail");
+  assert.equal(r.status, 503, "transport outage should be 503, not 401");
+  assert.equal(m.nonceRows[NONCE].used_at, null, "nonce must not be consumed on outage");
+  assert.equal(m.metaInserted, false, "metadata must not be written on outage");
+});
+
 test("applySignedEdit: valid signature consumes the nonce and writes metadata", async () => {
   resetMock();
   seedNonce();

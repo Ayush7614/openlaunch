@@ -7,13 +7,17 @@
  * Prerequisites:
  *   - Next.js dev server running on :3000 with DATABASE_URL pointing at a test DB
  *   - A bb_launches row for token 0x11...11 with launcher = TEST_WALLET
+ *     (0x3A90168A6bA7c975C34B064f35523cd9FFeff85a, derived from TEST_PRIVATE_KEY below)
  *   - BASE_RPC_URL reachable (for signature verification)
  */
 import { privateKeyToAccount } from "viem/accounts";
 import { buildEditMessage, validateEdit } from "../src/lib/launchpad/editAuth.ts";
 
 const BASE = "http://localhost:3000";
-const TEST_PRIVATE_KEY = "0xa92669a8ef46ba60f3327b15ba8d737b562c7260d445fa2e5d8b43c577358a45";
+// Disposable test-only key generated solely for this fixture. It has never
+// been and must never be funded or granted any permissions; it is public by
+// design. Do not reuse it for anything real.
+const TEST_PRIVATE_KEY = "0xa29ac736defede5a8eadc689e4ae754da133c9eb9de0706a5c476c06c9457981";
 const TEST_WALLET = privateKeyToAccount(TEST_PRIVATE_KEY).address;
 const TOKEN = "0x1111111111111111111111111111111111111111";
 const ATTACKER_WALLET = "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
@@ -236,8 +240,8 @@ console.log("\n[7] Non-creator cannot edit");
 // ── 8. IP rate limit still works (sanity check) ──
 console.log("\n[8] IP rate limit still works (sanity)");
 {
-  // The IP limiter on the nonce route is 30/min. Hit it 31 times with a
-  // unique X-Forwarded-For to confirm the IP bucket still fires.
+  // The IP limiter on the nonce route is 30/min. Hit it 32 times with a
+  // unique X-Forwarded-For to confirm the IP bucket is keyed on IP, not wallet.
   let lastStatus = 0;
   for (let i = 0; i < 32; i++) {
     const r = await post("/api/launch/edit/nonce", { chain: "base", token: TOKEN, wallet: ATTACKER_WALLET }, { "x-forwarded-for": `10.0.0.${i % 256}` });
@@ -249,6 +253,19 @@ console.log("\n[8] IP rate limit still works (sanity)");
   // uses a different IP, so no 429. This confirms the IP limiter is keyed
   // on IP, not wallet.
   check("IP-keyed requests don't 429 on wallet bucket", lastStatus === 403, `got ${lastStatus}`);
+
+  // Now repeat a single IP past the 30/min limit. The IP check runs before
+  // issueNonce, so the 31st request must get 429 regardless of wallet. This
+  // would pass even with no limiter if every request used a fresh IP, so a
+  // repeated single IP is the only way to prove the limiter actually fires.
+  let saw429 = false;
+  let singleIpLast = 0;
+  for (let i = 0; i < 32; i++) {
+    const r = await post("/api/launch/edit/nonce", { chain: "base", token: TOKEN, wallet: ATTACKER_WALLET }, { "x-forwarded-for": "10.1.2.3" });
+    singleIpLast = r.status;
+    if (r.status === 429) { saw429 = true; break; }
+  }
+  check("a single repeated IP eventually gets 429", saw429, `last status ${singleIpLast}`);
 }
 
 // ── Summary ──

@@ -75,7 +75,18 @@ export async function applySignedEdit(r: EditRequest): Promise<{ ok: true } | { 
   } catch {
     return { ok: false, error: "signature verification unavailable, try again", status: 503 };
   }
-  if (!valid) return { ok: false, error: "signature does not match", status: 401 };
+  if (!valid) {
+    // viem's verifyMessage returns false (rather than throwing) when the RPC
+    // transport is unreachable, so an outage would otherwise look like an
+    // invalid signature (401). Probe liveness to tell an outage (503) from a
+    // genuine mismatch (401); the nonce is still intact either way.
+    try {
+      await publicClient(r.chain).getChainId();
+    } catch {
+      return { ok: false, error: "signature verification unavailable, try again", status: 503 };
+    }
+    return { ok: false, error: "signature does not match", status: 401 };
+  }
 
   // wallet rate limit is applied AFTER the signature is verified, so an
   // attacker cannot freeze a creator's edit budget by sending requests with
