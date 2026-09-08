@@ -207,13 +207,13 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
         <div className="rounded-xl border border-line bg-card px-4 pt-4 pb-3">
           <div className="text-[11px] text-muted">You receive <span className="text-[10px]">· estimated</span></div>
           <div className="mt-2 flex min-h-7 items-center justify-between gap-3">
-            <span className="min-w-0 break-words font-mono text-base font-bold text-ink tnum">{outLabel ?? "N/A"}</span>{quoting && amountIn !== null ? <Spinner size={13} className="shrink-0 text-muted" /> : null}
+            <span className="min-w-0 break-words font-mono text-base font-bold text-ink tnum">{outLabel ?? "—"}</span>{quoting && amountIn !== null ? <Spinner size={13} className="shrink-0 text-muted" /> : null}
           </div>
           <div className="mt-1 min-h-4 text-[10px] text-muted">{inUsd ?? outUsd ?? "Quote includes the pool trading fee."}</div>
         </div>
       </div>
       <dl className="space-y-2 text-[11px]">
-        <div className="flex justify-between gap-3"><dt className="text-muted">Minimum received</dt><dd className="text-right font-mono text-body tnum">{quote_ && quote_.forKey === quoteKey ? (side === "buy" ? `${fmtCompact(Number(minOut(quote_.out, SLIPPAGE_BPS)) / 1e18)} ${symbol}` : fmtQ(minOut(quote_.out, SLIPPAGE_BPS))) : "N/A"}</dd></div>
+        <div className="flex justify-between gap-3"><dt className="text-muted">Minimum received</dt><dd className="text-right font-mono text-body tnum">{quote_ && quote_.forKey === quoteKey ? (side === "buy" ? `${fmtCompact(Number(minOut(quote_.out, SLIPPAGE_BPS)) / 1e18)} ${symbol}` : fmtQ(minOut(quote_.out, SLIPPAGE_BPS))) : "—"}</dd></div>
         <div className="flex justify-between gap-3"><dt className="text-muted">Slippage tolerance</dt><dd className="font-mono text-body tnum">1%</dd></div>
       </dl>
 

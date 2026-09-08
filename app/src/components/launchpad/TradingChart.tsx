@@ -193,7 +193,7 @@ export default function TradingChart({ chain, token, symbol, data, interval, ran
         <div className={styles.marketIdentity}>
           <div className={styles.kicker}><ScanLine size={14} aria-hidden /><span>{symbol} <span className={styles.secondary}>/ {currency}</span></span><span className={styles.chain}>{CHAIN_SHORT[chain]}</span></div>
           <h2 className={styles.metric}>{metric === "mcap" ? "Market cap" : "Token price"}</h2>
-          <div className={styles.priceLine}><strong title={latest ? String(latest.close) : undefined}>{latest ? fmt(latest.close, true) : "N/A"}</strong><span className={styles.denom}>{currency}</span></div>
+          <div className={styles.priceLine}><strong title={latest ? String(latest.close) : undefined}>{latest ? fmt(latest.close, true) : "—"}</strong><span className={styles.denom}>{currency}</span></div>
           <div className={styles.change}>{stats?.change != null ? <ChangeChip v={stats.change} plain context="across the visible candles" /> : null}<span>{stats ? "Visible range" : "Waiting for chart data"}</span></div>
         </div>
         <div className={styles.headerControls}>
@@ -220,10 +220,10 @@ export default function TradingChart({ chain, token, symbol, data, interval, ran
         </div>
       </div>
       <div className={styles.legend} aria-live="off">
-        <div className={styles.legendContext}><span>{symbol} / {currency} <span>· {interval} · Uniswap v4</span></span><time>{inspected ? `${utcTime(inspected.t, true)} UTC` : "N/A"}</time></div>
+        <div className={styles.legendContext}><span>{symbol} / {currency} <span>· {interval} · Uniswap v4</span></span><time>{inspected ? `${utcTime(inspected.t, true)} UTC` : "—"}</time></div>
         <div className={styles.ohlc} data-direction={inspected && inspected.close !== inspected.open ? inspected.close > inspected.open ? "up" : "down" : "flat"}>
-          {([ ["O", "open"], ["H", "high"], ["L", "low"], ["C", "close"] ] as const).map(([label, key]) => <span key={key} title={inspected ? `${key}: ${inspected[key]} ${currency}` : key}><b>{label}</b>{inspected ? formatChartPrice(inspected[key], true) : "N/A"}</span>)}
-          <span className={styles.legendVolume}><b>Vol</b>{inspected ? formatChartPrice(inspected.volume, true) : "N/A"} <small>{data?.quote.symbol ?? "Quote"}</small></span>
+          {([ ["O", "open"], ["H", "high"], ["L", "low"], ["C", "close"] ] as const).map(([label, key]) => <span key={key} title={inspected ? `${key}: ${inspected[key]} ${currency}` : key}><b>{label}</b>{inspected ? formatChartPrice(inspected[key], true) : "—"}</span>)}
+          <span className={styles.legendVolume}><b>Vol</b>{inspected ? formatChartPrice(inspected.volume, true) : "—"} <small>{data?.quote.symbol ?? "Quote"}</small></span>
           {inspected?.filled ? <span className={styles.carried}>Carried price · no swaps</span> : null}
         </div>
       </div>

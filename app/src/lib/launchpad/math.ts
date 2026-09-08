@@ -118,7 +118,7 @@ export function minOut(amountOut: bigint, slippageBps: number): bigint {
 // ── formatting ───────────────────────────────────────────────────────────────
 
 export function fmtCompact(n: number, digits = 2): string {
-  if (!Number.isFinite(n)) return "N/A";
+  if (!Number.isFinite(n)) return "—";
   const abs = Math.abs(n);
   if (abs >= 1e12) return `${(n / 1e12).toFixed(digits)}T`;
   if (abs >= 1e9) return `${(n / 1e9).toFixed(digits)}B`;
@@ -130,7 +130,7 @@ export function fmtCompact(n: number, digits = 2): string {
 /** Quote amount for display: "0.0421" style, trimming noise. bigint = wei (18 dec); number = whole units. */
 export function fmtEth(wei: bigint | number, opts: { max?: number } = {}): string {
   const v = typeof wei === "bigint" ? Number(wei) / 1e18 : wei;
-  if (!Number.isFinite(v)) return "N/A";
+  if (!Number.isFinite(v)) return "—";
   if (v === 0) return "0";
   const abs = Math.abs(v);
   const digits = abs >= 100 ? 1 : abs >= 1 ? 3 : abs >= 0.01 ? 4 : abs >= 0.0001 ? 6 : 8;
@@ -139,14 +139,14 @@ export function fmtEth(wei: bigint | number, opts: { max?: number } = {}): strin
 
 /** Tiny per-token prices: "0.00000012" or subscript-free sci notation for extremes. */
 export function fmtPrice(v: number): string {
-  if (!Number.isFinite(v) || v <= 0) return "N/A";
+  if (!Number.isFinite(v) || v <= 0) return "—";
   if (v >= 1) return v.toFixed(4).replace(/\.?0+$/, "");
   if (v >= 1e-8) return v.toFixed(10).replace(/\.?0+$/, "");
   return v.toExponential(2);
 }
 
 export function fmtUsd(v: number, opts: { compact?: boolean } = {}): string {
-  if (!Number.isFinite(v)) return "N/A";
+  if (!Number.isFinite(v)) return "—";
   if (opts.compact && Math.abs(v) >= 1000) return `$${fmtCompact(v, 1)}`;
   if (Math.abs(v) >= 1) return `$${v.toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: v >= 100 ? 0 : 2 })}`;
   if (v === 0) return "$0";

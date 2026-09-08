@@ -30,7 +30,7 @@ function scientificPrice(value: number, decimals: number): string {
 
 /** Numeric label only. The caller must label the actual USD or quote currency. */
 export function formatChartPrice(value: number, compact = false): string {
-  if (!Number.isFinite(value)) return "N/A";
+  if (!Number.isFinite(value)) return "—";
   if (value === 0) return "0";
   const magnitude = Math.abs(value);
   // A fixed decimal precision can silently turn a genuine small token price
@@ -44,7 +44,7 @@ export function formatChartPrice(value: number, compact = false): string {
 
 /** Keep neighboring axis ticks distinct at the chart's six-significant-digit step. */
 export function formatChartAxis(value: number): string {
-  if (!Number.isFinite(value)) return "N/A";
+  if (!Number.isFinite(value)) return "—";
   if (value === 0) return "0";
   const magnitude = Math.abs(value);
   if (magnitude < 0.000001 || magnitude >= 1e15) return scientificPrice(value, 5);

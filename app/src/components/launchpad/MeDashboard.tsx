@@ -208,8 +208,8 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
       <dl className={styles.stats}>
         <Stat k="Your launches" v={String(me.launches.length)} hint="Across both chains" />
         <Stat k="Fees earned" v={fmtUsd(earnedUsd, { compact: true })} hint="Your share, USD-priced launches" accent="up" />
-        <Stat k="Uncollected" v={feesReading ? "Reading…" : feesUnknown ? "N/A" : String(collectable.length)} hint={feesUnknown ? "Some pools could not be read" : "Pools with fees to collect"} accent={!feesReading && !feesUnknown && collectable.length ? "warm" : undefined} />
-        <Stat k="Holdings value" v={holdingsReading ? "Reading…" : holdingsUnknown ? "N/A" : fmtUsd(holdingsUsd, { compact: true })} hint={holdingsUnknown ? "A balance or price is unavailable" : "Current estimated USD value"} />
+        <Stat k="Uncollected" v={feesReading ? "Reading…" : feesUnknown ? "—" : String(collectable.length)} hint={feesUnknown ? "Some pools could not be read" : "Pools with fees to collect"} accent={!feesReading && !feesUnknown && collectable.length ? "warm" : undefined} />
+        <Stat k="Holdings value" v={holdingsReading ? "Reading…" : holdingsUnknown ? "—" : fmtUsd(holdingsUsd, { compact: true })} hint={holdingsUnknown ? "A balance or price is unavailable" : "Current estimated USD value"} />
       </dl>
 
       <Tabs defaultValue="launches" className={styles.ledger}>
@@ -250,7 +250,7 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
                       </div>
                       <div className={styles.tokenMeta}>
                         <FeeChip lpFee={l.lp_fee} mode={feeModeOf(l.lp_fee, l.recipients)} />
-                        <span>mc {l.fdv_usd !== null ? fmtUsd(l.fdv_usd, { compact: true }) : "N/A"}</span>
+                        <span>mc {l.fdv_usd !== null ? fmtUsd(l.fdv_usd, { compact: true }) : "—"}</span>
                         <span>· {l.buys + l.sells} trades</span>
                         {now ? <span suppressHydrationWarning>· {ago(l.block_time, now)} ago</span> : null}
                       </div>
@@ -261,7 +261,7 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
                     <div className="text-[11px] text-muted">earned · {share / 100}% share</div>
                   </div>
                   <div className={styles.figure}>
-                    <div className={p && p > 0n ? "text-warm-ink font-bold" : "text-muted"}>{p === undefined ? "…" : p === null ? "N/A" : fmtQuote(p, q.decimals, q.symbol)}</div>
+                    <div className={p && p > 0n ? "text-warm-ink font-bold" : "text-muted"}>{p === undefined ? "…" : p === null ? "—" : fmtQuote(p, q.decimals, q.symbol)}</div>
                     <div className="text-[11px] text-muted">uncollected</div>
                   </div>
                   <div className={styles.rowActions}>
@@ -298,11 +298,11 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
                       <ChainBadge chain={t.chain} />
                     </div>
                     <div className={styles.tokenMeta}>
-                      {t.my_buys} buys · {t.my_sells} sells · mc {t.fdv_usd !== null ? fmtUsd(t.fdv_usd, { compact: true }) : "N/A"}
+                      {t.my_buys} buys · {t.my_sells} sells · mc {t.fdv_usd !== null ? fmtUsd(t.fdv_usd, { compact: true }) : "—"}
                     </div>
                   </div>
                   <div className={styles.holdingValue}>
-                    <div className="text-ink font-bold">{bal === undefined ? "Reading…" : bal === null ? "N/A" : fmtCompact(Number(bal) / 1e18)}</div>
+                    <div className="text-ink font-bold">{bal === undefined ? "Reading…" : bal === null ? "—" : fmtCompact(Number(bal) / 1e18)}</div>
                     <div className="text-[11px] text-muted">{usd === null ? "USD unavailable" : fmtUsd(usd)}</div>
                   </div>
                 </Link>
@@ -328,7 +328,7 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
                     <td><span className={`${styles.tradeSide} ${t.is_buy ? "text-up" : "text-down-ink"}`}>{t.is_buy ? <ArrowDownLeft size={14} aria-hidden="true" /> : <ArrowUpRight size={14} aria-hidden="true" />}{t.is_buy ? "Buy" : "Sell"}</span></td>
                     <td><Link href={`/t/${t.chain}/${t.token}`}>{t.symbol}</Link> <span className={styles.tradeChain}>{CHAIN_SHORT[t.chain]}</span></td>
                     <td>{fmtQuote(t.quote_raw, t.quote_decimals, t.quote_symbol)}</td>
-                    <td className={styles.usdColumn}>{t.usd !== null ? fmtUsd(t.usd) : "N/A"}</td>
+                    <td className={styles.usdColumn}>{t.usd !== null ? fmtUsd(t.usd) : "—"}</td>
                     <td>
                       <a href={explorerTx(t.chain, t.tx_hash)} target="_blank" rel="noreferrer" className={styles.txLink} aria-label={`View ${t.symbol} ${t.is_buy ? "buy" : "sell"} transaction on explorer`} suppressHydrationWarning>{now ? ago(t.block_time, now) : "View"}<ArrowUpRight size={13} aria-hidden="true" /></a>
                     </td>

@@ -35,8 +35,8 @@ for (const plain of [false, true]) {
   test(`${plain ? "plain" : "pill"} changes render unavailable percentages neutrally, including tooltips`, () => {
     for (const v of [NaN, Infinity, -Infinity, Number.MAX_VALUE, -Number.MAX_VALUE]) {
       const chip = render({ v, plain });
-      assert.equal(label(chip), "N/A", String(v));
-      assert.equal(chip.props.title, "N/A since launch");
+      assert.equal(label(chip), "—", String(v));
+      assert.equal(chip.props.title, "— since launch");
       assert.match(chip.props.className, /\btext-muted\b/);
       assert.doesNotMatch(chip.props.className, /(?:text|bg)-(?:up|down)/);
     }

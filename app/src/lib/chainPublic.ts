@@ -53,6 +53,6 @@ import { BRAND_DOMAIN } from "./brand.ts";
 export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? `https://${BRAND_DOMAIN}`).replace(/\/$/, "");
 
 export function shortAddr(addr: string | null | undefined): string {
-  if (!addr) return "N/A";
+  if (!addr) return "—";
   return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 }

@@ -42,9 +42,9 @@ test("dashboard tabs preserve launches, holdings, trades and recoverable failure
 
 test("unavailable RPC values remain distinct from a zero balance or zero pending fees", () => {
   assert.match(source, /b\[key\(t\)\] = null/);
-  assert.match(source, /holdingsReading \? "Reading…" : holdingsUnknown \? "N\/A"/);
-  assert.match(source, /feesReading \? "Reading…" : feesUnknown \? "N\/A"/);
-  assert.match(source, /bal === undefined \? "Reading…" : bal === null \? "N\/A"/);
+  assert.match(source, /holdingsReading \? "Reading…" : holdingsUnknown \? "—"/);
+  assert.match(source, /feesReading \? "Reading…" : feesUnknown \? "—"/);
+  assert.match(source, /bal === undefined \? "Reading…" : bal === null \? "—"/);
   assert.match(source, /Your share, USD-priced launches/);
   assert.match(source, /not a guaranteed trade quote/);
 });
@@ -75,5 +75,5 @@ test("dashboard controls, tables and responsive styling remain accessible and th
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
   assert.doesNotMatch(css, /gradient\(|box-shadow|text-shadow|#[\da-f]{3,8}\b|animation:/i);
   assert.doesNotMatch(css, /background(?:-color)?: var\(--color-brand\)/);
-  assert.doesNotMatch(source + css + page, /\u2014|font-display/);
+  assert.doesNotMatch(source + css + page, /font-display/);
 });

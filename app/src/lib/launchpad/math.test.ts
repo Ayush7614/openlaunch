@@ -50,9 +50,9 @@ test("minOut applies bps slippage", () => {
   assert.equal(minOut(0n, 500), 0n);
 });
 
-test("unavailable figures use N/A without turning them into zero", () => {
+test("unavailable figures use — without turning them into zero", () => {
   for (const value of [NaN, Infinity, -Infinity]) {
-    for (const format of [fmtCompact, fmtEth, fmtPrice, fmtUsd]) assert.equal(format(value), "N/A");
+    for (const format of [fmtCompact, fmtEth, fmtPrice, fmtUsd]) assert.equal(format(value), "—");
   }
   assert.equal(fmtCompact(0), "0.00");
   assert.equal(fmtEth(0), "0");

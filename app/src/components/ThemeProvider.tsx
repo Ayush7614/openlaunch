@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { ThemeProvider as NextThemes, useTheme } from "next-themes";
 
-const THEME_COLOR = { light: "#ffffff", dark: "#000000" } as const;
+const THEME_COLOR = { light: "#FAFAF8", dark: "#000000" } as const;
 
 /** Keeps the browser chrome (mobile address bar, PWA title bar) in step with the toggled theme. */
 function ThemeColorSync() {
@@ -25,8 +25,8 @@ function ThemeColorSync() {
 }
 
 /**
- * Dark by default with an explicit light option behind the header toggle.
- * Two persisted states, "light" | "dark", independent of OS preference.
+ * Light by default (the shipped design) with an explicit dark option behind the
+ * header toggle. Two persisted states, "light" | "dark", independent of OS preference.
  *
  * Class-based: Tailwind's dark variant resolves against `.dark` on <html>
  * (see @custom-variant at the top of globals.css).
@@ -41,7 +41,7 @@ function ThemeColorSync() {
  */
 export default function ThemeProvider({ children }: { children: React.ReactNode }) {
   return (
-    <NextThemes attribute="class" defaultTheme="dark" enableSystem={false} disableTransitionOnChange>
+    <NextThemes attribute="class" defaultTheme="light" enableSystem={false} disableTransitionOnChange>
       <ThemeColorSync />
       {children}
     </NextThemes>

@@ -29,7 +29,7 @@ test("chart formatting handles both signs, compact large values, and nonfinite d
   assert.equal(formatChartPrice(12.1234567), "12.123457");
   assert.equal(formatChartPrice(0), "0");
   assert.equal(formatChartPrice(-0), "0");
-  for (const value of [NaN, Infinity, -Infinity]) assert.equal(formatChartPrice(value), "N/A");
+  for (const value of [NaN, Infinity, -Infinity]) assert.equal(formatChartPrice(value), "—");
 });
 
 test("chart formatting never disguises a nonzero tiny token price as zero", () => {
@@ -60,7 +60,7 @@ test("axis labels handle tiny prices, signed zero, and unavailable numeric value
   assert.notEqual(Number(formatChartAxis(Number.MIN_VALUE)), 0);
   assert.equal(formatChartAxis(0), "0");
   assert.equal(formatChartAxis(-0), "0");
-  for (const value of [NaN, Infinity, -Infinity]) assert.equal(formatChartAxis(value), "N/A");
+  for (const value of [NaN, Infinity, -Infinity]) assert.equal(formatChartAxis(value), "—");
 });
 
 test("extreme valuations have bounded scientific labels rather than millions of trillions", () => {
