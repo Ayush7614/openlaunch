@@ -47,6 +47,11 @@ export function isOrigin(value: string): boolean {
   return ["https:", "http:", "wss:", "ws:"].includes(u.protocol) && u.origin === value;
 }
 
+/**
+ * The Content-Security-Policy for one request. Scripts in the HTML run only with this nonce;
+ * 'strict-dynamic' extends that trust to scripts they load at runtime (Next.js chunks) but not to
+ * injected markup. Everything else is same-origin apart from the listed wallet and image sources.
+ */
 export function buildCsp(nonce: string, { dev = false, connectSrc = [] }: CspOptions = {}): string {
   if (!NONCE_RE.test(nonce)) throw new Error("csp nonce must be base64");
   const connect = new Set<string>(["'self'", ...WALLET_CONNECT_SRC, ...connectSrc.filter(isOrigin)]);
@@ -58,7 +63,7 @@ export function buildCsp(nonce: string, { dev = false, connectSrc = [] }: CspOpt
     "frame-ancestors 'none'",
     "frame-src 'none'",
     "form-action 'self'",
-    // Only scripts carrying this request's nonce run; 'strict-dynamic' lets them load Next's chunks.
+    // Nonce for scripts in the HTML; 'strict-dynamic' trusts what those scripts load (Next's chunks).
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${dev ? " 'unsafe-eval'" : ""}`,
     // Server-rendered inline `style` attributes and next/font. CSSOM writes are not gated by CSP.
     "style-src 'self' 'unsafe-inline'",
