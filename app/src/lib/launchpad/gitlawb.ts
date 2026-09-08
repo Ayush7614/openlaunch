@@ -53,11 +53,14 @@ export function gitlawbMcapPresets(usdPrice: number | null, usdTargets = [5_000,
   return usdTargets.map((u) => Math.round(u / usdPrice));
 }
 
-/** Gitlawb mark (ring + planet + satellite) on a navy tile, as an inline data URL (same shape as the stock tiles). */
-export function gitlawbTileSvg(): string {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#0a1020"/><g transform="translate(4 4) scale(0.24)"><ellipse cx="50" cy="50" rx="44" ry="14" transform="rotate(-24 50 50)" fill="none" stroke="#e8edf6" stroke-width="5.5"/><circle cx="50" cy="50" r="25" fill="#e8edf6"/><circle cx="90.19" cy="32.1" r="8" fill="#4d7dff"/></g></svg>`;
-  return `data:image/svg+xml,${encodeURIComponent(svg).replace(/%20/g, " ")}`;
-}
+/**
+ * Gitlawb's logo (the white branch-and-key mark on black), served from our own origin.
+ * Source: gitlawb.com's `public/logo.png` (web main branch, byte-identical to the live site), trimmed and
+ * downscaled to 160px in `public/gitlawb-mark.png`.
+ */
+export const GITLAWB_LOGO_PATH = "/gitlawb-mark.png";
+/** The logo's own ground — badges and tiles use the same colour so the mark never sits in a box of a different shade. */
+export const GITLAWB_LOGO_BG = "#000000";
 
 export function isGitlawbAddress(address: string): boolean {
   return address.toLowerCase() === GITLAWB_ADDRESS;

@@ -1,6 +1,6 @@
 import { isAddress, type Address } from "viem";
 import { CHAIN_KEYS, SITE_URL, type ChainKey } from "@/lib/chainPublic";
-import { GITLAWB_ADDRESS, GITLAWB_DECIMALS, GITLAWB_NAME, GITLAWB_SYMBOL, gitlawbTileSvg } from "./gitlawb";
+import { GITLAWB_ADDRESS, GITLAWB_DECIMALS, GITLAWB_LOGO_PATH, GITLAWB_NAME, GITLAWB_SYMBOL } from "./gitlawb";
 
 /**
  * CLIENT-SAFE launchpad config, per chain. Only NEXT_PUBLIC_* vars are read here.
@@ -21,7 +21,7 @@ export type ChainLaunchpad = { key: ChainKey; factory: Address | null; locker: A
 const ETH: Quote = { key: "eth", address: NATIVE, symbol: "ETH", decimals: 18, usd: null };
 const USDG: Quote = { key: "usdg", address: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168", symbol: "USDG", decimals: 6, usd: 1 };
 /** GITLAWB on Base: usd is null here (client-safe static); the server fills the live price (gitlawbServer.ts). */
-const GITLAWB: Quote = { key: "gitlawb", address: GITLAWB_ADDRESS as Address, symbol: GITLAWB_SYMBOL, decimals: GITLAWB_DECIMALS, usd: null, name: GITLAWB_NAME, logo: gitlawbTileSvg() };
+const GITLAWB: Quote = { key: "gitlawb", address: GITLAWB_ADDRESS as Address, symbol: GITLAWB_SYMBOL, decimals: GITLAWB_DECIMALS, usd: null, name: GITLAWB_NAME, logo: GITLAWB_LOGO_PATH };
 
 /** Canonical Uniswap v4 deployments (developers.uniswap.org/docs/protocols/v4/deployments). */
 const V4_BY_CHAIN: Record<ChainKey, V4> = {

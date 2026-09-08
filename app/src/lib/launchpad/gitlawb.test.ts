@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { encodeAbiParameters, keccak256 } from "viem";
-import { DYNAMIC_FEE_FLAG, GITLAWB_ADDRESS, GITLAWB_POOL_ID, GITLAWB_POOL_KEY, gitlawbMcapPresets, gitlawbTileSvg, gitlawbUsdFromSqrtPrice, isGitlawbAddress } from "./gitlawb.ts";
+import { existsSync } from "node:fs";
+import { DYNAMIC_FEE_FLAG, GITLAWB_ADDRESS, GITLAWB_LOGO_PATH, GITLAWB_POOL_ID, GITLAWB_POOL_KEY, gitlawbMcapPresets, gitlawbUsdFromSqrtPrice, isGitlawbAddress } from "./gitlawb.ts";
 
 test("pool id = keccak256(abi.encode(poolKey)) for the WETH/GITLAWB dynamic-fee pool", () => {
   const k = GITLAWB_POOL_KEY;
@@ -37,10 +38,9 @@ test("presets convert dollar targets into GITLAWB units; empty without a price",
   assert.deepEqual(p, [250_000_000, 500_000_000, 1_250_000_000, 5_000_000_000]);
 });
 
-test("tile is an inline SVG data URL; address check is case-insensitive", () => {
-  const t = gitlawbTileSvg();
-  assert.ok(t.startsWith("data:image/svg+xml,"));
-  assert.ok(decodeURIComponent(t).includes("<ellipse"));
+test("logo asset ships with the app; address check is case-insensitive", () => {
+  assert.ok(GITLAWB_LOGO_PATH.startsWith("/"), "same-origin path");
+  assert.ok(existsSync(new URL(`../../../public${GITLAWB_LOGO_PATH}`, import.meta.url)), "public/gitlawb-mark.png exists");
   assert.ok(isGitlawbAddress("0x5F980Dcfc4c0fa3911554cf5ab288ed0eb13DBa3"));
   assert.ok(!isGitlawbAddress("0x5F980Dcfc4c0fa3911554cf5ab288ed0eb13DBa4"));
 });

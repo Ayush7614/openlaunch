@@ -11,6 +11,17 @@ import { BRAND, BRAND_TLD } from "@/lib/brand";
 import { isOwnImageUrl } from "@/lib/launchpad/images";
 import { imagePublicBase, readImage } from "@/lib/launchpad/imageStore";
 import sharp from "sharp";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { GITLAWB_LOGO_BG, GITLAWB_LOGO_PATH } from "@/lib/launchpad/gitlawb";
+
+/** Gitlawb's logo from public/, inlined once per process (satori needs a data URL or absolute URL). */
+let gitlawbLogo: Promise<string | null> | null = null;
+function gitlawbLogoDataUrl(): Promise<string | null> {
+  return (gitlawbLogo ??= readFile(path.join(process.cwd(), "public", GITLAWB_LOGO_PATH))
+    .then((b) => `data:image/png;base64,${b.toString("base64")}`)
+    .catch(() => null));
+}
 
 export const alt = "token on openlaunch.lol";
 export const size = { width: 1200, height: 630 };
@@ -58,6 +69,7 @@ export default async function TokenOg({ params }: { params: Promise<{ chain: str
   const [usd, fonts] = await Promise.all([ethUsd(), loadOgFonts()]);
   const l = isChainKey(chain) && isAddress(token) ? await memo(`og:${chain}:${token.toLowerCase()}`, 30_000, () => getLaunch(chain, token, usd)) : null;
   const card = l ? shapeCard(l, nowMs()) : null;
+  const glLogo = card?.quote?.kind === "gitlawb" ? await gitlawbLogoDataUrl() : null;
   const logo = l ? await memo(`og-logo:${chain}:${token.toLowerCase()}`, 60_000, () => ownLogo(l.image_url)) : null;
   const h = hueOf(token);
   return new ImageResponse(
@@ -107,8 +119,8 @@ export default async function TokenOg({ params }: { params: Promise<{ chain: str
                 {card.quote ? (
                   <span style={{ display: "flex", alignItems: "center", gap: 10, height: 40, padding: "0 16px 0 7px", borderRadius: 999, border: `1px solid ${LINE}`, background: "#fff", color: BODY, fontSize: 19, fontWeight: 600, whiteSpace: "nowrap" }}>
                     {card.quote.kind === "gitlawb" ? (
-                      <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 8, background: "#0a1020", overflow: "hidden" }}>
-                        <svg width="24" height="24" viewBox="0 0 100 100"><ellipse cx="50" cy="50" rx="44" ry="14" transform="rotate(-24 50 50)" fill="none" stroke="#e8edf6" strokeWidth="5.5" /><circle cx="50" cy="50" r="25" fill="#e8edf6" /><circle cx="90.19" cy="32.1" r="8" fill="#4d7dff" /></svg>
+                      <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 8, background: GITLAWB_LOGO_BG, overflow: "hidden" }}>
+                        {glLogo ? <img src={glLogo} width={30} height={30} alt="" /> : null}
                       </span>
                     ) : (
                       <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 8, background: BLUE, color: "#fff", fontSize: card.quote.ticker.length > 4 ? 7 : card.quote.ticker.length > 3 ? 8 : 10, fontWeight: 800, letterSpacing: -0.5, whiteSpace: "nowrap", overflow: "hidden" }}>

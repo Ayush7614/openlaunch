@@ -421,7 +421,7 @@ export default function LaunchForm({ ethUsd, initialChain = "base" }: { ethUsd: 
               <span className="inline-flex items-center gap-2 h-9 pl-1.5 pr-3 rounded-full border border-brand bg-brand-soft text-brand text-sm font-semibold">
                 {quote.logo ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={quote.logo} alt="" width={22} height={22} className="rounded-md bg-card" />
+                  <img src={quote.logo} alt="" width={22} height={22} className="rounded-md" />
                 ) : null}
                 {quote.symbol}
                 <span className="font-normal text-xs opacity-80">{quote.name}</span>
