@@ -34,8 +34,30 @@ Trading: standard v4 swap on `poolKeyOf(token)` (currency0 = quote, currency1 = 
 ## Tests
 ```
 forge test --match-path test/LaunchFactory.t.sol            # 33 unit tests (incl. fuzz)
+forge test --match-contract LaunchEventsTest                # 7 event-emission tests (indexer schema)
 FORK_TESTS=true forge test --match-contract LaunchFactoryForkBase8453   # live Base: ETH + USDC quote
 ```
+
+## Events (indexer schema)
+
+Every off-chain row in `app/db/schema.sql` comes from one of these events.
+`test/LaunchEvents.t.sol` pins each emission; `test_events_accountForEveryWei`
+asserts the per-`collect` invariant `Paid + Credited + Burned == Collected`.
+
+| event | indexed | data | indexer row |
+|---|---|---|---|
+| `Launched(token, tokenId, launcher, quote, poolId, startTick, lpFee, supply, metadataURI)` (factory) | `token, tokenId, launcher` | `quote, poolId, startTick, lpFee, supply, metadataURI` | `bb_launches` row (one per launch) |
+| `Registered(tokenId, token, quote, recipients)` (locker) | `tokenId, token, quote` | `recipients[{payout,bps}]` | `bb_launches.recipients`; empty launch input is stored as `[DEAD: 100%]` |
+| `Collected(tokenId, token, quoteAmount, tokenAmount)` (locker) | `tokenId, token` | `quoteAmount, tokenAmount` (one leg is 0 on buy-only / sell-only collects) | `bb_launch_fee_events` `kind='collected'` |
+| `Paid(tokenId, account, currency, amount)` (locker) | `tokenId, account, currency` | `amount` | `kind='paid'`; one row per recipient pushed in this `collect` |
+| `Credited(account, currency, amount)` (locker) | `account, currency` | `amount` | `kind='credited'`; `token_id` is null — the push failed, pull later with `claim` |
+| `Claimed(account, currency, amount)` (locker) | `account, currency` | `amount` | `kind='claimed'`; emitted by `claim` / `claimFor` |
+| `Burned(tokenId, currency, amount)` (locker) | `tokenId, currency` | `amount` | `kind='burned'`; immediate send to `DEAD`, never reserved or claimable |
+
+Notes for indexers: the last recipient in `_distribute` absorbs rounding dust so
+shares always sum to the collected amount; a `DEAD` recipient is burned inline
+during `collect` (not credited); `collect` emits exactly one `Collected` plus
+zero-or-more `Paid` / `Credited` / `Burned` per currency leg.
 
 ## Deploy (Base mainnet)
 ```
