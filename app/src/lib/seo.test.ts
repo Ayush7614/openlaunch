@@ -4,6 +4,7 @@ import {
   STATIC_SITEMAP_ROUTES,
   canonicalUrl,
   isCanonicalTokenPath,
+  jsonLdHtml,
   staticSitemapEntries,
   tokenCanonical,
   tokenJsonLd,
@@ -82,4 +83,27 @@ test("token JSON-LD is facts-only: identifiers, no scores", () => {
   assert.ok(!text.includes("score"), "no scores");
   assert.ok(!text.includes("trust"), "no trust flags");
   assert.ok(!text.includes("rank"), "no rankings");
+});
+
+test("jsonLdHtml escapes < so creator input cannot break out of the script tag", () => {
+  const input = {
+    name: "</script><script>alert(1)</script>",
+    symbol: "XSS",
+    chain: "base" as const,
+    chainId: 8453,
+    token: TOKEN,
+    launcher: "0xAbC0000000000000000000000000000000000001",
+    quoteSymbol: "ETH",
+    supply: "1000000000000000000000000000",
+    poolId: "0xpool",
+    startTick: 184200,
+    lpFee: 10000,
+    blockTime: "2026-09-06T00:00:00.000Z",
+    description: "a < b",
+    siteUrl: SITE,
+  };
+  const html = jsonLdHtml(input);
+  assert.ok(!html.includes("<"), "no literal angle brackets remain");
+  assert.ok(html.includes("\\u003c/script>"), "closing tag is unicode-escaped");
+  assert.deepEqual(JSON.parse(html.replace(/\\u003c/g, "<")), JSON.parse(JSON.stringify(tokenJsonLd(input))), "escapes round-trip");
 });

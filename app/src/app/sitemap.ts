@@ -18,6 +18,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       const rows = (await sql`
         SELECT chain_id, token, block_time
         FROM bb_launches
+        WHERE chain_id IN (8453, 4663)
         ORDER BY block_time DESC
         LIMIT 1000
       `) as unknown as { chain_id: number; token: string; block_time: string | null }[];

@@ -28,8 +28,7 @@ import { fmtCompact, fmtPrice, fmtQuote, fmtUsd, pipsToPct } from "@/lib/launchp
 import { marketCount as count } from "@/lib/launchpad/token-market";
 import { marketUsd } from "@/lib/launchpad/market-format";
 import { CHAIN_LABELS, SITE_URL, chainIdOf, explorerAddress, explorerName, explorerTx, isChainKey, shortAddr } from "@/lib/chainPublic";
-import { tokenCanonical, tokenJsonLd } from "@/lib/seo";
-import { stockByAddress } from "@/lib/launchpad/stocksServer";
+import { jsonLdHtml, tokenCanonical } from "@/lib/seo";import { stockByAddress } from "@/lib/launchpad/stocksServer";
 import { BRAND_DOMAIN, BRAND_X } from "@/lib/brand";
 import { clampSocial } from "@/lib/launchpad/ogcard";
 
@@ -81,7 +80,9 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
   const utility = "inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-line px-2.5 text-xs text-muted hover:border-line-strong hover:text-ink";
 
   // Facts-only structured data (on-chain fields + creator metadata, no scores).
-  const jsonLd = tokenJsonLd({
+  // Escaped for the script sink: creator-supplied name/description must not
+  // be able to terminate the <script> element.
+  const jsonLd = jsonLdHtml({
     name: l.name,
     symbol: l.symbol,
     chain,
@@ -100,7 +101,7 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
 
   return (
     <>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd }} />
       <main className="mx-auto max-w-6xl px-4 pt-5 pb-28 sm:pt-7 lg:pb-16">
         <nav aria-label="Breadcrumb" className="mb-5 flex min-h-8 items-center justify-between gap-3 text-xs text-muted">
           <Link href="/#launches" className="inline-flex items-center gap-2 hover:text-ink"><ArrowLeft size={13} /> All launches</Link>

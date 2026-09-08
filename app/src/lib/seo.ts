@@ -109,8 +109,7 @@ export type TokenJsonLdInput = {
  * Facts-only JSON-LD for a token page. Every field is on-chain (factory /
  * locker / pool) or creator-supplied metadata — no scores, no flags, no
  * predictions (see CONTRIBUTING.md "Facts over scores").
- */
-export function tokenJsonLd(l: TokenJsonLdInput): Record<string, unknown> {
+ */export function tokenJsonLd(l: TokenJsonLdInput): Record<string, unknown> {
   const url = tokenCanonical(l.siteUrl, l.chain, l.token);
   const chainLabel = l.chain === "base" ? "Base" : "Robinhood Chain";
   return {
@@ -138,4 +137,14 @@ export function tokenJsonLd(l: TokenJsonLdInput): Record<string, unknown> {
       ],
     },
   };
+}
+
+/**
+ * Render JSON-LD for a `<script type="application/ld+json">` sink.
+ * `name` / `description` are creator-supplied, so `<` is escaped to
+ * `\u003c`: a literal `</script>` in a token name must never terminate
+ * the script element (XSS). The JSON parses identically.
+ */
+export function jsonLdHtml(l: TokenJsonLdInput): string {
+  return JSON.stringify(tokenJsonLd(l)).replace(/</g, "\\u003c");
 }
