@@ -1,27 +1,34 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { btn, cardPad } from "@/components/ui";
+import { ArrowDown, ArrowRight, ArrowUpRight, ChevronDown, FileCode2, LockKeyhole } from "lucide-react";
+import SectionIntro from "@/components/sections/SectionIntro";
+import shell from "@/components/sections/SectionShell.module.css";
+import styles from "@/components/sections/RulesGuide.module.css";
 import { launchpad } from "@/lib/launchpad/config";
-import { CHAIN_KEYS, CHAIN_LABELS, explorerAddress } from "@/lib/chainPublic";
+import { CHAINS, CHAIN_KEYS, CHAIN_LABELS, explorerAddress } from "@/lib/chainPublic";
 import { BRAND_GITHUB } from "@/lib/brand";
 
 export const metadata: Metadata = { title: "How it works", description: "What a launch does on-chain, what it costs (gas), and what can never happen to your liquidity." };
 
 const STEPS = [
-  ["Deploys your token", "A plain ERC-20 with EIP-2612 permit. Fixed supply of 1,000,000,000. No mint, no pause, no blacklist, no transfer tax, no owner."],
-  ["Opens a Uniswap v4 pool", "ETH / your token — or a tokenized stock / your token (Coinbase stocks on Base, Robinhood Stock Tokens on Robinhood Chain), or USDG on Robinhood Chain — no hook. The pool starts at the market cap you pick."],
-  ["Locks 100% of supply as liquidity", "The whole supply goes into one single-sided position. Its NFT is minted to an ownerless locker that has no function to withdraw, transfer or shrink it. Ever."],
-  ["Registers the fee routing", "The trading fee you chose (0%, 1% or 3%) goes 100% to the beneficiaries you named, or is burned if you named none. Fixed at launch, unchangeable."],
+  { title: "Your token is deployed", description: "A plain ERC-20 with EIP-2612 permit. Fixed supply, 1 billion by default. No mint, no pause, no blacklist, no transfer tax, no owner.", value: "1B", label: "default supply" },
+  { title: "A market opens", description: "A Uniswap v4 pool pairs your token with ETH, a tokenized stock (Coinbase stocks on Base, Robinhood Stock Tokens on Robinhood Chain), or USDG on Robinhood Chain. No hook. The pool starts at the market cap you pick.", value: "v4", label: "Uniswap pool" },
+  { title: "The liquidity position is locked", description: "100% of the supply goes into one single-sided position at launch. Its NFT is minted to an ownerless locker that has no function to withdraw, transfer or shrink it. Ever.", value: "100%", label: "deposited at launch" },
+  { title: "Fee routing is written in", description: "The trading fee you choose (0%, 1% or 3%) goes 100% to the beneficiaries you name, or is burned if you name none. Fixed at launch, unchangeable.", value: "0 / 1 / 3%", label: "your trading fee" },
 ] as const;
 
-const NEVER = [
-  ["No platform fee", "There is no fee address, fee variable or treasury anywhere in the factory or the locker. Nothing to switch on later — it cannot be added to immutable code."],
-  ["No rug", "Nobody can remove liquidity: not the creator, not us. Collecting fees removes zero liquidity."],
-  ["No pre-mine", "Every token starts inside the pool. The only way to hold any is to buy."],
+const FIXED = [
+  ["No platform fee", "There is no fee address, fee variable or treasury anywhere in the factory or the locker. Nothing to switch on later. It cannot be added to immutable code."],
+  ["No liquidity withdrawal", "Nobody can remove liquidity: not the creator, not us. Collecting fees removes zero liquidity."],
+  ["No pre-mine", "Every token starts inside the pool. There is no creator-reserved allocation."],
   ["No admin", "No owner, no pause, no upgrade, no allowlist. The contracts are the same for everyone, forever."],
 ] as const;
 
-/** Where each chain's contract source is verified (links go to the explorer's contract record). */
+const CONTENTS = [
+  ["launchpad", "The launch"], ["fees", "Fees & routing"], ["immutable", "What stays fixed"], ["know", "Before you begin"], ["contracts", "Contracts"],
+] as const;
+
+/** Verification records stay chain-specific and point to each deployed contract. */
 const VERIFIERS: Record<(typeof CHAIN_KEYS)[number], { name: string; url: (addr: string) => string }[]> = {
   base: [
     { name: "Basescan", url: (a) => `https://basescan.org/address/${a}#code` },
@@ -36,117 +43,96 @@ const VERIFIERS: Record<(typeof CHAIN_KEYS)[number], { name: string; url: (addr:
 
 export default function RulesPage() {
   return (
-    <main className="mx-auto max-w-3xl px-4 py-10 space-y-10">
-      <header className="space-y-2">
-        <h1 className="font-display font-bold tracking-[-0.02em] text-ink text-3xl sm:text-4xl">How it works</h1>
-        <p className="text-base text-body">One transaction on Base or Robinhood Chain. Gas is the only cost — usually a few cents.</p>
-      </header>
+    <main className={`${shell.page} ${styles.guide}`}>
+      <SectionIntro eyebrow="The protocol, explained" title="How it works" description="One transaction on Base or Robinhood Chain. Your token, a market, and a permanently locked liquidity position. You only pay gas.">
+        <Link href="/launch" className={shell.action}>Launch a token <ArrowRight size={15} aria-hidden="true" /></Link>
+        <a href="#contracts" className={shell.textLink}>Verify the contracts <ArrowDown size={14} aria-hidden="true" /></a>
+      </SectionIntro>
 
-      <section className="space-y-3" id="launchpad">
-        <h2 className="text-lg font-semibold text-ink">What a launch does</h2>
-        <ol className="space-y-2">
-          {STEPS.map(([t, d], i) => (
-            <li key={t} className={`${cardPad} flex gap-4`}>
-              <span className="font-mono font-bold text-brand tnum shrink-0">{i + 1}</span>
-              <div>
-                <div className="font-semibold text-ink">{t}</div>
-                <p className="mt-1 text-sm text-body leading-relaxed">{d}</p>
+      <div className={styles.layout}>
+        <aside className={styles.contents}>
+          <nav aria-label="On this page">
+            <p className={styles.eyebrow}>In this guide</p>
+            <ol>
+              {CONTENTS.map(([id, title], i) => <li key={id}><a href={`#${id}`}><span>{String(i + 1).padStart(2, "0")}</span>{title}</a></li>)}
+            </ol>
+          </nav>
+          <a href={BRAND_GITHUB} target="_blank" rel="noreferrer" className={styles.sourceLink}><FileCode2 size={16} aria-hidden="true" /> Read the source <ArrowUpRight size={13} aria-hidden="true" /></a>
+        </aside>
+
+        <div className={styles.article}>
+          <section className={shell.anchorSection} id="launchpad" aria-labelledby="launch-heading">
+            <div className={styles.sectionHeading}>
+              <div><p className={styles.eyebrow}>01 / The launch</p><h2 id="launch-heading">One signature.<br />Four things happen.</h2></div>
+              <p>All in the same transaction.<br />No separate setup. No platform fee.</p>
+            </div>
+            <ol className={styles.steps}>
+              {STEPS.map(({ title, description, value, label }, i) => (
+                <li key={title} className={styles.step}>
+                  <span className={styles.stepNumber} aria-hidden="true">{String(i + 1).padStart(2, "0")}</span>
+                  <div className={styles.stepCopy}><h3>{title}</h3><p>{description}</p></div>
+                  <div className={styles.stepValue}><strong>{value}</strong><span>{label}</span></div>
+                </li>
+              ))}
+            </ol>
+            <p className={styles.mechanismNote}><LockKeyhole size={15} aria-hidden="true" /><span>The position stays locked. Tokens remain tradeable.</span><a href="#contracts">Inspect the locker <ArrowUpRight size={13} aria-hidden="true" /></a></p>
+          </section>
+
+          <section className={shell.anchorSection} id="fees" aria-labelledby="fees-heading">
+            <div className={styles.sectionHeading}><div><p className={styles.eyebrow}>02 / Fees & routing</p><h2 id="fees-heading">Know where it goes.</h2></div></div>
+            <div className={styles.feePanel}>
+              <div className={styles.platformFee}><span className={styles.eyebrow}>Platform fee</span><strong>0%</strong><p>We take nothing.<br />Gas is paid to the network.</p><a href="#contracts">Check the code <ArrowUpRight size={13} aria-hidden="true" /></a></div>
+              <div className={styles.tradingFees}>
+                <h3>The creator chooses the trading fee</h3>
+                <dl>
+                  <div><dt>0%</dt><dd>No pool trading fee. Network gas still applies. Nobody earns fees from volume, including the creator.</dd></div>
+                  <div><dt>1% or 3%</dt><dd>Uniswap charges it on every trade and it accrues to the locked position. The platform takes no share.</dd></div>
+                </dl>
+                <p>Beneficiaries and shares are set at launch and can never be changed. A promise like &ldquo;half the fees go to this address&rdquo; is enforced by the contract, not by us.</p>
               </div>
-            </li>
-          ))}
-        </ol>
-      </section>
+            </div>
+            <div className={styles.collectNote}>
+              <div><h3>Anyone can collect. The routing decides who receives.</h3><p>Press <em>Collect</em> on the token page. Accrued fees leave the pool and are paid straight to the beneficiaries in the same transaction, or burned to <span className={styles.mono}>0x…dEaD</span> if the launch has no beneficiary.</p></div>
+              <p>If a beneficiary cannot receive the payment, their share is credited to them and can be claimed any time. It is never lost and never blocks the others.</p>
+            </div>
+          </section>
 
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold text-ink">Trading fees, in plain words</h2>
-        <div className={`${cardPad} space-y-3 text-sm text-body leading-relaxed`}>
-          <p>
-            <span className="font-semibold text-ink">0%</span> — a feeless pool. Trades cost only Uniswap gas. Nobody earns from volume, including the creator.
-          </p>
-          <p>
-            <span className="font-semibold text-ink">1% or 3%</span> — Uniswap charges it on every trade and it accrues to the locked position. Anyone can press <em>Collect</em> on the token page: the accrued fees leave
-            the pool and are <span className="text-ink font-medium">paid straight to the beneficiaries</span> in that same transaction (or burned to 0x…dEaD if the launch has no beneficiary). If a beneficiary cannot
-            receive the payment, their share is credited to them and can be claimed any time; it is never lost and never blocks the others.
-          </p>
-          <p>Beneficiaries and shares are set at launch and can never be changed — a promise like &ldquo;half the fees go to this address&rdquo; is enforced by the contract, not by us.</p>
+          <section className={shell.anchorSection} id="immutable" aria-labelledby="fixed-heading">
+            <div className={styles.sectionHeading}><div><p className={styles.eyebrow}>03 / What stays fixed</p><h2 id="fixed-heading">Code, not a promise.</h2></div><a href="#contracts" className={shell.textLink}>Read the contracts <ArrowUpRight size={14} aria-hidden="true" /></a></div>
+            <ul className={styles.fixedList}>{FIXED.map(([title, description]) => <li key={title}><span className={styles.fixedMark} aria-hidden="true">×</span><div><h3>{title}</h3><p>{description}</p></div></li>)}</ul>
+          </section>
+
+          <section className={shell.anchorSection} id="know" aria-labelledby="know-heading">
+            <div className={styles.sectionHeading}><div><p className={styles.eyebrow}>04 / Before you begin</p><h2 id="know-heading">Locked liquidity.<br />Not a guarantee of value.</h2></div></div>
+            <p className={styles.riskIntro}>Tokens launched here are created by their launchers, not by openlaunch. Do your own research; a locked pool does not make a token valuable. Nothing is refundable.</p>
+            <div className={styles.questions}>
+              <details open><summary>How does the price move?<ChevronDown size={17} aria-hidden="true" /></summary><div><p>Price follows a single-sided Uniswap v4 curve: the first buyers get the most tokens per unit of the quote asset, and every buy moves the price up. Sells move it down.</p><p>There is no anti-snipe mechanism. Bots can buy in the first block like anyone else.</p></div></details>
+              <details open><summary>What can change after launch?<ChevronDown size={17} aria-hidden="true" /></summary><div><p>Nothing on-chain can be edited after launch: not the name, not the fee, not the beneficiaries. Metadata (image, description, links) is stored by this site and can change; the token itself cannot.</p></div></details>
+              <details open><summary>What should I know about stock-quoted pools?<ChevronDown size={17} aria-hidden="true" /></summary><div><p>Stock-quoted pools use tokenized stocks as the quote asset: Coinbase tokenized stocks (B20) on Base, recognised here only from Base&apos;s official list and priced from Chainlink&apos;s on-chain feeds; Robinhood Stock Tokens on Robinhood Chain, recognised only from Robinhood&apos;s own registry.</p><p>Both are securities issued by third parties under Regulation S and are not offered to US persons. Coinbase&apos;s also exclude the UK, Canada, Australia, Singapore and Switzerland. Their issuers can pause transfers or freeze wallets in restricted jurisdictions. Holding or trading them is subject to the issuer&apos;s terms, not ours.</p></div></details>
+            </div>
+          </section>
+
+          <section className={shell.anchorSection} id="contracts" aria-labelledby="contracts-heading">
+            <div className={styles.sectionHeading}><div><p className={styles.eyebrow}>05 / The source of truth</p><h2 id="contracts-heading">Don&apos;t take our word for it.</h2></div><FileCode2 size={28} className={styles.contractIcon} aria-hidden="true" /></div>
+            <p className={styles.contractIntro}>Contracts, addresses and source verification. The same contract design on both chains, with chain-specific Uniswap deployments.</p>
+            <div className={styles.registry}>
+              {CHAIN_KEYS.map((chain) => {
+                const config = launchpad(chain);
+                return <section key={chain} className={styles.network} aria-labelledby={`${chain}-contracts`}>
+                  <header><h3 id={`${chain}-contracts`}>{CHAIN_LABELS[chain]}</h3><span>Chain ID <strong>{CHAINS[chain].id}</strong></span></header>
+                  <dl className={styles.addresses}>{(["factory", "locker"] as const).map((kind) => {
+                    const address = config[kind];
+                    return <div key={kind}><dt>{kind === "factory" ? "Factory" : "Locker"}</dt><dd>{address ? <a href={explorerAddress(chain, address)} target="_blank" rel="noreferrer" aria-label={`${CHAIN_LABELS[chain]} ${kind}: ${address}`}><span>{address}</span><ArrowUpRight size={14} aria-hidden="true" /></a> : <span className={styles.notDeployed}>Not deployed yet</span>}</dd></div>;
+                  })}</dl>
+                  {config.factory && config.locker ? <div className={styles.verifiers}><p>Source verified</p>{VERIFIERS[chain].map((verifier) => <div key={verifier.name}><span>{verifier.name}</span><a href={verifier.url(config.factory!)} target="_blank" rel="noreferrer" aria-label={`${CHAIN_LABELS[chain]} factory source on ${verifier.name}`}>Factory <ArrowUpRight size={12} aria-hidden="true" /></a><a href={verifier.url(config.locker!)} target="_blank" rel="noreferrer" aria-label={`${CHAIN_LABELS[chain]} locker source on ${verifier.name}`}>Locker <ArrowUpRight size={12} aria-hidden="true" /></a></div>)}</div> : null}
+                </section>;
+              })}
+            </div>
+            <p className={styles.contractNote}>Uniswap v4&apos;s PoolManager, PositionManager, Permit2 and Universal Router are Uniswap&apos;s canonical deployments. MIT-licensed source on <a href={BRAND_GITHUB} target="_blank" rel="noreferrer">GitHub ↗</a>; the verification records for each chain are linked above.</p>
+          </section>
+
+          <div className={styles.closing}><div><p className={styles.eyebrow}>Your next move</p><h2>Make something of your own.</h2></div><Link href="/launch" className={shell.action}>Launch a token <ArrowRight size={15} aria-hidden="true" /></Link></div>
         </div>
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold text-ink">What can never happen</h2>
-        <ul className="grid sm:grid-cols-2 gap-2.5">
-          {NEVER.map(([t, d]) => (
-            <li key={t} className={cardPad}>
-              <div className="font-semibold text-up">{t}</div>
-              <p className="mt-1 text-sm text-body leading-relaxed">{d}</p>
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold text-ink">What you should know</h2>
-        <div className={`${cardPad} space-y-2 text-sm text-body leading-relaxed`}>
-          <p>Price follows a single-sided Uniswap v4 curve: the first buyers get the most tokens per ETH, and every buy moves the price up. Sells move it down. There is no anti-snipe mechanism; bots can buy in the first block like anyone else.</p>
-          <p>Nothing is refundable and nothing can be edited after launch — not the name, not the fee, not the beneficiaries. Metadata (image, description, links) is stored by this site and can change; the token itself cannot.</p>
-          <p>Tokens launched here are created by their launchers, not by openlaunch. Do your own research; a locked pool does not make a token valuable.</p>
-          <p>Stock-quoted pools use tokenized stocks as the quote asset: Coinbase tokenized stocks (B20) on Base, recognised here only from Base&apos;s official list and priced from Chainlink&apos;s on-chain feeds; Robinhood Stock Tokens on Robinhood Chain, recognised only from Robinhood&apos;s own registry. Both are securities issued by third parties under Regulation S and are not offered to US persons (Coinbase&apos;s also exclude the UK, Canada, Australia, Singapore and Switzerland); their issuers can pause transfers or freeze wallets in restricted jurisdictions. Holding or trading them is subject to the issuer&apos;s terms, not ours.</p>
-        </div>
-      </section>
-
-      <section className="space-y-3" id="contracts">
-        <h2 className="text-lg font-semibold text-ink">Contracts</h2>
-        <div className={`${cardPad} text-sm text-body space-y-2`}>
-          {CHAIN_KEYS.map((k) => {
-            const c = launchpad(k);
-            return (
-              <div key={k} className="space-y-1">
-                <p className="font-semibold text-ink">{CHAIN_LABELS[k]}</p>
-                <p>
-                  Factory:{" "}
-                  {c.factory ? (
-                    <a href={explorerAddress(k, c.factory)} target="_blank" rel="noreferrer" className="font-mono text-ink underline underline-offset-2 break-all">
-                      {c.factory}
-                    </a>
-                  ) : (
-                    <span className="font-mono">not deployed yet</span>
-                  )}
-                </p>
-                <p>
-                  Locker:{" "}
-                  {c.locker ? (
-                    <a href={explorerAddress(k, c.locker)} target="_blank" rel="noreferrer" className="font-mono text-ink underline underline-offset-2 break-all">
-                      {c.locker}
-                    </a>
-                  ) : (
-                    <span className="font-mono">not deployed yet</span>
-                  )}
-                </p>
-                {c.factory && c.locker ? (
-                  <p className="text-xs text-muted">
-                    Source verified:{" "}
-                    {VERIFIERS[k].map((v, i) => (
-                      <span key={v.name}>
-                        {i > 0 ? " · " : ""}
-                        {v.name} (<a href={v.url(c.factory!)} target="_blank" rel="noreferrer" className="underline underline-offset-2">factory</a>,{" "}
-                        <a href={v.url(c.locker!)} target="_blank" rel="noreferrer" className="underline underline-offset-2">locker</a>)
-                      </span>
-                    ))}
-                  </p>
-                ) : null}
-              </div>
-            );
-          })}
-          <p>Identical bytecode on both chains. Uniswap v4&apos;s PoolManager, PositionManager, Permit2 and Universal Router are Uniswap&apos;s canonical deployments. MIT-licensed source on{" "}
-            <a href={BRAND_GITHUB} target="_blank" rel="noreferrer" className="text-ink underline underline-offset-2">GitHub ↗</a>; the verification records for each chain are linked above.
-          </p>
-        </div>
-      </section>
-
-      <div className="pt-2">
-        <Link href="/launch" className={btn.primary}>
-          Launch a token
-        </Link>
       </div>
     </main>
   );

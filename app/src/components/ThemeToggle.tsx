@@ -20,7 +20,7 @@ export default function ThemeToggle({ block = false }: { block?: boolean }) {
     () => false,
   );
 
-  const control = "h-9 w-9 inline-flex items-center justify-center rounded-xl border border-line bg-card text-body hover:text-ink hover:border-line-strong [&_svg]:size-4";
+  const control = "h-9 w-9 inline-flex items-center justify-center rounded-full border border-line bg-card text-body hover:text-ink hover:border-line-strong [&_svg]:size-4";
 
   if (!mounted) {
     return block ? <div className="min-h-12" aria-hidden /> : <div className={control} aria-hidden />;

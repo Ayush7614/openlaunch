@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { SECURITY_HEADERS } from "./src/lib/security-headers";
 
 const nextConfig: NextConfig = {
   // Fly: the Dockerfile copies .next/standalone (server.js + traced node_modules).
@@ -7,10 +8,15 @@ const nextConfig: NextConfig = {
   // .next/standalone/node_modules and scripts/migrate.mjs can import it inside
   // the image (release_command runs there, outside the Next server).
   serverExternalPackages: ["postgres"],
-  // The JSON API is the agent surface; never let a CDN cache a stale list.
   async headers() {
     return [
       {
+        // Static security headers on everything; the per-request CSP is set in src/proxy.ts.
+        source: "/(.*)",
+        headers: [...SECURITY_HEADERS],
+      },
+      {
+        // The JSON API is the agent surface; never let a CDN cache a stale list.
         source: "/api/:path*",
         headers: [{ key: "cache-control", value: "no-store" }],
       },

@@ -1,13 +1,14 @@
 /**
  * Pure candle logic (no imports beyond types; node --test loads this directly).
  * The DB aggregates swaps into sparse OHLCV buckets; this fills the gaps, seeds
- * the very first bucket from the launch price, and converts quote → USD / mcap.
+ * the first bucket from the preceding close (or launch price), and scales prices.
  */
 export type Interval = "1m" | "5m" | "15m" | "1h" | "4h" | "1d";
 export const INTERVALS: Record<Interval, number> = { "1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400 };
 export const INTERVAL_KEYS = Object.keys(INTERVALS) as Interval[];
+export const MAX_CANDLE_BUCKETS = 2000;
 export function isInterval(v: unknown): v is Interval {
-  return typeof v === "string" && v in INTERVALS;
+  return typeof v === "string" && Object.hasOwn(INTERVALS, v);
 }
 
 /** One bucket as the DB returns it (prices are whole quote units per token). */
@@ -19,17 +20,31 @@ export function bucketStart(tsSeconds: number, intervalS: number): number {
 }
 
 /**
- * Dense series from `from` to `to` (bucket starts, inclusive). Missing buckets
- * carry the previous close as a flat candle with zero volume. Before the first
- * trade the price is the launch price.
+ * A whole-bucket request, including at most MAX_CANDLE_BUCKETS through `asOf`.
+ * Floor after clamping to launch so the first OHLCV bucket is never partial.
+ * Missing/invalid starts use the standard lookback; future starts use this bucket.
  */
-export function fillCandles(raw: RawCandle[], intervalS: number, from: number, to: number, launchPrice: number): Candle[] {
+export function boundedCandleFrom(requestedFrom: number | null | undefined, launchT: number, asOf: number, intervalS: number): number {
+  const end = bucketStart(asOf, intervalS);
+  const requested = typeof requestedFrom === "number" && Number.isFinite(requestedFrom) && requestedFrom > 0
+    ? requestedFrom
+    : asOf - lookbackFor(intervalS);
+  const firstAllowed = Math.max(0, bucketStart(launchT, intervalS), end - (MAX_CANDLE_BUCKETS - 1) * intervalS);
+  return Math.min(end, Math.max(firstAllowed, bucketStart(requested, intervalS)));
+}
+
+/**
+ * Dense series from `from` to `to` (bucket starts, inclusive). Missing buckets
+ * carry the previous close as a flat candle with zero volume. `baselinePrice`
+ * is the last indexed close before `from`, or the launch price if none exists.
+ */
+export function fillCandles(raw: RawCandle[], intervalS: number, from: number, to: number, baselinePrice: number): Candle[] {
   const byT = new Map<number, RawCandle>();
   for (const c of raw) byT.set(bucketStart(c.t, intervalS), c);
   const start = bucketStart(from, intervalS);
   const end = bucketStart(to, intervalS);
   const out: Candle[] = [];
-  let prev = launchPrice;
+  let prev = baselinePrice;
   for (let t = start; t <= end; t += intervalS) {
     const c = byT.get(t);
     if (c) {
@@ -69,7 +84,7 @@ export function defaultInterval(ageSeconds: number): Interval {
   return "4h";
 }
 
-/** How far back to load for an interval (bucket count × size), capped to keep payloads small. */
+/** Default lookback duration; boundedCandleFrom applies the inclusive API bucket cap. */
 export function lookbackFor(intervalS: number, buckets = 300): number {
   return intervalS * buckets;
 }

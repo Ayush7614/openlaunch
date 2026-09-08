@@ -1,4 +1,6 @@
+import { UsersRound } from "lucide-react";
 import type { HolderPanel } from "@/lib/launchpad/holdersServer";
+import { holderFactsAvailable } from "@/lib/launchpad/token-market";
 import { fmtShare } from "@/lib/launchpad/holders";
 import { fmtCompact } from "@/lib/launchpad/math";
 import { explorerAddress, shortAddr, type ChainKey } from "@/lib/chainPublic";
@@ -16,11 +18,11 @@ const TAG_STYLE: Record<string, string> = {
 };
 const NOTE_STYLE = { warn: "border-warm/40 bg-warm-soft text-warm-ink", info: "border-line bg-card text-body", good: "border-holder-good-line bg-holder-good-bg text-up" } as const;
 
-export default function HoldersPanel({ chain, symbol, p }: { chain: ChainKey; symbol: string; p: HolderPanel | null }) {
-  if (!p) return null;
+export default function HoldersPanel({ chain, symbol, p, embedded = false }: { chain: ChainKey; symbol: string; p: HolderPanel | null; embedded?: boolean }) {
+  if (!p || !holderFactsAvailable(p)) return <section aria-label="holders" className={embedded ? "p-5" : "rounded-2xl border border-line bg-paper p-5"}><div className="flex items-center justify-between gap-3"><h2 className="text-sm font-semibold text-ink">Supply distribution</h2><span className="text-[11px] text-muted">Awaiting transfer history</span></div><div className="flex min-h-44 flex-col items-center justify-center gap-2 text-center"><UsersRound size={24} strokeWidth={1.4} className="mb-1 text-muted" /><h3 className="text-sm font-medium text-ink">The holder picture is not ready yet.</h3><p className="max-w-sm text-xs leading-relaxed text-muted text-pretty">Concentration, creator holdings and early buyers appear after transfer history is indexed. Missing data is not a clean bill of health.</p></div></section>;
   const supply = Number(BigInt(p.supply)) / 1e18;
   return (
-    <section className="rounded-2xl bg-card border border-line shadow-card overflow-hidden" aria-label="holders">
+    <section className={embedded ? "overflow-hidden bg-paper" : "overflow-hidden rounded-2xl border border-line bg-paper"} aria-label="holders">
       <div className="px-4 pt-4 pb-3 flex items-baseline justify-between gap-3 flex-wrap">
         <h2 className="font-semibold text-ink">Holders</h2>
         <span className="text-xs text-muted">{p.synced ? "from every transfer of the token, live" : "indexing transfer history…"}</span>
@@ -32,7 +34,7 @@ export default function HoldersPanel({ chain, symbol, p }: { chain: ChainKey; sy
         <Stat k="Sniped at launch" v={fmtShare(p.sniper.bps)} sub={`${p.sniper.wallets} wallet${p.sniper.wallets === 1 ? "" : "s"}`} warn={p.sniper.bps >= 1000} />
       </dl>
       <ul className="px-4 pt-3 flex flex-wrap gap-1.5">
-        {p.notes.map((n) => (
+        {p.notes.filter((n) => !n.text.includes("no red flags")).map((n) => (
           <li key={n.text} className={`inline-flex items-center h-6 px-2 rounded-full border text-[11px] font-medium ${NOTE_STYLE[n.level]}`}>
             {n.text}
           </li>
@@ -42,7 +44,7 @@ export default function HoldersPanel({ chain, symbol, p }: { chain: ChainKey; sy
         <ol className="mt-3 border-t border-line divide-y divide-line">
           {p.top.map((h, i) => (
             <li key={h.address} className="px-4 py-2 flex items-center gap-3 text-sm">
-              <span className="w-5 text-right font-mono text-xs text-faint tnum">{i + 1}</span>
+              <span className="w-5 text-right font-mono text-xs text-muted tnum">{i + 1}</span>
               <a href={explorerAddress(chain, h.address)} target="_blank" rel="noreferrer" className="font-mono text-xs text-body hover:text-ink" title={h.address}>
                 {shortAddr(h.address)}
               </a>
@@ -55,7 +57,7 @@ export default function HoldersPanel({ chain, symbol, p }: { chain: ChainKey; sy
               </span>
               <span className="ml-auto flex items-center gap-2 min-w-0">
                 <span className="hidden sm:block h-1.5 w-24 rounded-full bg-paper overflow-hidden" aria-hidden>
-                  <span className="block h-full bg-brand" style={{ width: `${Math.min(100, h.bps / 100)}%` }} />
+                  <span className="block h-full bg-ink" style={{ width: `${Math.min(100, h.bps / 100)}%` }} />
                 </span>
                 <span className="font-mono tnum text-xs text-muted hidden md:inline">{fmtCompact(Number(BigInt(h.balance)) / 1e18, 1)}</span>
                 <span className="font-mono tnum font-semibold text-ink w-14 text-right">{fmtShare(h.bps)}</span>

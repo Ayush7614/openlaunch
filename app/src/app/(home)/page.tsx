@@ -26,28 +26,28 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ s
 
   return (
     <>
-      <div className="bb-sky" aria-hidden />
       <main className="relative mx-auto max-w-6xl px-4 pb-16 space-y-8">
         <LaunchHero configured={LAUNCHPAD_CONFIGURED} />
         <TrendingStrip initial={trending} />
-        <div className="grid lg:grid-cols-[minmax(0,1fr)_20rem] gap-6 items-start">
+        <div className="grid xl:grid-cols-[minmax(0,1fr)_17rem] gap-6 items-start">
           <LaunchList initial={page.items} initialHasMore={page.hasMore} initialSort={sort} initialWindow={window} initialChain={chain} initialFilter={filter} hasDb={dbConfigured()} />
-          <div className="lg:sticky lg:top-20 min-w-0 space-y-4">
-            <PostsFeed initial={posts} compact />
+          <aside aria-label="Launchpad activity and information" className="grid min-w-0 gap-4 md:grid-cols-2 xl:sticky xl:top-24 xl:grid-cols-1">
             <LaunchTape initial={feed} />
-            <div className="rounded-2xl bg-card border border-line shadow-card p-4 text-[13px] leading-relaxed text-body">
-              <p className="font-semibold text-ink">Why it&apos;s free</p>
-              <p className="mt-1">
-                There is no fee address in the code, on either chain. The factory charges nothing and the locker has no cut — verifiable on-chain. Creators pick a 0–3% trading fee that goes
-                100% to a beneficiary they name, or gets burned.
-              </p>
-              <p className="mt-2">
-                <Link href="/agents" className="text-brand hover:underline underline-offset-4">
-                  Agents can launch too →
-                </Link>
-              </p>
+            <div className="min-w-0 space-y-4">
+              <PostsFeed initial={posts} compact />
+              <section aria-labelledby="free-heading" className="rounded-2xl border border-line bg-paper p-4">
+                <h2 id="free-heading" className="text-sm font-semibold text-ink">Why it&apos;s free</h2>
+                <p className="mt-2 text-pretty text-xs leading-relaxed text-muted">No fee address in the factory. No platform cut in the locker. On either chain.</p>
+                <dl className="mt-4 divide-y divide-line border-y border-line text-xs">
+                  <div className="flex items-center justify-between gap-3 py-2.5"><dt className="text-muted">Platform fee</dt><dd className="font-mono font-bold text-up tnum">$0</dd></div>
+                  <div className="flex items-center justify-between gap-3 py-2.5"><dt className="text-muted">Trading fee</dt><dd className="font-mono text-ink tnum">0 / 1 / 3%</dd></div>
+                </dl>
+                <p className="mt-3 text-pretty text-[11px] leading-relaxed text-muted">Creators choose the trading fee. It goes in full to their beneficiaries, or is burned.</p>
+                <a href="https://github.com/Gitlawb/openlaunch/tree/main/contracts/src" target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex min-h-8 items-center text-xs font-medium text-body underline decoration-line-strong underline-offset-4 hover:text-ink">Read the contracts ↗</a>
+                <div className="mt-3 border-t border-line pt-3"><Link href="/agents" className="inline-flex min-h-8 items-center text-xs font-medium text-brand hover:underline underline-offset-4">Agents can launch too →</Link></div>
+              </section>
             </div>
-          </div>
+          </aside>
         </div>
       </main>
     </>

@@ -13,7 +13,7 @@ import test from "node:test";
  * so "no class" must mean light.
  */
 const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
-const themeBlock = css.match(/@theme\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
+const themeBlock = css.match(/@theme(?:\s+static)?\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
 const darkBlock = css.match(/\n\.dark\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
 const printBlock = css.match(/@media print\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
 const colors = (source: string) => Object.fromEntries(Array.from(source.matchAll(/--color-([\w-]+):\s*(#[\da-f]{3,8});/gi), ([, name, hex]) => [name, hex]));
@@ -132,10 +132,10 @@ test("print falls back to ink on white", () => {
   assert.equal(print.ink, light.ink);
 });
 
-test("chart tokens are plain CSS in :root and overridden in .dark (Tailwind would drop unreferenced @theme vars)", () => {
-  const root = css.match(/:root\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
+test("runtime chart tokens survive Tailwind tree-shaking (@theme static) and exist in both themes", () => {
+  assert.match(css, /@theme static\s*\{/);
   for (const t of ["chart-grid", "chart-vol"]) {
-    assert.match(root, new RegExp(`--color-${t}:\\s*#[\\da-f]{6}`), `--color-${t} must be set in :root`);
+    assert.ok(t in light, `--color-${t} must be set in @theme`);
     assert.ok(t in colors(darkBlock), `--color-${t} must be set in .dark`);
   }
 });

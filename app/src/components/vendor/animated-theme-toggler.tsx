@@ -1,5 +1,8 @@
 "use client"
 
+// Adapted from Magic UI's animated-theme-toggler (MIT).
+// Copyright (c) Magic UI. Full notice and source: ./LICENSES.md.
+
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Moon, Sun } from "lucide-react"
 import { flushSync } from "react-dom"

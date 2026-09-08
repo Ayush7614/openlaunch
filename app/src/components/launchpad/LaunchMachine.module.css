@@ -1,0 +1,181 @@
+.machine { --cycle: 7.2s; --motion-state: paused; min-width: 0; width: 100%; max-width: 560px; margin-inline: auto; }
+.heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-inline: 2px; }
+.eyebrow { display: flex; align-items: center; gap: 9px; color: var(--color-muted); font-size: 11px; }
+.crosshair { width: 9px; height: 9px; position: relative; }
+.crosshair::before, .crosshair::after { content: ""; position: absolute; background: var(--color-muted); }
+.crosshair::before { width: 9px; height: 1px; top: 4px; }
+.crosshair::after { width: 1px; height: 9px; left: 4px; }
+.playback { display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 8px; border-radius: 6px; font-size: 11px; color: var(--color-muted); cursor: pointer; }
+.playback:hover { color: var(--color-ink); background: var(--color-card); }
+.machine[data-playing="true"] { --motion-state: running; }
+.playback { min-width: 68px; justify-content: flex-end; }
+.playback:disabled { cursor: default; }
+.viewport { width: 100%; perspective: 1000px; }
+.scene { width: 100%; transition: transform 280ms ease-out; transform-origin: 50% 60%; }
+.drawing { display: block; width: 100%; aspect-ratio: 560 / 398; overflow: hidden; stroke-linejoin: round; stroke-linecap: round; }
+.grid { stroke: var(--color-line); stroke-width: .7; }
+.plateTop { fill: var(--color-line); stroke: var(--color-faint); stroke-width: 1; }
+.faceLeft { fill: var(--color-card); stroke: var(--color-faint); stroke-width: .8; }
+.faceRight { fill: var(--color-paper); stroke: var(--color-faint); stroke-width: .8; }
+.outline { stroke: var(--color-line-strong); stroke-width: 1; }
+.inset { fill: var(--color-paper); stroke: var(--color-line-strong); stroke-width: 1; }
+.engraving { stroke: var(--color-muted); stroke-width: .7; }
+.position { fill: var(--color-line); stroke: var(--color-muted); stroke-width: 1.2; }
+.lockMark { stroke: var(--color-ink); stroke-width: 2; }
+.inkLine { stroke: var(--color-body); stroke-width: 1; }
+.etched { fill: var(--color-muted); font-family: var(--font-mono); font-size: 7px; letter-spacing: 1.5px; }
+.axis { stroke: var(--color-line-strong); stroke-width: 1; }
+.guides { stroke: var(--color-faint); stroke-width: .8; stroke-dasharray: 3 6; }
+.rim { fill: var(--color-line-strong); stroke: var(--color-muted); stroke-width: 1; }
+.well { fill: var(--color-paper); }
+.wellBack { stroke: var(--color-faint); stroke-width: 1; }
+.poolFloor { fill: var(--color-brand-soft); stroke: var(--color-brand); stroke-width: .8; }
+.ridges { stroke: var(--color-muted); stroke-width: 1.5; }
+.tokenSide { fill: var(--color-brand-soft); stroke: var(--color-brand); stroke-width: 1; }
+.tokenTop { fill: var(--color-brand); stroke: var(--color-brand-strong); stroke-width: 1; }
+.tokenRing { stroke: var(--color-inverse); stroke-width: .6; }
+.tokenRidge { stroke: var(--color-brand); stroke-width: .8; }
+.tokenMark { stroke: var(--color-inverse); stroke-width: 3.5; }
+.callouts { stroke: var(--color-line-strong); stroke-width: .8; }
+.calloutLabel { fill: var(--color-muted); stroke: none; font-family: var(--font-mono); font-size: 10px; letter-spacing: 1px; }
+.calloutSub { fill: var(--color-muted); stroke: none; font-family: var(--font-sans); font-size: 11px; }
+.token, .pool, .clampLeft, .clampRight { transition: transform 800ms cubic-bezier(.2, .7, .2, 1); }
+.machine[data-stage="0"] .token { transform: translateY(-23px); }
+.machine[data-stage="0"] .pool { transform: translateY(10px); }
+.machine[data-stage="0"] .clampLeft, .machine[data-stage="1"] .clampLeft { transform: translate(-10px, -6px); }
+.machine[data-stage="0"] .clampRight, .machine[data-stage="1"] .clampRight { transform: translate(10px, -6px); }
+.machine[data-stage="1"] .token { transform: translateY(67px); }
+.machine[data-stage="1"] .pool { transform: translateY(5px); }
+.machine[data-stage="2"] .position { stroke: var(--color-brand); }
+.machine[data-stage="2"] .lockMark { stroke: var(--color-brand); }
+
+/* User-requested continuous choreography. All layers share one pausable clock. */
+.assembly { transform-box: view-box; transform-origin: 280px 265px; }
+.token { transform-box: view-box; transform-origin: 280px 100px; }
+.ripple, .rippleAfter { opacity: 0; stroke: var(--color-brand); stroke-width: 1.4; transform-box: view-box; transform-origin: 280px 202px; }
+.poolCurrent { opacity: 0; stroke: var(--color-brand); stroke-width: 1.8; stroke-dasharray: 18 24 4 24; }
+.lockTrace { opacity: 0; stroke: var(--color-brand); stroke-width: 2; stroke-dasharray: 100; }
+.machine[data-loop="true"] .assembly { animation: assembly-drift var(--cycle) ease-in-out infinite; }
+.machine[data-loop="true"] .token { animation: token-cycle var(--cycle) ease-in-out infinite; }
+.machine[data-loop="true"] .pool { animation: pool-response var(--cycle) ease-in-out infinite; }
+.machine[data-loop="true"] .poolCurrent { animation: pool-current var(--cycle) linear infinite; }
+.machine[data-loop="true"] .ripple { animation: pool-ripple var(--cycle) ease-out infinite; }
+.machine[data-loop="true"] .rippleAfter { animation: pool-ripple-after var(--cycle) ease-out infinite; }
+.machine[data-loop="true"] .clampLeft { animation: lock-left var(--cycle) ease-in-out infinite; }
+.machine[data-loop="true"] .clampRight { animation: lock-right var(--cycle) ease-in-out infinite; }
+.machine[data-loop="true"] .lockTrace { animation: lock-trace var(--cycle) ease-in-out infinite; }
+.machine[data-loop="true"] .guides { animation: guide-flow var(--cycle) linear infinite; }
+/* Keep this after the shorthands: pause freezes every layer at its current phase. */
+.machine[data-loop="true"] :is(.assembly, .token, .pool, .poolCurrent, .ripple, .rippleAfter, .clampLeft, .clampRight, .lockTrace, .guides) {
+  animation-play-state: var(--motion-state);
+}
+@keyframes assembly-drift {
+  0%, 100% { transform: translateY(0) rotate(-1.5deg); }
+  50% { transform: translateY(-7px) rotate(1.5deg); }
+}
+@keyframes token-cycle {
+  0%, 100% { transform: translateY(-24px) rotate(-9deg); opacity: 1; }
+  12% { transform: translateY(-36px) rotate(7deg); opacity: 1; }
+  24% { transform: translateY(-6px) rotate(-4deg); opacity: 1; }
+  40% { transform: translateY(85px) scale(.8); opacity: 1; }
+  47%, 70% { transform: translateY(107px) scale(.25); opacity: 0; }
+  76% { transform: translateY(-56px) rotate(-18deg); opacity: 0; }
+  89% { transform: translateY(-16px) rotate(9deg); opacity: 1; }
+}
+@keyframes pool-response {
+  0%, 18%, 65%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-10px); }
+  43% { transform: translateY(8px); }
+  51% { transform: translateY(-5px); }
+}
+@keyframes pool-current {
+  from { stroke-dashoffset: 0; opacity: .8; }
+  to { stroke-dashoffset: -280; opacity: .8; }
+}
+@keyframes pool-ripple {
+  0%, 38%, 72%, 100% { transform: scale(.5); opacity: 0; }
+  43% { transform: scale(.7); opacity: .85; }
+  66% { transform: scale(1.65); opacity: 0; }
+}
+@keyframes pool-ripple-after {
+  0%, 44%, 78%, 100% { transform: scale(.5); opacity: 0; }
+  49% { transform: scale(.7); opacity: .65; }
+  72% { transform: scale(1.65); opacity: 0; }
+}
+/* The retaining clamps never open; a short inward compression confirms the lock. */
+@keyframes lock-left {
+  0%, 49%, 67%, 100% { transform: translate(0, 0); }
+  57% { transform: translate(5px, 2px); }
+}
+@keyframes lock-right {
+  0%, 49%, 67%, 100% { transform: translate(0, 0); }
+  57% { transform: translate(-5px, 2px); }
+}
+@keyframes lock-trace {
+  0%, 45% { stroke-dashoffset: 100; opacity: 0; }
+  49% { stroke-dashoffset: 100; opacity: 1; }
+  68%, 82% { stroke-dashoffset: 0; opacity: 1; }
+  96%, 100% { stroke-dashoffset: 0; opacity: 0; }
+}
+@keyframes guide-flow { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -54; } }
+
+.controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-bottom: 1px solid var(--color-line); }
+.stageButton { position: relative; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 8px; color: var(--color-muted); font-size: 12px; cursor: pointer; white-space: nowrap; }
+.stageButton::after { position: absolute; content: ""; bottom: -1px; left: 8px; right: 8px; height: 1px; background: transparent; }
+.stageButton:hover { color: var(--color-ink); }
+.stageButton[aria-pressed="true"] { color: var(--color-ink); }
+.stageButton[aria-pressed="true"]::after { background: var(--color-ink); }
+.stageNumber { font-family: var(--font-mono); font-size: 10px; color: var(--color-muted); }
+.stageDot { margin-left: auto; width: 4px; height: 4px; border-radius: 50%; background: transparent; }
+.stageButton[aria-pressed="true"] .stageDot { background: var(--color-brand); }
+.stageProgress { position: absolute; z-index: 1; pointer-events: none; bottom: -1px; left: 8px; right: 8px; height: 2px; background: var(--color-brand); transform-origin: left; opacity: 0; }
+/* Same 7.2s clock as the geometry: pool at 24%, lock at 49%, token returns at 89%.
+   The token's negative delay continues its phase across the loop seam (89% → 24%). */
+.machine[data-loop="true"] .stageProgress[data-phase="0"] { animation: token-progress var(--cycle) linear calc(var(--cycle) * -.11) infinite; }
+.machine[data-loop="true"] .stageProgress[data-phase="1"] { animation: pool-progress var(--cycle) linear calc(var(--cycle) * .24) infinite; }
+.machine[data-loop="true"] .stageProgress[data-phase="2"] { animation: lock-progress var(--cycle) linear calc(var(--cycle) * .49) infinite; }
+.machine[data-loop="true"] .stageProgress[data-phase] { animation-play-state: var(--motion-state); }
+@keyframes token-progress {
+  0% { transform: scaleX(0); opacity: 1; }
+  35% { transform: scaleX(1); opacity: 1; }
+  35.001%, 100% { transform: scaleX(1); opacity: 0; }
+}
+@keyframes pool-progress {
+  0% { transform: scaleX(0); opacity: 1; }
+  25% { transform: scaleX(1); opacity: 1; }
+  25.001%, 100% { transform: scaleX(1); opacity: 0; }
+}
+@keyframes lock-progress {
+  0% { transform: scaleX(0); opacity: 1; }
+  40% { transform: scaleX(1); opacity: 1; }
+  40.001%, 100% { transform: scaleX(1); opacity: 0; }
+}
+.detail { display: grid; align-content: start; padding: 16px 8px 0; min-height: 105px; }
+.detailContent { grid-area: 1 / 1; }
+.detailContent[aria-hidden="true"] { visibility: hidden; }
+.machine[data-loop="true"] .detailContent[aria-hidden="false"] { animation: detail-enter 180ms ease-out both; animation-play-state: var(--motion-state); }
+@keyframes detail-enter { from { opacity: .7; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
+.detailTitle { font-size: 14px; font-weight: 600; line-height: 1.5; color: var(--color-ink); }
+.detailCopy { margin-top: 5px; max-width: 390px; font-size: 12px; line-height: 1.7; color: var(--color-muted); text-wrap: pretty; }
+.proof { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 0 8px; color: var(--color-muted); font-size: 10px; }
+.proof > span { display: flex; align-items: center; gap: 8px; }
+.proof > span:last-child { gap: 14px; }
+.proof a { display: flex; align-items: center; gap: 2px; min-height: 30px; text-decoration: underline; text-decoration-color: var(--color-line-strong); text-underline-offset: 3px; }
+.proof a:hover { color: var(--color-ink); }
+@media (max-width: 1023px), (hover: none) {
+  .scene { transition: none; transform: none !important; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .scene, .token, .pool, .clampLeft, .clampRight { transition: none; }
+  .scene { transform: none !important; }
+  .machine[data-loop="true"] :is(.assembly, .token, .pool, .poolCurrent, .ripple, .rippleAfter, .clampLeft, .clampRight, .lockTrace, .guides) { animation: none; }
+  .machine[data-loop="true"] :is(.stageProgress[data-phase], .detailContent[aria-hidden]) { animation: none; }
+}
+@media (max-width: 639px) {
+  .eyebrow { font-size: 10px; }
+  .stageButton { gap: 6px; padding-inline: 6px; font-size: 11px; }
+  .stageButton::after, .stageProgress { left: 6px; right: 6px; }
+  .stageDot { display: none; }
+  .detail { min-height: 115px; padding-inline: 6px; }
+  .proof { padding-inline: 6px; }
+}

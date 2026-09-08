@@ -56,14 +56,14 @@ export async function saveMeta(m: Input): Promise<{ uri: string; token: Address 
       SELECT launcher, name, symbol, description, image_url, website, x_handle FROM bb_launch_meta
        WHERE chain_id = ${cid} AND launcher = ${launcher} AND meta_key = ${m.meta_key}
        ORDER BY created_at ASC, token ASC LIMIT 1`;
-    if (owner && metaWriteDecision(owner, m) === "conflict") throw new MetaConflict("this metadata key is already registered with different details — edit after launch from your dashboard, or start a new launch");
+    if (owner && metaWriteDecision(owner, m) === "conflict") throw new MetaConflict("this metadata key is already registered with different details. Edit after launch from your dashboard, or start a new launch");
     const inserted = await db`
       INSERT INTO bb_launch_meta (chain_id, token, launcher, meta_key, name, symbol, description, image_url, website, x_handle)
       VALUES (${cid}, ${token}, ${launcher}, ${m.meta_key}, ${m.name}, ${m.symbol}, ${m.description ?? null}, ${m.image_url ?? null}, ${m.website ?? null}, ${m.x_handle ?? null})
       ON CONFLICT (chain_id, token) DO NOTHING RETURNING token`;
     if (inserted.length === 0) {
       const [existing] = await db<MetaRow[]>`SELECT launcher, name, symbol, description, image_url, website, x_handle FROM bb_launch_meta WHERE chain_id = ${cid} AND token = ${token}`;
-      if (metaWriteDecision(existing ?? null, m) === "conflict") throw new MetaConflict("metadata for this launch is already registered — edit it after launch from your dashboard, or pick a new salt");
+      if (metaWriteDecision(existing ?? null, m) === "conflict") throw new MetaConflict("metadata for this launch is already registered. Edit it after launch from your dashboard, or pick a new salt");
     }
     return { uri, token };
   }) as Promise<{ uri: string; token: Address }>;
