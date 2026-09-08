@@ -32,10 +32,8 @@
 .contracts > a { display: inline-flex; align-items: center; gap: 5px; min-height: 36px; color: var(--color-muted); font-size: 12px; }
 .contracts > a:hover { color: var(--color-ink); }
 .unconfigured { padding-top: 8px; font-size: 11px; color: var(--color-muted); }
-.signature { display: block; width: fit-content; max-width: 100%; margin: 26px 0 24px; color: var(--color-ink); font-size: clamp(32px, 8.8vw, 112px); line-height: 1.08; font-weight: 700; letter-spacing: -.075em; white-space: nowrap; }
-.tld { color: var(--color-muted); transition: color 180ms; }
-.signatureDot { color: var(--color-brand); }
-.signature:is(:hover, :focus-visible) .tld { color: var(--color-brand); }
+.signature { display: block; width: fit-content; max-width: 100%; margin: 26px auto 24px; text-align: center; color: var(--color-ink); font-size: clamp(32px, 8.8vw, 112px); line-height: 1.08; font-weight: 700; letter-spacing: -.075em; white-space: nowrap; transition: color 180ms; }
+.signature:is(:hover, :focus-visible) { color: var(--color-brand); }
 .bottom { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 24px; padding-top: 16px; border-top: 1px solid var(--color-line); color: var(--color-muted); font-size: 11px; }
 .utilities { display: flex; align-items: center; gap: 24px; }
 .license, .backTop { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; }
