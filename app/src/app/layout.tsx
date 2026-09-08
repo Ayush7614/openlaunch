@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
 import { Inter, Space_Mono, Unbounded } from "next/font/google";
 import "./globals.css";
 import Web3Provider from "@/components/Web3Provider";
@@ -36,12 +37,14 @@ export const metadata: Metadata = {
 export const viewport: Viewport = { themeColor: "#FAFAF8", colorScheme: "light", width: "device-width", initialScale: 1, viewportFit: "cover" };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Minted per request in src/proxy.ts; next-themes' inline theme script must carry it to run under the CSP.
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   const usd = await ethUsd();
   const [feed, totals] = await Promise.all([getLaunchFeed(24, usd).catch(() => []), getLaunchTotals(usd)]);
   return (
     <html lang="en" className={`${inter.variable} ${spaceMono.variable} ${unbounded.variable}`} suppressHydrationWarning>
       <body id="site-top" tabIndex={-1} className="min-h-screen flex flex-col">
-        <ThemeProvider>
+        <ThemeProvider nonce={nonce}>
         <Web3Provider>
           <LiveProvider initial={{ at: 0, feed, totals, ethUsd: usd }}>
           <Suspense fallback={null}>
