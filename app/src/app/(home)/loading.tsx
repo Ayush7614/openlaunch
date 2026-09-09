@@ -49,23 +49,24 @@ export default function Loading() {
         </section>
         <aside className="space-y-4">
           <div className="rounded-2xl bg-card border border-line shadow-card overflow-hidden">
-            <div className="px-4 py-3 flex items-center justify-between">
+            <div className="flex min-h-14 items-center justify-between border-b border-line px-4">
               <Sk className="h-4 w-14" />
               <Sk className="h-3 w-16" />
             </div>
             <ul>
               {Array.from({ length: 4 }, (_, i) => (
-                <SkPost key={i} />
+                <SkPost key={i} i={i} avatar="tile" />
               ))}
             </ul>
           </div>
           <div className="rounded-2xl bg-card border border-line shadow-card overflow-hidden">
-            <div className="px-4 py-3">
+            <div className="flex min-h-14 items-center justify-between gap-2 border-b border-line px-4">
               <Sk className="h-4 w-20" />
+              <div className="flex items-center gap-2"><Sk className="h-3 w-14" /><Sk className="h-10 w-10 rounded-lg" /></div>
             </div>
             <ul>
-              {Array.from({ length: 6 }, (_, i) => (
-                <SkPost key={i} />
+              {Array.from({ length: 5 }, (_, i) => (
+                <SkPost key={i} i={i} />
               ))}
             </ul>
           </div>

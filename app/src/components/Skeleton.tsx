@@ -48,14 +48,45 @@ export function SkStat() {
   );
 }
 
-export function SkPost() {
+/**
+ * One compact sidebar row. `round` (default) is a post: 28px wallet avatar, author line, token line and a
+ * clamped body (PostsFeed compact). `tile` is a launch-tape row: 28px square token tile and two lines.
+ */
+export function SkPost({ i = 0, avatar = "round" }: { i?: number; avatar?: "round" | "tile" }) {
   return (
-    <li className="px-4 py-3 border-t border-line first:border-t-0 flex gap-3">
-      <Sk className="h-8 w-8 rounded-full shrink-0" />
-      <div className="flex-1 space-y-2">
-        <Sk className="h-3 w-32" />
-        <Sk className="h-3.5 w-3/4" />
+    <li className="px-4 py-3 border-t border-line first:border-t-0 flex gap-2.5">
+      <Sk className={`h-7 w-7 shrink-0 ${avatar === "tile" ? "rounded-lg" : "rounded-full"}`} />
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <div className="flex items-center justify-between gap-2"><Sk className="h-3 w-24" /><Sk className="h-2.5 w-8" /></div>
+        <Sk className="h-2.5 w-28" />
+        {avatar === "round" ? <><Sk className="mt-2 h-3.5 w-full" /><Sk className="h-3.5" style={{ width: `${40 + ((i * 29) % 45)}%` }} /></> : null}
       </div>
+    </li>
+  );
+}
+
+/**
+ * One community-feed post (CommunityFeed.tsx `.post`): 40px wallet avatar + author heading, a 15px body
+ * (26px line pitch), the 20px token tile line and the "Open conversation" line. Same 24px padding
+ * (20px 16px on phones) so the real post lands exactly where its placeholder was.
+ */
+export function SkFeedPost({ i }: { i: number }) {
+  const lines = 1 + (i % 2);
+  return (
+    <li className="border-t border-line first:border-t-0 px-4 py-5 sm:p-6">
+      <div className="flex items-center gap-3">
+        <Sk className="h-10 w-10 shrink-0 rounded-full" />
+        <div className="min-w-0 flex-1">
+          <div className="flex h-5 items-center"><Sk className="h-3.5 w-28" /></div>
+          <div className="mt-1 flex h-5 items-center gap-2"><Sk className="h-5 w-14 rounded" /><Sk className="h-2.5 w-16" /></div>
+        </div>
+        <Sk className="h-4 w-4 shrink-0" />
+      </div>
+      <div className="mt-[18px]">
+        {Array.from({ length: lines }, (_, n) => <div key={n} className="flex h-[26px] items-center"><Sk className="h-3.5" style={{ width: n === lines - 1 ? `${30 + ((i * 23) % 45)}%` : "100%" }} /></div>)}
+      </div>
+      <div className="mt-[18px] flex items-center gap-2"><Sk className="h-5 w-5 shrink-0 rounded-md" /><Sk className="h-3 w-44 max-w-full" /></div>
+      <div className="mt-2 flex h-8 items-center"><Sk className="h-3 w-28" /></div>
     </li>
   );
 }
