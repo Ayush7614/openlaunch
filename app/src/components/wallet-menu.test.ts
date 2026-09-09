@@ -72,7 +72,7 @@ test("wallet shortcuts copy the full address and close the nested menu on naviga
 
 test("wallet presentation has no signing, transaction, balance, polling, or tracking work", () => {
   assert.doesNotMatch(source + adapter, /useSignMessage|signMessage\(|signTypedData\(|writeContract\(|sendTransaction\(|useBalance|useReadContract|fetch\(|setInterval\(|localStorage|sessionStorage/);
-  assert.match(source, /walletMark\(address\)/);
+  assert.match(source, /<WalletAvatar address=\{address\}/);
   assert.doesNotMatch(source, /Math.random\(|Date.now\(|verified identity|verified wallet/i);
 });
 

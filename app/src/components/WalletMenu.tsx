@@ -5,7 +5,7 @@ import { useRef, useState } from "react";
 import { Popover } from "@base-ui/react/popover";
 import { ArrowDownUp, ArrowRight, ArrowUpRight, Check, ChevronDown, Copy, LayoutDashboard, LogOut, X } from "lucide-react";
 import { CHAIN_KEYS, CHAIN_LABELS, CHAIN_SHORT, chainKeyOf, explorerAddress, explorerName, shortAddr, type ChainKey } from "@/lib/chainPublic";
-import { walletMark } from "@/lib/wallet-mark";
+import WalletAvatar from "./WalletAvatar";
 import styles from "./WalletMenu.module.css";
 
 type WalletMenuProps = {
@@ -76,7 +76,7 @@ function AccountMenu({ address, chainId, connectorName, block = false, switching
         aria-label={`Wallet ${shortAddr(address)}, ${network}. Open account menu`}
         data-unsupported={!key || undefined}
       >
-        <span className={styles.triggerMark}><WalletMark address={address} /><span className={styles.connectionDot} /></span>
+        <span className={styles.triggerMark}><WalletAvatar address={address} /><span className={styles.connectionDot} /></span>
         <span className={styles.triggerAddress}>{shortAddr(address)}</span>
         <span className={styles.triggerNetwork}>{key ? CHAIN_SHORT[key] : "Switch"}</span>
         <ChevronDown size={13} className={styles.chevron} aria-hidden />
@@ -100,7 +100,7 @@ function AccountMenu({ address, chainId, connectorName, block = false, switching
               <Popover.Close aria-label="Close wallet menu" className={styles.close}><X size={16} aria-hidden /></Popover.Close>
             </div>
             <div className={styles.identity}>
-              <WalletMark address={address} large />
+              <WalletAvatar address={address} size={48} />
               <div className={styles.identityText}>
                 <p className={styles.account}>{shortAddr(address)}</p>
                 <Popover.Description className={styles.provider}>{connectorName || "Wallet"}</Popover.Description>
@@ -146,14 +146,5 @@ function AccountMenu({ address, chainId, connectorName, block = false, switching
         </Popover.Positioner>
       </Popover.Portal>
     </Popover.Root>
-  );
-}
-
-function WalletMark({ address, large = false }: { address: string; large?: boolean }) {
-  return (
-    <svg viewBox="0 0 40 40" width={large ? 48 : 28} height={large ? 48 : 28} className={styles.mark} aria-hidden="true">
-      <circle cx="20" cy="20" r="19.5" className={styles.markBase} />
-      {walletMark(address).map(({ x, y }) => <rect key={`${x}:${y}`} x={x} y={y} width="3.5" height="3.5" rx="0.8" fill="currentColor" />)}
-    </svg>
   );
 }

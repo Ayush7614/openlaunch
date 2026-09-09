@@ -12,7 +12,8 @@ import test from "node:test";
  * header toggle. The toggler flips themes with a bare `classList.toggle("dark")`,
  * so "no class" must mean light.
  */
-const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+// Source contracts must behave the same with Git's LF and Windows CRLF checkouts.
+const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const themeBlock = css.match(/@theme(?:\s+static)?\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
 const darkBlock = css.match(/\n\.dark\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
 const printBlock = css.match(/@media print\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAccount, useConfig, useConnect } from "wagmi";
 import { getWalletClient } from "wagmi/actions";
-import TokenAvatar from "./TokenAvatar";
+import WalletAvatar from "@/components/WalletAvatar";
 import ChainBadge from "./ChainBadge";
 import { useLive } from "./LiveProvider";
 import { toast } from "./TxToasts";
@@ -225,8 +225,8 @@ function PostItem({ p, now, canReply, onReply, onReport }: { p: PostRow; now: nu
   const [menu, setMenu] = useState(false);
   return (
     <div className="min-w-0">
-      <div className="flex items-center gap-2 text-[11px] text-muted font-mono">
-        <span className="text-ink">{shortAddr(p.wallet)}</span>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted font-mono">
+        <span className="inline-flex shrink-0 items-center gap-2 text-ink" title={p.wallet}><WalletAvatar address={p.wallet} size={24} />{shortAddr(p.wallet)}</span>
         <TagChip tag={p.tag} />
         <span suppressHydrationWarning>{now ? `${ago(p.created_at, now)} ago` : ""}</span>
         <span className="text-faint">#{p.id}</span>
@@ -342,16 +342,16 @@ export function PostsFeed({ initial, compact = false }: { initial: PostRow[]; co
         {shown.map((p) => (
           <li key={p.id} className="px-4 py-3">
             <Link href={`/t/${p.chain}/${p.token}#comments`} className="flex items-start gap-2.5 min-w-0">
-              <TokenAvatar chain={p.chain} token={p.token} symbol={p.symbol ?? "?"} size={28} />
+              <WalletAvatar address={p.wallet} />
               <div className="min-w-0 flex-1">
                 {compact ? <>
-                  <div className="flex min-w-0 items-center justify-between gap-2 text-[11px]"><span className="truncate font-semibold text-ink">{p.symbol}</span><time dateTime={p.created_at} className="shrink-0 font-mono text-muted tnum" suppressHydrationWarning>{now ? ago(p.created_at, now) : ""}</time></div>
-                  <p className="mt-0.5 truncate text-[10px] text-muted">{CHAIN_SHORT[p.chain]}{p.tag ? ` · ${p.tag}` : ""} · <span className="font-mono">{shortAddr(p.wallet)}</span></p>
+                  <div className="flex min-w-0 items-center justify-between gap-2 text-[11px]"><span className="truncate font-mono text-ink" title={p.wallet}>{shortAddr(p.wallet)}</span><time dateTime={p.created_at} className="shrink-0 font-mono text-muted tnum" suppressHydrationWarning>{now ? ago(p.created_at, now) : ""}</time></div>
+                  <p className="mt-0.5 truncate text-[10px] text-muted">On {p.symbol || shortAddr(p.token)} · {CHAIN_SHORT[p.chain]}{p.tag ? ` · ${p.tag}` : ""}</p>
                 </> : <div className="flex items-center gap-1.5 text-[11px] text-muted font-mono min-w-0">
-                  <span className="text-ink font-sans font-semibold shrink-0">{p.symbol}</span>
+                  <span className="text-ink shrink-0" title={p.wallet}>{shortAddr(p.wallet)}</span>
                   <ChainBadge chain={p.chain} className="shrink-0" />
                   <TagChip tag={p.tag} />
-                  {!compact ? <span className="truncate">{shortAddr(p.wallet)}</span> : null}
+                  <span className="truncate font-sans">on {p.symbol || shortAddr(p.token)}</span>
                   <span className="ml-auto shrink-0" suppressHydrationWarning>{now ? ago(p.created_at, now) : ""}</span>
                 </div>}
                 <p className={`mt-0.5 text-[13px] text-ink whitespace-pre-wrap break-words ${compact ? "line-clamp-3" : ""}`}>{p.body}</p>

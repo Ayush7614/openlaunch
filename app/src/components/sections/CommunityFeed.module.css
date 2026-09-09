@@ -30,15 +30,16 @@
 .postLink { display: block; padding: 24px; transition: background-color 160ms; }
 .postLink:hover { background: var(--color-card); }
 .postHeading { display: flex; align-items: center; gap: 12px; }
-.postToken { flex: 1; min-width: 0; }
-.postToken h3 { color: var(--color-ink); font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
-.postToken p { color: var(--color-muted); font-size: 11px; margin-top: 3px; overflow-wrap: anywhere; }
+.postAuthor { flex: 1; min-width: 0; }
+.postAuthor h3 { color: var(--color-ink); font: 400 13px var(--font-mono); overflow-wrap: anywhere; }
+.postAuthor p { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: var(--color-muted); font-size: 10px; min-height: 20px; margin-top: 4px; }
+.postAuthor time { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .postArrow { flex-shrink: 0; color: var(--color-muted); }
 .postBody { margin-top: 18px; color: var(--color-ink); font-size: 15px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
-.postMeta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 18px; color: var(--color-muted); font-size: 10px; }
-.wallet, .postMeta time { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.postMeta { display: flex; align-items: center; gap: 8px; margin-top: 18px; color: var(--color-muted); font-size: 11px; }
+.postToken { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; overflow-wrap: anywhere; }
+.postToken strong { color: var(--color-body); font-weight: 500; }
 .role { border: 1px solid var(--color-line-strong); border-radius: 4px; padding: 2px 5px; }
-.postMeta time { margin-left: auto; }
 .discussion { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; margin-top: 8px; color: var(--color-muted); font-size: 11px; }
 .postLink:is(:hover, :focus-visible) .discussion, .postLink:is(:hover, :focus-visible) .postArrow { color: var(--color-brand); }
 .feedFoot { padding: 16px 20px; border-top: 1px solid var(--color-line); color: var(--color-muted); font-size: 11px; line-height: 1.6; text-wrap: pretty; }

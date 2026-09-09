@@ -1,0 +1,17 @@
+.avatar {
+  flex-shrink: 0;
+  color: hsl(var(--wallet-hue) 70% 28%);
+}
+
+.base {
+  fill: hsl(var(--wallet-hue) 85% 86%);
+  stroke: hsl(var(--wallet-hue) 35% 78%);
+}
+
+@media screen {
+  :global(.dark) .avatar { color: hsl(var(--wallet-hue) 68% 72%); }
+  :global(.dark) .base {
+    fill: hsl(var(--wallet-hue) 70% 24%);
+    stroke: hsl(var(--wallet-hue) 30% 28%);
+  }
+}
