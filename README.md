@@ -92,7 +92,7 @@ cd app && npm install
 cp .env.example .env.local        # RPCs, factory / locker addresses, DATABASE_URL (a local Postgres is enough)
 npm run migrate                   # applies db/schema.sql; reads DATABASE_URL from .env.local
 npm run dev                       # http://localhost:3000
-npm test                          # unit tests (node --test)
+npm test                          # unit tests (tsx + node --test)
 ```
 
 `app/README.md` covers local development against anvil forks of both chains; `app/LAUNCH.md` is the
