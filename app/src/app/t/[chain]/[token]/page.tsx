@@ -28,7 +28,8 @@ import { fmtCompact, fmtPrice, fmtQuote, fmtUsd, pipsToPct } from "@/lib/launchp
 import { marketCount as count } from "@/lib/launchpad/token-market";
 import { marketUsd } from "@/lib/launchpad/market-format";
 import { CHAIN_LABELS, SITE_URL, chainIdOf, explorerAddress, explorerName, explorerTx, isChainKey, shortAddr } from "@/lib/chainPublic";
-import { jsonLdHtml, tokenCanonical } from "@/lib/seo";import { stockByAddress } from "@/lib/launchpad/stocksServer";
+import { jsonLdHtml, tokenCanonical } from "@/lib/seo";
+import { stockByAddress } from "@/lib/launchpad/stocksServer";
 import { BRAND_DOMAIN, BRAND_X } from "@/lib/brand";
 import { clampSocial } from "@/lib/launchpad/ogcard";
 

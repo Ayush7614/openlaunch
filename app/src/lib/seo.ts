@@ -109,7 +109,8 @@ export type TokenJsonLdInput = {
  * Facts-only JSON-LD for a token page. Every field is on-chain (factory /
  * locker / pool) or creator-supplied metadata — no scores, no flags, no
  * predictions (see CONTRIBUTING.md "Facts over scores").
- */export function tokenJsonLd(l: TokenJsonLdInput): Record<string, unknown> {
+ */
+export function tokenJsonLd(l: TokenJsonLdInput): Record<string, unknown> {
   const url = tokenCanonical(l.siteUrl, l.chain, l.token);
   const chainLabel = l.chain === "base" ? "Base" : "Robinhood Chain";
   return {

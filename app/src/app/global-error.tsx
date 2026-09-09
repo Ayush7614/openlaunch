@@ -11,10 +11,10 @@ import { inter, spaceMono, unbounded } from "./fonts";
  */
 export default function GlobalError({
   error,
-  retry,
+  reset,
 }: {
   error: Error & { digest?: string };
-  retry: () => void;
+  reset: () => void;
 }) {
   console.error(error);
   return (
@@ -26,7 +26,7 @@ export default function GlobalError({
           <div className="flex items-center justify-center gap-3">
             <button
               type="button"
-              onClick={retry}
+              onClick={reset}
               className="inline-flex items-center justify-center rounded-xl px-5 min-h-11 bg-black text-white font-semibold text-sm"
             >
               Try again

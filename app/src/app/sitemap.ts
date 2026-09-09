@@ -3,6 +3,11 @@ import { SITE_URL } from "@/lib/chainPublic";
 import { maybeDb } from "@/lib/db";
 import { staticSitemapEntries, tokenSitemapEntries, type TokenRow } from "@/lib/seo";
 
+// Rendered per request like the rest of the app: the token list must not be
+// frozen at build time (CI builds without DATABASE_URL, which would leave only
+// the static routes forever).
+export const dynamic = "force-dynamic";
+
 /**
  * Sitemap: static routes plus the newest launches (fail-soft).
  * The DB is an index of the chain (see db/schema.sql); when it is
