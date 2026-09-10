@@ -365,6 +365,10 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
                   onClick={() => {
                     setChain(k);
                     setQuoteKey(launchpad(k).quotes[0].key);
+                    // a stock belongs to one chain's registry: never carry a Base pick over to Robinhood (or back)
+                    setStock(null);
+                    setStockQ("");
+                    setStockHits([]);
                     setMcapPick(null);
                     setCustomMcap("");
                   }}

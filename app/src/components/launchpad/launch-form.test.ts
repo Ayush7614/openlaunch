@@ -96,6 +96,8 @@ test("stock quote: one blocking message, a chip that names the issuer, a way out
   assert.match(source, /aria-label="clear stock quote"/);
   assert.match(source, /Switch quote/);
   assert.match(source, /setQuoteKey\(cfg\.quotes\[0\]\?\.key \?\? "eth"\);\s*setStock\(null\);\s*setStockQ\(""\);\s*setMcapPick\(null\);\s*setCustomMcap\(""\);/);
+  // switching chains drops the picked stock: a registry address from one chain must never become the other chain's quote
+  assert.match(source, /setChain\(k\);\s*setQuoteKey\(launchpad\(k\)\.quotes\[0\]\.key\);[^}]*setStock\(null\);\s*setStockQ\(""\);\s*setStockHits\(\[\]\);/);
   // the issuer disclaimer is rendered from one helper for both chains
   assert.match(source, /<p className=\{helper\}>\{stockIssuerDisclaimer\(chain\)\}<\/p>/);
 });
