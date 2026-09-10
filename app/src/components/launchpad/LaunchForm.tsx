@@ -54,6 +54,15 @@ function randomSalt(): Hex {
   return `0x${Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("")}`;
 }
 
+/** Shown wherever the form is blocked on a stock choice: one sentence, one place. */
+const STOCK_PICK_MESSAGE = "Pick a stock to price the token in, or switch the quote.";
+
+function stockIssuerDisclaimer(chain: ChainKey): string {
+  return chain === "base"
+    ? "Coinbase tokenized stocks are securities issued by Coinbase under Regulation S and are not offered to persons in the US, UK, Canada, Australia, Singapore or Switzerland. That is Coinbase's rule for the stock token, not ours. The pool itself is ordinary Uniswap v4."
+    : "Robinhood Stock Tokens are tokenised securities issued by Robinhood and are not offered to US persons. That is Robinhood's rule for the stock token, not ours. The pool itself is ordinary Uniswap v4.";
+}
+
 type FirstBuyCtx = { pub: PublicClient; wallet: WalletClient; address: Address; V4: ReturnType<typeof launchpad>["v4"]; quote: Quote; feePips: number; CHAIN: (typeof CHAINS)[ChainKey]; setPhase: (p: Phase) => void };
 
 function parseBuyAmount(v: string, decimals: number): bigint | null | undefined {
@@ -194,7 +203,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
   if (name.trim().length === 0 || name.trim().length > 32) errors.push("Name: 1–32 characters.");
   if (!/^[A-Z0-9]{1,10}$/.test(symbolClean)) errors.push("Symbol: 1–10 letters or digits.");
   if (startTick === null) errors.push("Starting market cap must be a positive number.");
-  if (quoteKey === "stock" && !stock) errors.push("Pick a stock to price the token in.");
+  if (quoteKey === "stock" && !stock) errors.push(STOCK_PICK_MESSAGE);
   if (quoteKey === "gitlawb" && quote.usd === null && !customMcap.trim() && startTick === null) errors.push("GITLAWB price unavailable right now: enter a custom starting market cap in GITLAWB, or reload.");
   if (image && !/^https:\/\//.test(image.trim())) errors.push("Image must be an https URL.");
   if (website && !/^https:\/\//.test(website.trim())) errors.push("Website must be an https URL.");
@@ -354,8 +363,13 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
                   key={k}
                   disabled={!ok}
                   onClick={() => {
+                    if (k === chain) return; // the active chain: nothing to switch, nothing to reset
                     setChain(k);
                     setQuoteKey(launchpad(k).quotes[0].key);
+                    // a stock belongs to one chain's registry: never carry a Base pick over to Robinhood (or back)
+                    setStock(null);
+                    setStockQ("");
+                    setStockHits([]);
                     setMcapPick(null);
                     setCustomMcap("");
                   }}
@@ -426,14 +440,38 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
                       <img src={stock.logo} alt="" width={22} height={22} className={`${stock.logo.startsWith("data:") ? "rounded-md" : "rounded-full"} bg-card`} referrerPolicy="no-referrer" />
                     ) : null}
                     {stock.symbol}
+                    <span className="font-normal text-xs opacity-80">{chain === "base" ? "Coinbase stock" : "Robinhood stock"}</span>
                     <span className="font-normal text-xs opacity-80">{stock.name}</span>
                     {stock.usd ? <span className="font-mono text-xs opacity-80">{fmtUsd(stock.usd)}</span> : null}
-                    <button type="button" onClick={() => setStock(null)} aria-label="change stock" className="ml-1 opacity-70 hover:opacity-100">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStock(null);
+                        setStockQ("");
+                      }}
+                      aria-label="clear stock quote"
+                      className="ml-1 opacity-70 hover:opacity-100"
+                    >
                       ×
                     </button>
                   </span>
                 ) : (
-                  <input className={`${input} h-10 max-w-xs font-mono uppercase`} value={stockQ} onChange={(e) => setStockQ(e.target.value)} placeholder="Search ticker, e.g. AAPL" aria-label="search stock tokens" autoComplete="off" />
+                  <>
+                    <input className={`${input} h-10 max-w-xs font-mono uppercase`} value={stockQ} onChange={(e) => setStockQ(e.target.value)} placeholder="Search ticker, e.g. AAPL" aria-label="search stock tokens" autoComplete="off" />
+                    <button
+                      type="button"
+                      className="text-xs font-semibold text-muted underline underline-offset-2"
+                      onClick={() => {
+                        setQuoteKey(cfg.quotes[0]?.key ?? "eth");
+                        setStock(null);
+                        setStockQ("");
+                        setMcapPick(null);
+                        setCustomMcap("");
+                      }}
+                    >
+                      Switch quote
+                    </button>
+                  </>
                 )}
               </div>
               {!stock ? (
@@ -462,11 +500,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
                   {stockHits.length === 0 ? <li className="text-xs text-muted">{chain === "base" ? "No match. 13 Coinbase tokenized stocks are available on Base: NVDAc, AAPLc, TSLAc, METAc, GOOGLc, AMZNc, MSFTc, MSTRc, COINc, CRCLc, INTCc, SNDKc, SPCXc." : "No match. 194 Robinhood Stock Tokens are available, e.g. AAPL, TSLA, NVDA, SPY."}</li> : null}
                 </ul>
               ) : null}
-              <p className={helper}>
-                {chain === "base"
-                  ? "Coinbase tokenized stocks are securities issued by Coinbase under Regulation S and are not offered to persons in the US, UK, Canada, Australia, Singapore or Switzerland. That is Coinbase's rule for the stock token, not ours. The pool itself is ordinary Uniswap v4."
-                  : "Robinhood Stock Tokens are tokenised securities issued by Robinhood and are not offered to US persons. That is Robinhood's rule for the stock token, not ours. The pool itself is ordinary Uniswap v4."}
-              </p>
+              <p className={helper}>{stockIssuerDisclaimer(chain)}</p>
             </div>
           ) : null}
         </section>
@@ -674,6 +708,11 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
         </section>
 
         <section className={`${card} p-5 space-y-3`}>
+          {quoteKey === "stock" && !stock ? (
+            <div className="rounded-xl border border-warm/40 bg-warm-soft px-3.5 py-2.5 text-xs text-warm-ink font-semibold" role="status">
+              {STOCK_PICK_MESSAGE}
+            </div>
+          ) : null}
           {errors.length > 0 && (name || symbol) ? (
             <ul className="text-xs text-warm-ink space-y-0.5">
               {errors.map((e) => (
