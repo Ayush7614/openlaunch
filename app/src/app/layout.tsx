@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
-import { Inter, Space_Mono, Unbounded } from "next/font/google";
 import "./globals.css";
 import Web3Provider from "@/components/Web3Provider";
 import Header from "@/components/Header";
@@ -14,10 +13,7 @@ import Footer from "@/components/Footer";
 import RouteProgress from "@/components/RouteProgress";
 import ThemeProvider from "@/components/ThemeProvider";
 import { Suspense } from "react";
-
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
-const spaceMono = Space_Mono({ subsets: ["latin"], weight: ["400", "700"], variable: "--font-space-mono", display: "swap" });
-const unbounded = Unbounded({ subsets: ["latin"], weight: ["600", "700"], variable: "--font-unbounded", display: "swap" });
+import { inter, spaceMono, unbounded } from "./fonts";
 
 const TITLE = SITE_TITLE;
 const DESCRIPTION = SITE_DESCRIPTION;
