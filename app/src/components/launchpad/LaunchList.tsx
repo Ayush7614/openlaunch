@@ -139,6 +139,7 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
     if (f) p.set("filter", f);
     router.replace(p.size ? `/?${p}` : "/", { scroll: false });
     const request = new URLSearchParams(p);
+    request.set("sort", s); // the URL omits the default sort, but the API defaults to "new": the request must always carry it
     request.set("limit", String(PAGE_SIZE));
     void fetch(`/api/launch/list?${request}`, { cache: "no-store", signal: controller.signal })
       .then(async (res) => {
@@ -213,6 +214,7 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
   const showWindow = sort === "volume";
   const reset = () => { setQ(""); pick("live", "all", null, null); };
   const ranked = sort === "live" && !nq; // tiers, chips and the quiet divider apply to the live view only
+  const firstQuiet = ranked ? shown.findIndex((row) => liveTier(row, now) === "quiet") : -1; // one divider, where the database's order enters the quiet tier
 
   return (
     <section id="launches" aria-labelledby="launches-heading" className="min-w-0 scroll-mt-24 overflow-hidden rounded-2xl border border-line bg-paper">
@@ -263,10 +265,9 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
         {shown.map((l, i) => {
           const key = launchKey(l);
           const chip = ranked ? liveChip(l, now) : null;
-          const divider = chip?.tier === "quiet" && (i === 0 || liveTier(shown[i - 1], now) !== "quiet");
-          const rank = chip ? (chip.tier === "live" ? i + 1 : undefined) : sort !== "new" && !nq ? i + 1 : undefined;
+          const rank = !nq && sort !== "new" && (!chip || chip.tier === "live") ? i + 1 : undefined;
           return <Fragment key={key}>
-            {divider ? <li className="border-b border-line bg-card px-4 py-2 text-[11px] text-muted"><span className="font-medium text-body">Quiet launches</span> · no buyers yet. One row per wallet; every launch stays in New.</li> : null}
+            {i === firstQuiet ? <li className="border-b border-line bg-card px-4 py-2 text-[11px] text-muted"><span className="font-medium text-body">Quiet launches</span> · no buyers yet. One row per wallet; every launch stays in New.</li> : null}
             <li data-token={key}><LaunchRow l={l} rank={rank} window={showWindow ? window_ : "all"} hl={hl.get(key) ?? null} now={now} pop={Boolean(hl.get(key) && hl.get(key)?.kind !== "new")} chip={chip} /></li>
           </Fragment>;
         })}

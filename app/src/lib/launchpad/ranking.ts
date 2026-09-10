@@ -6,10 +6,11 @@
  *   buy inside the sniper window (launch block + SNIPER_BLOCKS, see holders.ts). Until then it is NEW for its first
  *   GRACE_HOURS, then QUIET. Outside live, a launcher gets one row.
  *
- * The list query (queries.ts, sort "live") applies the same rule in SQL because ordering and paging happen in
- * the database; both sides read the constants below, so the windows cannot drift. The helpers here render the
- * per-row chip and the divider and rank the trending strip. Facts only: no token can buy its way in with one
- * wallet ping-ponging, and a creator trading their own token never counts as a buyer.
+ * The list query (queries.ts, sort "live") applies the rule in SQL because ordering and paging happen in the
+ * database, and sends the tier back with each row so the client shows the tier it was ranked by. Live rows rank by
+ * outside wallets this hour, then today, then the last outside trade; the other tiers by age. The helpers here
+ * render the per-row chip and rank the trending strip. Facts only: no token can buy its way in with one wallet
+ * ping-ponging, and a creator trading their own token never counts as a buyer.
  */
 
 import { ago } from "./time";
@@ -22,14 +23,18 @@ export type LiveTier = "live" | "new" | "quiet";
 /** The row fields the rule reads. `*_ex` counts are distinct outside wallets (launcher and sniper-window swaps excluded). */
 export type RankRow = {
   block_time: string;
-  last_trade_at: string | null;
+  /** Last swap by an outside wallet in the day window; `last_trade_at` also moves on the launcher's own swaps. */
+  last_outside_trade_at: string | null;
   traders_1h_ex: number;
   traders_24h_ex: number;
+  /** The tier the database ranked the row in (live sort only); the rule below is the fallback. */
+  live_tier?: LiveTier | null;
   /** Rows of the same launcher folded into this one on the live sort (0 when none, or on other sorts). */
   launcher_collapsed?: number;
 };
 
 export function liveTier(r: RankRow, nowMs: number): LiveTier {
+  if (r.live_tier) return r.live_tier;
   if (r.traders_24h_ex >= 1) return "live";
   const ageMs = nowMs - new Date(r.block_time).getTime();
   return ageMs < GRACE_HOURS * 3_600_000 ? "new" : "quiet";
@@ -42,9 +47,9 @@ function plural(n: number, word: string): string {
 /** Why a row sits where it sits on the live sort: "3 wallets this hour · 12m ago", "just launched · 4m", "no buyers yet · +4 from this wallet". */
 export function liveChip(r: RankRow, nowMs: number): { tier: LiveTier; text: string } {
   const tier = liveTier(r, nowMs);
-  const more = r.launcher_collapsed && r.launcher_collapsed > 0 ? ` · +${r.launcher_collapsed} from this wallet` : "";
+  const more = r.launcher_collapsed ? ` · +${r.launcher_collapsed} from this wallet` : "";
   if (tier === "live") {
-    const when = r.last_trade_at ? ` · ${ago(r.last_trade_at, nowMs)} ago` : "";
+    const when = r.last_outside_trade_at ? ` · ${ago(r.last_outside_trade_at, nowMs)} ago` : "";
     return { tier, text: r.traders_1h_ex > 0 ? `${plural(r.traders_1h_ex, "wallet")} this hour${when}` : `${plural(r.traders_24h_ex, "wallet")} today${when}` };
   }
   if (tier === "new") return { tier, text: `just launched · ${ago(r.block_time, nowMs)}${more}` };

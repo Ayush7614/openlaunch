@@ -61,7 +61,7 @@ export default function TrendingStrip({ initial }: { initial: Snap }) {
           <h2 id="trending-heading" className="text-sm font-semibold text-ink">Trending</h2>
           <span className="text-[11px] text-muted">{snap.window === "1h" ? "Last hour" : "Last 24 hours"}</span>
         </div>
-        <span className="text-[11px] text-muted" title="Ranked from trades, volume, holders and age. The hourly window requires multiple trading wallets.">Ranked by on-chain activity</span>
+        <span className="text-[11px] text-muted" title="Ranked by distinct wallets other than the launcher, then trades, volume and holders (log-scaled), with a boost for young tokens. The hourly window needs two such wallets; the daily window needs one.">Ranked by on-chain activity</span>
       </div>
       {items.length === 0 ? (
         <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 rounded-xl border border-dashed border-line-strong px-4 py-4">

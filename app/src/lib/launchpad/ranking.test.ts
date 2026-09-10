@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { GRACE_HOURS, eligible1h, eligible24h, liveChip, liveTier, orderWithKing, rankTrending, stickyKing, trendingScore } from "./ranking.ts";
+import { eligible1h, eligible24h, liveChip, liveTier, orderWithKing, rankTrending, stickyKing, trendingScore } from "./ranking.ts";
 
 const now = Date.parse("2026-09-07T03:00:00Z");
 const at = (minutesAgo: number) => new Date(now - minutesAgo * 60_000).toISOString();
@@ -14,23 +14,28 @@ const row = (o: Partial<Parameters<typeof trendingScore>[0]> & { token: string }
   volume_24h_usd: 0,
   holders: 0,
   block_time: "2026-09-06T00:00:00Z",
-  last_trade_at: null,
+  last_outside_trade_at: null,
   ...o,
 });
 
 test("liveTier: an outside wallet in the day makes it live, else new inside the grace hour, else quiet", () => {
-  assert.equal(GRACE_HOURS, 1);
   assert.equal(liveTier(row({ token: "a", block_time: at(59) }), now), "new", "59 minutes old, nobody yet");
   assert.equal(liveTier(row({ token: "b", block_time: at(61) }), now), "quiet", "61 minutes old, nobody yet");
-  assert.equal(liveTier(row({ token: "c", block_time: at(61), traders_24h_ex: 1, last_trade_at: at(5) }), now), "live", "one outside wallet is enough");
-  assert.equal(liveTier(row({ token: "d", block_time: at(5), traders_24h_ex: 1, last_trade_at: at(1) }), now), "live", "a buyer in the first minutes: live, not new");
-  assert.equal(liveTier(row({ token: "e", block_time: at(30 * 60), traders_24h_ex: 3, last_trade_at: at(23 * 60) }), now), "live", "a day old, outside trade 23h ago");
+  assert.equal(liveTier(row({ token: "c", block_time: at(61), traders_24h_ex: 1, last_outside_trade_at: at(5) }), now), "live", "one outside wallet is enough");
+  assert.equal(liveTier(row({ token: "d", block_time: at(5), traders_24h_ex: 1, last_outside_trade_at: at(1) }), now), "live", "a buyer in the first minutes: live, not new");
+  assert.equal(liveTier(row({ token: "e", block_time: at(30 * 60), traders_24h_ex: 3, last_outside_trade_at: at(23 * 60) }), now), "live", "a day old, outside trade 23h ago");
   assert.equal(liveTier(row({ token: "f", block_time: at(30 * 60), trades_24h: 12, holders: 6 }), now), "quiet", "trades and holders without an outside wallet in the window never count (self-trades, or the last outside trade is >24h old)");
 });
 
-test("liveChip: says why the row sits where it sits", () => {
-  assert.deepEqual(liveChip(row({ token: "a", traders_1h_ex: 3, traders_24h_ex: 7, last_trade_at: at(12) }), now), { tier: "live", text: "3 wallets this hour · 12m ago" });
-  assert.deepEqual(liveChip(row({ token: "b", traders_24h_ex: 1, last_trade_at: at(5 * 60) }), now), { tier: "live", text: "1 wallet today · 5h ago" });
+test("liveTier: the tier the database ranked by wins over the local rule, so the divider and ranks match the order", () => {
+  assert.equal(liveTier(row({ token: "a", block_time: at(59), live_tier: "quiet" }), now), "quiet", "server clock said the hour had passed");
+  assert.equal(liveTier(row({ token: "b", block_time: at(61), live_tier: "new" }), now), "new");
+  assert.equal(liveTier(row({ token: "c", block_time: at(61), traders_24h_ex: 2, live_tier: null }), now), "live", "no tier from a non-live sort: fall back to the rule");
+});
+
+test("liveChip: says why the row sits where it sits, timed by the last outside trade", () => {
+  assert.deepEqual(liveChip(row({ token: "a", traders_1h_ex: 3, traders_24h_ex: 7, last_outside_trade_at: at(12) }), now), { tier: "live", text: "3 wallets this hour · 12m ago" });
+  assert.deepEqual(liveChip(row({ token: "b", traders_24h_ex: 1, last_outside_trade_at: at(5 * 60) }), now), { tier: "live", text: "1 wallet today · 5h ago" });
   assert.deepEqual(liveChip(row({ token: "c", block_time: at(4) }), now), { tier: "new", text: "just launched · 4m" });
   assert.deepEqual(liveChip(row({ token: "d", block_time: at(4), launcher_collapsed: 2 }), now), { tier: "new", text: "just launched · 4m · +2 from this wallet" });
   assert.deepEqual(liveChip(row({ token: "e", block_time: at(600) }), now), { tier: "quiet", text: "no buyers yet" });
