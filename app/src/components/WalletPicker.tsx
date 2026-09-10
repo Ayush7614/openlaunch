@@ -6,6 +6,15 @@ import { Wallet } from "lucide-react";
 import { NO_WALLET_NOTE, connectErrorMessage, walletChoices, type WalletChoice } from "@/lib/wallet-connectors";
 import Sheet from "./Sheet";
 
+const INJECTED_PROVIDER_EVENTS = ["ethereum#initialized", "eip6963:announceProvider"] as const;
+
+function subscribeToInjectedProvider(onChange: () => void): () => void {
+  for (const name of INJECTED_PROVIDER_EVENTS) window.addEventListener(name, onChange);
+  return () => {
+    for (const name of INJECTED_PROVIDER_EVENTS) window.removeEventListener(name, onChange);
+  };
+}
+
 /**
  * The connect dialog: every wallet the browser announced, the generic browser wallet when one is
  * injected without announcing itself, and Coinbase (passkey Smart Wallet or the Coinbase app).
@@ -16,8 +25,10 @@ export default function WalletPicker({ onClose }: { onClose: () => void }) {
   const { connect, connectors, isPending, reset } = useConnect({ mutation: { onSuccess: onClose } });
   const [error, setError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  // window.ethereum can appear after the sheet opens (a wallet that injects late fires the EIP-1193
+  // "ethereum#initialized" event; EIP-6963 wallets announce themselves). Re-read it on either signal.
   const hasInjectedProvider = useSyncExternalStore(
-    () => () => {},
+    subscribeToInjectedProvider,
     () => Boolean((window as { ethereum?: unknown }).ethereum),
     () => false,
   );

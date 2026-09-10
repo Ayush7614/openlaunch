@@ -29,8 +29,12 @@ test("every connect entry point goes through the shared picker; nothing else tou
 test("the picker offers wallets by capability, not by a hard-coded connector id", () => {
   assert.match(picker, /walletChoices\(connectors, \{ hasInjectedProvider \}\)/);
   assert.doesNotMatch(picker, /"coinbaseWallet"|"coinbaseWalletSDK"|connectors\[0\]/);
-  // window.ethereum is read through useSyncExternalStore with a server snapshot, never during render on the server
-  assert.match(picker, /useSyncExternalStore\(\s*\(\) => \(\) => \{\},\s*\(\) => Boolean\(\(window as \{ ethereum\?: unknown \}\)\.ethereum\),\s*\(\) => false,\s*\)/);
+  // window.ethereum is read through useSyncExternalStore with a server snapshot, never during render on the server,
+  // and re-read when a wallet injects after the sheet opened (EIP-1193 "ethereum#initialized", EIP-6963 announce)
+  assert.match(picker, /useSyncExternalStore\(\s*subscribeToInjectedProvider,\s*\(\) => Boolean\(\(window as \{ ethereum\?: unknown \}\)\.ethereum\),\s*\(\) => false,\s*\)/);
+  assert.match(picker, /INJECTED_PROVIDER_EVENTS = \["ethereum#initialized", "eip6963:announceProvider"\] as const/);
+  assert.match(picker, /for \(const name of INJECTED_PROVIDER_EVENTS\) window\.addEventListener\(name, onChange\)/);
+  assert.match(picker, /return \(\) => \{\s*for \(const name of INJECTED_PROVIDER_EVENTS\) window\.removeEventListener\(name, onChange\);/);
 });
 
 test("connect errors are explained in the dialog and never echoed raw", () => {
