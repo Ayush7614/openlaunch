@@ -12,10 +12,10 @@ import { inter, spaceMono, unbounded } from "./fonts";
  */
 export default function GlobalError({
   error,
-  reset,
+  retry,
 }: {
   error: Error & { digest?: string };
-  reset: () => void;
+  retry: () => void;
 }) {
   useEffect(() => {
     console.error(error);
@@ -29,7 +29,7 @@ export default function GlobalError({
           <div className="flex items-center justify-center gap-3">
             <button
               type="button"
-              onClick={reset}
+              onClick={retry}
               className="inline-flex items-center justify-center rounded-xl px-5 min-h-11 bg-black text-white font-semibold text-sm"
             >
               Try again
