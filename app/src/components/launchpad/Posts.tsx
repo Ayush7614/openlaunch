@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useAccount, useConfig, useConnect } from "wagmi";
+import { useAccount, useConfig } from "wagmi";
 import { getWalletClient } from "wagmi/actions";
 import WalletAvatar from "@/components/WalletAvatar";
 import ChainBadge from "./ChainBadge";
@@ -14,6 +14,7 @@ import type { PostRow } from "@/lib/launchpad/postsServer";
 import { ago, nowMs } from "@/lib/launchpad/time";
 import { CHAINS, CHAIN_SHORT, shortAddr, type ChainKey } from "@/lib/chainPublic";
 import { friendlyError } from "@/lib/errors";
+import ConnectWallet from "@/components/ConnectWallet";
 import { ChevronDown, MessageSquare } from "lucide-react";
 
 function nonce(): string {
@@ -41,7 +42,6 @@ async function signed(config: ReturnType<typeof useConfig>, chain: ChainKey, mes
  */
 export default function TokenComments({ chain, token, symbol, launcher, embedded = false }: { chain: ChainKey; token: string; symbol: string; launcher: string; embedded?: boolean }) {
   const { address, isConnected } = useAccount();
-  const { connect, connectors, isPending: connecting } = useConnect();
   const config = useConfig();
   const { subscribe } = useLive();
   const [posts, setPosts] = useState<PostRow[]>([]);
@@ -147,7 +147,6 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
 
   const top = posts.filter((p) => p.parent_id === null);
   const replies = (id: number) => posts.filter((p) => p.parent_id === id).slice().reverse();
-  const c = connectors.find((x) => x.id === "coinbaseWallet") ?? connectors[0];
 
   return (
     <section className={embedded ? "overflow-hidden bg-paper" : "rounded-2xl bg-card border border-line overflow-hidden"} id="comments">
@@ -169,9 +168,7 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
         ) : !isConnected ? (
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <p className="text-sm text-muted">Connect a wallet to post. Free signature, no transaction. Holders, traders and creators can post.</p>
-            <button type="button" onClick={() => c && connect({ connector: c })} disabled={connecting || !c} className={btn.secondarySm}>
-              {connecting ? "Connecting…" : "Connect"}
-            </button>
+            <ConnectWallet className={btn.secondarySm}>Connect</ConnectWallet>
           </div>
         ) : (
           <div className="space-y-2">

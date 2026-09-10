@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ArrowDownLeft, ArrowRight, ArrowUpRight, Coins, Layers3, LockKeyhole, RefreshCw, Wallet } from "lucide-react";
-import { useAccount, useConfig, useConnect } from "wagmi";
+import { useAccount, useConfig } from "wagmi";
 import { getPublicClient, getWalletClient } from "wagmi/actions";
 import type { Address } from "viem";
 import TokenAvatar from "./TokenAvatar";
@@ -23,6 +23,7 @@ import { ago } from "@/lib/launchpad/time";
 import { BUILDER_DATA_SUFFIX, CHAINS, CHAIN_SHORT, explorerTx, shortAddr, type ChainKey } from "@/lib/chainPublic";
 import { friendlyError } from "@/lib/errors";
 import { SkRow, SkStat } from "@/components/Skeleton";
+import ConnectWallet from "@/components/ConnectWallet";
 import styles from "./MeDashboard.module.css";
 
 type Me = { wallet: string; ethUsd: number | null; launches: LaunchRow[]; tokens: (LaunchRow & { my_buys: number; my_sells: number; my_last_trade: string })[]; trades: WalletTrade[] };
@@ -43,7 +44,6 @@ export default function MeDashboard() {
 }
 
 function WalletDashboard({ address, isConnected }: { address: Address | undefined; isConnected: boolean }) {
-  const { connect, connectors, isPending: connecting, error: connectError } = useConnect();
   const config = useConfig();
   const [me, setMe] = useState<Me | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -151,7 +151,6 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
   }
 
   if (!isConnected || !address) {
-    const c = connectors.find((x) => x.id === "coinbaseWallet") ?? connectors[0];
     return (
       <div className={styles.dashboard}>
         <section className={styles.welcome} aria-labelledby="wallet-welcome">
@@ -160,10 +159,9 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
             <p className={styles.eyebrow}>Start with your wallet</p>
             <h2 id="wallet-welcome">Your wallet.<br /><span>Your workspace.</span></h2>
             <p className={styles.welcomeCopy}>Bring your launches, fees and trading activity into one view. No new account to create.</p>
-            <button type="button" onClick={() => c && connect({ connector: c })} disabled={connecting || !c} className={styles.connectButton}>
-              {connecting ? "Connecting…" : "Connect wallet"}<ArrowRight size={16} aria-hidden="true" />
-            </button>
-            {connectError ? <p role="alert" className={styles.connectError}>{friendlyError(connectError)}</p> : null}
+            <ConnectWallet className={styles.connectButton}>
+              Connect wallet<ArrowRight size={16} aria-hidden="true" />
+            </ConnectWallet>
             <p className={styles.readOnly}><LockKeyhole size={14} aria-hidden="true" />Connecting lets you read. Transactions and edits need your signature.</p>
           </div>
           <div className={styles.welcomeGuide}>

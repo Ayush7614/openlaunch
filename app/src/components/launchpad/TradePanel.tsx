@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAccount, useBalance, useConfig, useConnect, useReadContract, useSwitchChain } from "wagmi";
+import { useAccount, useBalance, useConfig, useReadContract, useSwitchChain } from "wagmi";
 import { getPublicClient, getWalletClient } from "wagmi/actions";
 import { formatEther, formatUnits, maxUint160, maxUint256, parseEther, parseUnits, type Address, type Hex } from "viem";
 import { ArrowDown, ArrowRight, Wallet } from "lucide-react";
@@ -17,6 +17,7 @@ import { CHAINS, CHAIN_LABELS, BUILDER_DATA_SUFFIX, explorerTx, type ChainKey } 
 import { tradeQuoteKey } from "@/lib/launchpad/token-market";
 import { friendlyError } from "@/lib/errors";
 import { Spinner } from "@/components/Skeleton";
+import ConnectWallet from "@/components/ConnectWallet";
 
 /**
  * In-page buy / sell straight against the token's Uniswap v4 pool via the
@@ -50,7 +51,6 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
   const router = useRouter();
   const config = useConfig();
   const { address, isConnected, chainId } = useAccount();
-  const { connect, connectors, isPending: connecting } = useConnect();
   const { switchChainAsync, isPending: switching } = useSwitchChain();
   const [side, setSide] = useState<Side>("buy");
   const [amount, setAmount] = useState("");
@@ -216,17 +216,9 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
           Trading unavailable
         </button>
       ) : !isConnected ? (
-        <button
-          type="button"
-          onClick={() => {
-            const c = connectors.find((c) => c.id === "coinbaseWallet") ?? connectors[0];
-            if (c) connect({ connector: c });
-          }}
-          disabled={connecting}
-          className={`${btn.secondary} !border-ink !bg-ink !text-inverse w-full min-h-12`}
-        >
-          {connecting ? "Connecting…" : <>Connect wallet <ArrowRight size={15} /></>}
-        </button>
+        <ConnectWallet className={`${btn.secondary} !border-ink !bg-ink !text-inverse w-full min-h-12`}>
+          Connect wallet <ArrowRight size={15} />
+        </ConnectWallet>
       ) : !onChain ? (
         <button type="button" onClick={() => void switchChainAsync({ chainId: CHAIN.id })} disabled={switching} className={`${btn.warm} w-full min-h-12`}>
           {switching ? "Switching…" : `Switch to ${CHAIN_LABEL}`}
