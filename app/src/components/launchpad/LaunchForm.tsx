@@ -14,6 +14,7 @@ import { btn, card, helper, input, label } from "@/components/ui";
 import { ERC20_MIN_ABI, ERC20_TRANSFER_EVENT, LAUNCH_FACTORY_ABI, PERMIT2_ABI, UNIVERSAL_ROUTER_ABI, V4_QUOTER_ABI } from "@/lib/launchpad/abi";
 import { BPS, DEFAULT_SUPPLY, FEE_PRESETS, MCAP_PRESETS, TICK_SPACING, launchpad, quoteUsdOf, type Quote } from "@/lib/launchpad/config";
 import { fdvForStartTick, fmtCompact, fmtQuoteUnits, fmtUsd, initialBuyPreview, minOut, startTickForFdv, tickToTokensPerQuote, units } from "@/lib/launchpad/math";
+import { BUY_PRESETS, defaultFirstBuy, suggestFirstBuy } from "@/lib/launchpad/first-buy";
 import { encodeV4ExactInSingle, type PoolKey } from "@/lib/launchpad/swap";
 import { stockMcapPresets } from "@/lib/launchpad/stocks";
 import { GITLAWB_SITE, gitlawbMcapPresets } from "@/lib/launchpad/gitlawb";
@@ -46,7 +47,7 @@ type Beneficiary = "burn" | "me" | "custom";
 const FIRST_BUY_SLIPPAGE_BPS = 300; // Other buyers can trade between the launch and this separate buy.
 const PERMIT_EXPIRY_S = 30 * 24 * 3600;
 const GAS_RESERVE_WEI = 500_000_000_000_000n; // 0.0005 ETH kept back so the buy itself can pay for gas
-const BUY_PRESETS: Record<Quote["key"], string[]> = { eth: ["0.01", "0.05", "0.1", "0.25"], usdg: ["25", "100", "250"], gitlawb: ["500000", "1000000", "5000000"], stock: [] };
+const FIRST_BUY_DECLINED_KEY = "ol:first-buy-declined"; // session only: a creator who cleared the suggestion is not nagged on the next launch
 
 function randomSalt(): Hex {
   const b = new Uint8Array(32);
@@ -181,7 +182,12 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
   const [feePips, setFeePips] = useState<number>(0);
   const [beneficiary, setBeneficiary] = useState<Beneficiary>("burn");
   const [customAddr, setCustomAddr] = useState("");
-  const [initialBuy, setInitialBuy] = useState("");
+  // First buy: what the creator typed, or the suggestion (lib/launchpad/first-buy.ts) unless they cleared it.
+  const [typedBuy, setTypedBuy] = useState("");
+  // Read once at mount. Safe for hydration: no wallet is connected on the first render, so the suggestion is absent either way.
+  const [buyDeclined, setBuyDeclined] = useState(() => { try { return typeof sessionStorage !== "undefined" && sessionStorage.getItem(FIRST_BUY_DECLINED_KEY) === "1"; } catch { return false; /* storage blocked: suggest as usual */ } });
+  function declineFirstBuy() { setTypedBuy(""); setBuyDeclined(true); try { sessionStorage.setItem(FIRST_BUY_DECLINED_KEY, "1"); } catch { /* ignore */ } }
+  function chooseFirstBuy(v: string) { setTypedBuy(v); setBuyDeclined(false); try { sessionStorage.removeItem(FIRST_BUY_DECLINED_KEY); } catch { /* ignore */ } }
   // Generated lazily at launch time (a render-time random value would break hydration).
   const saltRef = useRef<Hex | null>(null);
   // The metadataURI is keyed by meta_key, so findSalt can change the salt freely within one attempt. Both refs are
@@ -197,7 +203,17 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
   const tokensPerEth = startTick !== null ? tickToTokensPerQuote(startTick, quote.decimals) : null;
   const fmtMcap = (v: number) => (quote.decimals <= 6 ? `${v.toLocaleString("en-US", { maximumFractionDigits: 0 })} ${quote.symbol}` : quote.key === "stock" ? `${v.toFixed(3)} ${quote.symbol}` : `${fmtQuoteUnits(v, quote.decimals)} ${quote.symbol}`);
 
+  const onChain = chainId === CHAIN.id;
   const symbolClean = symbol.trim().toUpperCase();
+  // balance of whatever the first buy is paid with: read as soon as a wallet is connected, so the suggestion can be decided
+  const ethBal = useBalance({ address, chainId: CHAIN.id, query: { enabled: Boolean(address) && quote.key === "eth", refetchInterval: 15_000 } });
+  const quoteBal = useReadContract({ address: quote.address, abi: ERC20_MIN_ABI, functionName: "balanceOf", args: address ? [address] : undefined, chainId: CHAIN.id, query: { enabled: Boolean(address) && quote.key !== "eth", refetchInterval: 15_000 } });
+  const buyBalance: bigint | undefined = quote.key === "eth" ? ethBal.data?.value : (quoteBal.data as bigint | undefined);
+  const buyBalanceFailed = quote.key === "eth" ? ethBal.isError : quoteBal.isError;
+  // A suggested buy exists only when the wallet is connected and can cover it, so it can never block the launch below.
+  const suggestion = suggestFirstBuy({ quote, connected: Boolean(address) && onChain, balance: buyBalance, gasReserve: quote.key === "eth" ? GAS_RESERVE_WEI : 0n, declined: buyDeclined || Boolean(typedBuy), parse: parseUnits });
+  const initialBuy = typedBuy || suggestion.amount || "";
+  const buySource: "typed" | "suggested" | "none" = typedBuy ? "typed" : suggestion.amount ? "suggested" : "none";
   const initialBuyRaw = parseBuyAmount(initialBuy, quote.decimals);
   const errors: string[] = [];
   if (name.trim().length === 0 || name.trim().length > 32) errors.push("Name: 1–32 characters.");
@@ -210,12 +226,6 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
   if (feePips > 0 && beneficiary === "custom" && !isAddress(customAddr.trim())) errors.push("Beneficiary: enter a valid address.");
   if (initialBuyRaw === undefined) errors.push(`First buy: enter an amount in ${quote.symbol}, or leave it empty.`);
 
-  const onChain = chainId === CHAIN.id;
-  // balance of whatever the first buy is paid with (only read while an amount is typed)
-  const ethBal = useBalance({ address, chainId: CHAIN.id, query: { enabled: Boolean(address) && quote.key === "eth" && Boolean(initialBuyRaw), refetchInterval: 15_000 } });
-  const quoteBal = useReadContract({ address: quote.address, abi: ERC20_MIN_ABI, functionName: "balanceOf", args: address ? [address] : undefined, chainId: CHAIN.id, query: { enabled: Boolean(address) && quote.key !== "eth" && Boolean(initialBuyRaw), refetchInterval: 15_000 } });
-  const buyBalance: bigint | undefined = quote.key === "eth" ? ethBal.data?.value : (quoteBal.data as bigint | undefined);
-  const buyBalanceFailed = quote.key === "eth" ? ethBal.isError : quoteBal.isError;
   // the launch is irreversible and the buy comes after it: never let a launch through while the buy's funding is unknown
   if (initialBuyRaw && address && buyBalance === undefined) errors.push(buyBalanceFailed ? `First buy: could not read your ${quote.symbol} balance. Retry, or clear the amount.` : "First buy: checking your balance…");
   if (initialBuyRaw && buyBalance !== undefined && initialBuyRaw + (quote.key === "eth" ? GAS_RESERVE_WEI : 0n) > buyBalance)
@@ -662,7 +672,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
         <section className={`${card} p-5 space-y-4`}>
           <div className="flex items-baseline justify-between gap-3 flex-wrap">
             <h2 className="text-sm font-semibold text-ink">
-              First buy <span className="font-normal text-muted">· optional</span>
+              First buy <span className="font-normal text-muted">· {buySource === "suggested" ? "suggested" : "optional"}</span>
             </h2>
             <span className="text-xs text-muted">a second transaction, right after the launch confirms</span>
           </div>
@@ -673,7 +683,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
                 <button
                   type="button"
                   key={v}
-                  onClick={() => setInitialBuy(active ? "" : v)}
+                  onClick={() => (active ? declineFirstBuy() : chooseFirstBuy(v))}
                   className={`h-11 px-4 rounded-xl border font-mono text-sm font-bold tnum ${active ? "bg-ink text-inverse border-ink" : "bg-card text-ink border-line-strong hover:border-ink/40"}`}
                 >
                   {fmtQuoteUnits(Number(v), quote.decimals)} {quote.symbol}
@@ -684,7 +694,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
               <input
                 className={`${input} h-11 w-40 font-mono pr-16`}
                 value={initialBuy}
-                onChange={(e) => setInitialBuy(e.target.value.replace(/[^0-9.]/g, ""))}
+                onChange={(e) => { const v = e.target.value.replace(/[^0-9.]/g, ""); if (v) chooseFirstBuy(v); else declineFirstBuy(); }}
                 placeholder="none"
                 inputMode="decimal"
                 aria-label={`first buy amount in ${quote.symbol}`}
@@ -694,6 +704,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
             {initialBuyRaw && buyBalance !== undefined ? (
               <span className="text-xs font-mono text-muted tnum">balance {fmtQuoteUnits(units(buyBalance, quote.decimals), quote.decimals)}</span>
             ) : null}
+            {initialBuyRaw ? <button type="button" onClick={declineFirstBuy} className={btn.secondarySm}>No first buy</button> : null}
           </div>
           {buyPreview ? (
             <p className="text-sm text-body">
@@ -701,9 +712,12 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
               <span className="font-mono text-muted tnum">({fmtPct(buyPreview.pctOfSupply)} of supply{buyUsd ? ` · ≈ ${fmtUsd(buyUsd)}` : ""})</span>. Estimated market cap after your buy:{" "}
               <span className="font-mono font-bold text-ink tnum">{fmtMcap(buyPreview.fdvAfter)}</span>. Includes price impact and the pool fee; the exact amount is quoted on-chain right before the buy.
             </p>
-          ) : (
-            <p className={helper}>Buy tokens after the launch confirms, or leave this empty to launch without a buy.</p>
-          )}
+          ) : suggestion.reason === "insufficient" ? (
+            <p className={helper}>Suggested {fmtQuoteUnits(Number(defaultFirstBuy(quote)), quote.decimals)} {quote.symbol}, but this wallet holds only gas. The launch stays free; you can buy on the token page later.</p>
+          ) : suggestion.reason === "no-wallet" ? (
+            <p className={helper}>Connect a wallet on {CHAIN_LABEL} to see the suggested amount.</p>
+          ) : null}
+          <p className={helper}>A token with no holders and no price move looks dead on every screener and sits under quiet launches on the home page. Your first buy opens the chart. Clear it and the launch stays free.</p>
           <p className={helper}>Other traders can buy before you. First-buy slippage tolerance: {FIRST_BUY_SLIPPAGE_BPS / 100}%. Network gas and pool fees apply.</p>
         </section>
 
@@ -730,7 +744,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
             phase={phase}
             onConnect={() => setPickerOpen(true)}
             onSwitch={() => void switchChainAsync({ chainId: CHAIN.id })}
-            label={initialBuyRaw ? "Launch + optional buy" : "Launch for free, gas only"}
+            label={initialBuyRaw ? "Launch + first buy" : "Launch for free, gas only"}
           />
           {pickerOpen ? <WalletPicker onClose={() => setPickerOpen(false)} /> : null}
           <PhaseNote phase={phase} chain={chain} />
@@ -760,7 +774,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
           {description.trim() ? <p className="mt-3 text-sm text-body line-clamp-3">{description.trim()}</p> : null}
           <dl className="mt-4 grid grid-cols-2 gap-2">
             <Mini k="Opens at" v={fdvPreview !== null ? fmtMcap(fdvPreview) : "—"} sub={quote.key !== "usdg" ? previewMcapUsd : CHAIN_LABELS[chain]} />
-            <Mini k="First buy" v={initialBuyRaw ? `${initialBuy.trim()} ${quote.symbol}` : "none"} sub={buyPreview ? `~${fmtPct(buyPreview.pctOfSupply)} of supply` : "pool opens untouched"} />
+            <Mini k="First buy" v={initialBuyRaw ? `${initialBuy.trim()} ${quote.symbol}` : "none"} sub={buyPreview ? `${buySource === "suggested" ? "suggested · " : ""}~${fmtPct(buyPreview.pctOfSupply)} of supply` : "pool opens untouched"} />
             <Mini k="Trading fee" v={FEE_PRESETS.find((f) => f.pips === feePips)?.label ?? "—"} sub={feePips === 0 ? "free pool" : beneficiary === "burn" ? "burned" : "to beneficiary"} />
             <Mini k="Platform fee" v="0" sub="always" accent />
           </dl>

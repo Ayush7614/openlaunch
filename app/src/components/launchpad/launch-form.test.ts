@@ -25,7 +25,12 @@ test("launch merge preserves optional funding checks and post-launch buy isolati
 
 test("launch merge retains chain-scoped marks and honest optional-buy copy", () => {
   assert.match(source, /<TokenAvatar chain=\{chain\}/);
-  assert.match(source, /label=\{initialBuyRaw \? "Launch \+ optional buy" : "Launch for free, gas only"\}/);
+  assert.match(source, /label=\{initialBuyRaw \? "Launch \+ first buy" : "Launch for free, gas only"\}/);
+  // a suggested buy is computed from a known, sufficient balance and can be cleared; a typed amount keeps the strict checks
+  assert.match(source, /suggestFirstBuy\(\{ quote, connected: Boolean\(address\) && onChain, balance: buyBalance, gasReserve: quote\.key === "eth" \? GAS_RESERVE_WEI : 0n, declined: buyDeclined \|\| Boolean\(typedBuy\)/);
+  assert.match(source, /const initialBuy = typedBuy \|\| suggestion\.amount \|\| ""/);
+  assert.match(source, /No first buy/);
+  assert.match(source, /Clear it and the launch stays free/);
   assert.match(source, /Other traders can buy before you/);
   assert.match(source, /First-buy slippage tolerance: \{FIRST_BUY_SLIPPAGE_BPS \/ 100\}%/);
   assert.match(source, /Network gas and pool fees apply/);
