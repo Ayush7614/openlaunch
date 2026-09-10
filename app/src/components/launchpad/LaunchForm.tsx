@@ -54,6 +54,9 @@ function randomSalt(): Hex {
   return `0x${Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("")}`;
 }
 
+/** Shown wherever the form is blocked on a stock choice: one sentence, one place. */
+const STOCK_PICK_MESSAGE = "Pick a stock to price the token in, or switch the quote.";
+
 function stockIssuerDisclaimer(chain: ChainKey): string {
   return chain === "base"
     ? "Coinbase tokenized stocks are securities issued by Coinbase under Regulation S and are not offered to persons in the US, UK, Canada, Australia, Singapore or Switzerland. That is Coinbase's rule for the stock token, not ours. The pool itself is ordinary Uniswap v4."
@@ -200,7 +203,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
   if (name.trim().length === 0 || name.trim().length > 32) errors.push("Name: 1–32 characters.");
   if (!/^[A-Z0-9]{1,10}$/.test(symbolClean)) errors.push("Symbol: 1–10 letters or digits.");
   if (startTick === null) errors.push("Starting market cap must be a positive number.");
-  if (quoteKey === "stock" && !stock) errors.push("Pick a registry stock or switch quote.");
+  if (quoteKey === "stock" && !stock) errors.push(STOCK_PICK_MESSAGE);
   if (quoteKey === "gitlawb" && quote.usd === null && !customMcap.trim() && startTick === null) errors.push("GITLAWB price unavailable right now: enter a custom starting market cap in GITLAWB, or reload.");
   if (image && !/^https:\/\//.test(image.trim())) errors.push("Image must be an https URL.");
   if (website && !/^https:\/\//.test(website.trim())) errors.push("Website must be an https URL.");
@@ -423,7 +426,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
             </div>
           ) : null}
           {quoteKey === "stock" ? (
-            <div className="space-y-2" data-testid="stock-quote-sticky" aria-live="polite">
+            <div className="space-y-2">
               <div className="flex items-center gap-2 flex-wrap">
                 {stock ? (
                   <span className="inline-flex items-center gap-2 h-9 pl-1.5 pr-3 rounded-full border border-brand bg-brand-soft text-brand text-sm font-semibold">
@@ -431,8 +434,8 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={stock.logo} alt="" width={22} height={22} className={`${stock.logo.startsWith("data:") ? "rounded-md" : "rounded-full"} bg-card`} referrerPolicy="no-referrer" />
                     ) : null}
-                    Quote = {stock.symbol}
-                    <span className="font-normal text-xs opacity-80">(registry)</span>
+                    {stock.symbol}
+                    <span className="font-normal text-xs opacity-80">{chain === "base" ? "Coinbase stock" : "Robinhood stock"}</span>
                     <span className="font-normal text-xs opacity-80">{stock.name}</span>
                     {stock.usd ? <span className="font-mono text-xs opacity-80">{fmtUsd(stock.usd)}</span> : null}
                     <button
@@ -449,9 +452,6 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
                   </span>
                 ) : (
                   <>
-                    <span className="inline-flex items-center gap-2 h-9 px-3 rounded-full border border-warm/40 bg-warm-soft text-warm-ink text-xs font-semibold" data-testid="stock-quote-empty-chip">
-                      Pick a registry stock or switch quote
-                    </span>
                     <input className={`${input} h-10 max-w-xs font-mono uppercase`} value={stockQ} onChange={(e) => setStockQ(e.target.value)} placeholder="Search ticker, e.g. AAPL" aria-label="search stock tokens" autoComplete="off" />
                     <button
                       type="button"
@@ -704,12 +704,8 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
 
         <section className={`${card} p-5 space-y-3`}>
           {quoteKey === "stock" && !stock ? (
-            <div
-              className="rounded-xl border border-warm/40 bg-warm-soft px-3.5 py-2.5 text-xs text-warm-ink font-semibold"
-              role="status"
-              data-testid="stock-cta-fail-closed"
-            >
-              Pick a registry stock or switch quote
+            <div className="rounded-xl border border-warm/40 bg-warm-soft px-3.5 py-2.5 text-xs text-warm-ink font-semibold" role="status">
+              {STOCK_PICK_MESSAGE}
             </div>
           ) : null}
           {errors.length > 0 && (name || symbol) ? (

@@ -81,3 +81,21 @@ for (const status of ["success", "reverted"]) {
     assert.equal(sentValue, 100n);
   });
 }
+
+test("stock quote: one blocking message, a chip that names the issuer, a way out, and no test hooks in production markup", () => {
+  // the sentence lives once and is shown by the validation list and the submit-card status box
+  assert.match(source, /const STOCK_PICK_MESSAGE = "Pick a stock to price the token in, or switch the quote\."/);
+  assert.equal(source.match(/STOCK_PICK_MESSAGE/g)?.length, 3);
+  assert.match(source, /if \(quoteKey === "stock" && !stock\) errors.push\(STOCK_PICK_MESSAGE\)/);
+  assert.match(source, /\{quoteKey === "stock" && !stock \? \(\s*<div className="[^"]*" role="status">\s*\{STOCK_PICK_MESSAGE\}/);
+  // the only live region is that status box: the search results must not be re-announced on every keystroke
+  assert.doesNotMatch(source, /aria-live/);
+  assert.doesNotMatch(source, /data-testid|\(registry\)|Quote = \{/);
+  // the picked stock chip says whose stock it is and can be cleared; "Switch quote" returns to the first configured quote
+  assert.match(source, /\{stock\.symbol\}\s*<span className="[^"]*">\{chain === "base" \? "Coinbase stock" : "Robinhood stock"\}<\/span>/);
+  assert.match(source, /aria-label="clear stock quote"/);
+  assert.match(source, /Switch quote/);
+  assert.match(source, /setQuoteKey\(cfg\.quotes\[0\]\?\.key \?\? "eth"\);\s*setStock\(null\);\s*setStockQ\(""\);\s*setMcapPick\(null\);\s*setCustomMcap\(""\);/);
+  // the issuer disclaimer is rendered from one helper for both chains
+  assert.match(source, /<p className=\{helper\}>\{stockIssuerDisclaimer\(chain\)\}<\/p>/);
+});
