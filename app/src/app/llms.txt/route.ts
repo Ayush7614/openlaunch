@@ -57,7 +57,12 @@ ERC20 quote: token must sort above the quote address → call factory.findSalt(l
 Optional metadata: POST ${SITE_URL}/api/launch/meta {chain, launcher, salt, name, symbol, description?, image_url?, website?, x_handle?} → {uri, token}; pass uri as metadataURI.
 
 ## API
-- GET  ${SITE_URL}/api/launch/list?chain=base|robinhood&sort=new|trending|mcap|volume|gainers&window=1h|24h|all&limit=50
+- GET  ${SITE_URL}/api/launch/list?chain=base|robinhood&sort=live|new|mcap|volume|gainers|holders&window=1h|24h|all&limit=50
+  sort=live (the home page default; "trending" is an alias): tokens an outside wallet traded in the last 24h first, ranked by outside
+  wallets this hour, then today, then the last outside trade; then each launcher's newest launch under 1h old; then quiet launches, one
+  row per launcher; both by age. "Outside" = not the launcher and not a swap in the sniper window (launch block + 3; a sell there can
+  only be a sniper's). Rows carry traders_1h_ex / traders_24h_ex
+  (those counts), last_outside_trade_at, live_tier (live|new|quiet, live sort only) and launcher_collapsed.
 - GET  ${SITE_URL}/api/launch/feed
 - GET  ${SITE_URL}/api/launch/meta/<token>
 - POST ${SITE_URL}/api/launch/sync?chain=base|robinhood&tx=0x…   (index a tx you just sent)

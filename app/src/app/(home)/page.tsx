@@ -4,7 +4,7 @@ import LaunchList from "@/components/launchpad/LaunchList";
 import LaunchTape from "@/components/launchpad/LaunchTape";
 import { PostsFeed } from "@/components/launchpad/Posts";
 import { listFeed } from "@/lib/launchpad/postsServer";
-import { LAUNCH_SORTS, VOLUME_WINDOWS, getLaunchFeed, listLaunchesPage, type LaunchSort, type VolumeWindow, getTrending } from "@/lib/launchpad/queries";
+import { VOLUME_WINDOWS, getLaunchFeed, getTrending, isTrendingSource, listLaunchesPage, parseSort, trendingFrom, type VolumeWindow } from "@/lib/launchpad/queries";
 import { PAGE_SIZE } from "@/lib/launchpad/paging";
 import { ethUsd } from "@/lib/launchpad/ethPrice";
 import { LAUNCHPAD_CONFIGURED } from "@/lib/launchpad/config";
@@ -17,12 +17,14 @@ export const dynamic = "force-dynamic";
 
 export default async function Home({ searchParams }: { searchParams: Promise<{ sort?: string; window?: string; chain?: string; filter?: string }> }) {
   const sp = await searchParams;
-  const sort: LaunchSort = LAUNCH_SORTS.includes(sp.sort as LaunchSort) ? (sp.sort as LaunchSort) : "new";
+  const sort = parseSort(sp.sort, "live");
   const window: VolumeWindow = VOLUME_WINDOWS.includes(sp.window as VolumeWindow) ? (sp.window as VolumeWindow) : "all";
   const chain = isChainKey(sp.chain) ? sp.chain : null;
   const filter = isFilter(sp.filter) ? sp.filter : null;
   const usd = await ethUsd();
-  const [page, feed, posts, trending] = await Promise.all([listLaunchesPage({ sort, window, chain, filter, limit: PAGE_SIZE, ethUsd: usd }), getLaunchFeed(24, usd), listFeed(30), getTrending(usd)]);
+  const listOpts = { sort, window, chain, filter, limit: PAGE_SIZE, ethUsd: usd };
+  const [page, feed, posts, fetchedTrending] = await Promise.all([listLaunchesPage(listOpts), getLaunchFeed(24, usd), listFeed(30), isTrendingSource(listOpts) ? null : getTrending(usd)]);
+  const trending = fetchedTrending ?? trendingFrom(page.items); // the default view's first page doubles as the strip's candidates
 
   return (
     <>

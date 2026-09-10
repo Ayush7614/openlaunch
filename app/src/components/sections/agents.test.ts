@@ -24,7 +24,7 @@ test("agent documentation preserves the original launch signature and example", 
 
 test("agent documentation retains every public endpoint and configured chain", () => {
   for (const path of [
-    '/api/launch/list?chain=base|robinhood&sort=new|trending|mcap|volume|gainers&window=1h|24h|all&limit=50',
+    '/api/launch/list?chain=base|robinhood&sort=live|new|mcap|volume|gainers|holders&window=1h|24h|all&limit=50',
     '/api/launch/feed', '/api/launch/meta/<token>', '/llms.txt',
     '/api/launch/meta', '/api/launch/sync?chain=base|robinhood&tx=0x…',
   ]) assert.ok(page.includes(path), `Missing endpoint: ${path}`);

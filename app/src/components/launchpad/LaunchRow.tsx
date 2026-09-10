@@ -10,6 +10,7 @@ import { ago } from "@/lib/launchpad/time";
 import ChangeChip from "./ChangeChip";
 import GitlawbBadge, { isGitlawbQuote } from "./GitlawbBadge";
 import { marketUsd } from "@/lib/launchpad/market-format";
+import type { LiveTier } from "@/lib/launchpad/ranking";
 
 const columns = "md:grid-cols-[minmax(0,1fr)_6.5rem_5.5rem_6rem_5rem_2.5rem]";
 
@@ -28,7 +29,9 @@ export function LaunchListHeader({ window }: { window: VolumeWindow }) {
 
 export type RowHighlight = { kind: "new" | "buy" | "sell"; at: number } | null;
 
-export default function LaunchRow({ l, rank, window = "all", hl = null, now, pop = false }: { l: L; ethUsd?: number | null; rank?: number; window?: VolumeWindow; hl?: RowHighlight; now: number; pop?: boolean }) {
+export type RowChip = { tier: LiveTier; text: string } | null;
+
+export default function LaunchRow({ l, rank, window = "all", hl = null, now, pop = false, chip = null }: { l: L; ethUsd?: number | null; rank?: number; window?: VolumeWindow; hl?: RowHighlight; now: number; pop?: boolean; chip?: RowChip }) {
   const mode = feeModeOf(l.lp_fee, l.recipients);
   const volRaw = window === "1h" ? l.volume_1h : window === "24h" ? l.volume_24h : l.volume_quote;
   const volUsd = window === "1h" ? l.volume_1h_usd : window === "24h" ? l.volume_24h_usd : l.volume_usd;
@@ -57,6 +60,7 @@ export default function LaunchRow({ l, rank, window = "all", hl = null, now, pop
               <span className="font-mono text-body">{l.symbol}</span><span aria-hidden="true"> · </span>{CHAIN_SHORT[l.chain]}<span aria-hidden="true"> · </span>{l.quote_symbol}
             </div>
             <div className={`mt-0.5 truncate text-[11px] ${mode === "burn" ? "text-warm-ink" : "text-muted"}`}>{feeLabel}</div>
+            {chip ? <div className={`mt-0.5 truncate text-[11px] ${chip.tier === "live" ? "text-up" : chip.tier === "new" ? "text-brand" : "text-muted"}`} suppressHydrationWarning>{chip.text}</div> : null}
           </div>
         </div>
         <div className="min-w-0 text-right">

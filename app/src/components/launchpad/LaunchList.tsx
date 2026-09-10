@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { ArrowDownWideNarrow, ArrowRight, Search, SlidersHorizontal, X } from "lucide-react";
 import LaunchRow, { LaunchListHeader, type RowHighlight } from "./LaunchRow";
 import { useLive } from "./LiveProvider";
@@ -12,13 +12,14 @@ import type { LaunchRow as L, LaunchSort, VolumeWindow } from "@/lib/launchpad/q
 import { CHAIN_SHORT, type ChainKey } from "@/lib/chainPublic";
 import { FILTERS, isAddressQuery, matchesFilter, matchesQuery, normalizeQuery, rankHit, type LaunchFilter } from "@/lib/launchpad/search";
 import { launchKey, mergeLaunches, refreshInPlace } from "@/lib/launchpad/list-state";
+import { liveChip, liveTier } from "@/lib/launchpad/ranking";
 import { PAGE_SIZE } from "@/lib/launchpad/paging";
 import { Spinner } from "@/components/Skeleton";
 import { startNav } from "@/components/RouteProgress";
 
 const SORTS: { key: LaunchSort; label: string }[] = [
+  { key: "live", label: "Live" },
   { key: "new", label: "New" },
-  { key: "trending", label: "Trending" },
   { key: "mcap", label: "Market cap" },
   { key: "volume", label: "Volume" },
   { key: "gainers", label: "Gainers" },
@@ -132,12 +133,13 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
     setUpdating(true);
     setLoadError(null);
     const p = new URLSearchParams();
-    if (s !== "new") p.set("sort", s);
+    if (s !== "live") p.set("sort", s);
     if (w !== "all") p.set("window", w);
     if (c) p.set("chain", c);
     if (f) p.set("filter", f);
     router.replace(p.size ? `/?${p}` : "/", { scroll: false });
     const request = new URLSearchParams(p);
+    request.set("sort", s); // the URL omits the default sort, but the API defaults to "new": the request must always carry it
     request.set("limit", String(PAGE_SIZE));
     void fetch(`/api/launch/list?${request}`, { cache: "no-store", signal: controller.signal })
       .then(async (res) => {
@@ -210,7 +212,9 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
   const shown = candidates.filter((row) => (!chain || row.chain === chain) && matchesFilter(row, filter, now) && (!nq || matchesQuery(row, nq)));
   if (nq) shown.sort((a, b) => rankHit(a, nq) - rankHit(b, nq));
   const showWindow = sort === "volume";
-  const reset = () => { setQ(""); pick("new", "all", null, null); };
+  const reset = () => { setQ(""); pick("live", "all", null, null); };
+  const ranked = sort === "live" && !nq; // tiers, chips and the quiet divider apply to the live view only
+  const firstQuiet = ranked ? shown.findIndex((row) => liveTier(row, now) === "quiet") : -1; // one divider, where the database's order enters the quiet tier
 
   return (
     <section id="launches" aria-labelledby="launches-heading" className="min-w-0 scroll-mt-24 overflow-hidden rounded-2xl border border-line bg-paper">
@@ -221,7 +225,7 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
               <h2 id="launches-heading" className="text-base font-semibold tracking-tight text-ink">Launches</h2>
               <span className="rounded-md border border-line px-1.5 py-0.5 font-mono text-[11px] text-muted tnum" title="Total launches across both chains">{live.totals.launches}</span>
             </div>
-            <p className="mt-1 text-xs text-muted">Every token. Open from the start.</p>
+            <p className="mt-1 text-xs text-muted">{sort === "live" ? "Tokens with buyers first. Every launch stays in New." : "Every token. Open from the start."}</p>
           </div>
           <div className="relative w-full sm:w-64">
             <label htmlFor="launch-search" className="sr-only">Search launches</label>
@@ -258,7 +262,15 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
       </div>
       <LaunchListHeader window={showWindow ? window_ : "all"} />
       <ul ref={listRef} aria-label="Token launches" aria-busy={updating} onPointerEnter={(e) => { if (e.pointerType === "mouse") interaction.current.pointer = true; }} onPointerLeave={() => { interaction.current.pointer = false; interaction.current.at = Date.now(); }} onPointerDown={() => { interaction.current.at = Date.now(); }} onFocusCapture={() => { interaction.current.focus = true; }} onBlurCapture={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) { interaction.current.focus = false; interaction.current.at = Date.now(); } }}>
-        {shown.map((l, i) => <li key={launchKey(l)} data-token={launchKey(l)}><LaunchRow l={l} rank={sort !== "new" && !nq ? i + 1 : undefined} window={showWindow ? window_ : "all"} hl={hl.get(launchKey(l)) ?? null} now={now} pop={Boolean(hl.get(launchKey(l)) && hl.get(launchKey(l))?.kind !== "new")} /></li>)}
+        {shown.map((l, i) => {
+          const key = launchKey(l);
+          const chip = ranked ? liveChip(l, now) : null;
+          const rank = !nq && sort !== "new" && (!chip || chip.tier === "live") ? i + 1 : undefined;
+          return <Fragment key={key}>
+            {i === firstQuiet ? <li className="border-b border-line bg-card px-4 py-2 text-[11px] text-muted"><span className="font-medium text-body">Quiet launches</span> · no buyers yet. One row per wallet; every launch stays in New.</li> : null}
+            <li data-token={key}><LaunchRow l={l} rank={rank} window={showWindow ? window_ : "all"} hl={hl.get(key) ?? null} now={now} pop={Boolean(hl.get(key) && hl.get(key)?.kind !== "new")} chip={chip} /></li>
+          </Fragment>;
+        })}
         {shown.length === 0 ? <li className="space-y-3 border-t border-line px-5 py-12 text-center">
           <Search size={20} aria-hidden="true" className="mx-auto text-muted" />
           <p className="text-sm font-semibold text-ink">{updating || searching ? "Finding your launches…" : nq || filter || chain ? "No matching launches" : "The next launch could be yours"}</p>

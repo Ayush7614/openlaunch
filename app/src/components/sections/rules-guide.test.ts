@@ -12,7 +12,9 @@ test("the rules guide retains native navigation and visible risk disclosures", (
   for (const anchor of ["launchpad", "fees", "immutable", "know", "contracts"]) {
     assert.ok(page.includes(`id="${anchor}"`), `missing section: ${anchor}`);
   }
-  assert.equal((page.match(/<details open>/g) ?? []).length, 4);
+  assert.equal((page.match(/<details open>/g) ?? []).length, 5);
+  assert.match(page, /quiet launches/);
+  assert.match(page, /every launch stays in the New tab/i);
   assert.match(page, /GITLAWB-quoted pool/);
   assert.match(page, /burns GITLAWB on every trade/);
   assert.match(page, /a locked pool does not make a token valuable/);

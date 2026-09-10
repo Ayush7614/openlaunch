@@ -6,7 +6,8 @@ import { ensureRegistry, stockByAddress, stockUsdInUse } from "./stocksServer";
 import { gitlawbUsd } from "./gitlawbServer";
 import { GITLAWB_ADDRESS, GITLAWB_ADDRESS_ROBINHOOD } from "./gitlawb";
 import { canonicalImageUrl } from "./images";
-import { rankTrending } from "./trending";
+import { GRACE_HOURS, LIVE_WINDOW_HOURS, rankTrending, type LiveTier } from "./ranking";
+import { SNIPER_BLOCKS } from "./holders";
 import { imagePublicBase } from "./imageStore";
 import { fdvQuote, quotePerToken, tickToTokensPerQuote, units } from "./math";
 import type { RawCandle } from "./candles";
@@ -51,9 +52,14 @@ export type LaunchRow = {
   recipients: { payout: string; bps: number }[];
   trades_1h: number;
   traders_1h: number;
+  traders_1h_ex: number; // distinct outside wallets in the hour (not the launcher, not sniper-window swaps)
   volume_1h: string;
   trades_24h: number;
+  traders_24h_ex: number; // same over the day: the "live" gate (lib/launchpad/ranking.ts)
   volume_24h: string;
+  last_outside_trade_at: string | null; // last swap by an outside wallet in the day window (last_trade_at counts everyone)
+  live_tier: LiveTier | null; // sort "live" only: the tier the database ranked this row in
+  launcher_collapsed: number; // sort "live" only: further rows of this launcher folded into this one
   description: string | null;
   image_url: string | null;
   holders: number;
@@ -71,14 +77,21 @@ export type LaunchRow = {
   volume_24h_usd: number | null;
 };
 
-type Raw = Omit<LaunchRow, "chain" | "quote_key" | "quote_symbol" | "quote_decimals" | "token_id" | "block_number" | "tick" | "trades_1h" | "traders_1h" | "trades_24h" | "price_quote" | "fdv_quote" | "change_from_launch" | "quote_usd" | "price_usd" | "fdv_usd" | "volume_usd" | "volume_1h_usd" | "volume_24h_usd"> & {
+type Raw = Omit<LaunchRow, "chain" | "quote_key" | "quote_symbol" | "quote_decimals" | "token_id" | "block_number" | "tick" | "trades_1h" | "traders_1h" | "traders_1h_ex" | "trades_24h" | "traders_24h_ex" | "last_outside_trade_at" | "live_tier" | "launcher_collapsed" | "price_quote" | "fdv_quote" | "change_from_launch" | "quote_usd" | "price_usd" | "fdv_usd" | "volume_usd" | "volume_1h_usd" | "volume_24h_usd"> & {
   token_id: bigint;
   block_number: bigint;
   tick: number | null;
   trades_1h: bigint | number;
   traders_1h?: bigint | number | null;
+  traders_1h_ex?: bigint | number | null;
   trades_24h: bigint | number;
+  traders_24h_ex?: bigint | number | null;
+  last_outside_trade_at?: string | Date | null;
+  live_tier?: number | null;
+  launcher_collapsed?: bigint | number | null;
 };
+
+const TIERS: LiveTier[] = ["live", "new", "quiet"]; // index = the live_tier CASE in the live sort
 
 /** Stock USD prices for this request (filled by `withStocks`). */
 let stockUsdNow = new Map<string, number | null>();
@@ -134,9 +147,14 @@ function shape(raw: Raw & { last_swap_block?: bigint; last_swap_log?: number; lo
     recipients: Array.isArray(r.recipients) ? r.recipients : [],
     trades_1h: Number(r.trades_1h ?? 0),
     traders_1h: Number(r.traders_1h ?? 0),
+    traders_1h_ex: Number(r.traders_1h_ex ?? 0),
     volume_1h: String(r.volume_1h ?? "0"),
     trades_24h: Number(r.trades_24h ?? 0),
+    traders_24h_ex: Number(r.traders_24h_ex ?? 0),
     volume_24h: String(r.volume_24h ?? "0"),
+    last_outside_trade_at: r.last_outside_trade_at ? new Date(r.last_outside_trade_at).toISOString() : null,
+    live_tier: r.live_tier === undefined || r.live_tier === null ? null : (TIERS[Number(r.live_tier)] ?? null),
+    launcher_collapsed: Number(r.launcher_collapsed ?? 0),
     price_quote: price,
     fdv_quote: fdv,
     change_from_launch: launchFdv > 0 ? fdv / launchFdv - 1 : 0,
@@ -150,16 +168,36 @@ function shape(raw: Raw & { last_swap_block?: bigint; last_swap_log?: number; lo
   };
 }
 
+// Rolling stats per row, one probe of the swaps index per launch: the day window (LIVE_WINDOW_HOURS, the live gate) with
+// the hour's figures as FILTERs. An "outside" swap is by a wallet that is not the launcher, not NULL (fails the FILTER)
+// and not inside the sniper window (launch block + SNIPER_BLOCKS, the holders panel's definition: one bot buying every
+// launch in its first seconds would otherwise make every token "live"). Sells in that window are excluded on purpose:
+// all supply starts in the pool, so a sell there can only be a sniper flipping what it just bought. Outside counts are the live gate and the trending
+// weight (lib/launchpad/ranking.ts); last_outside_at is what the live sort and its chip mean by "last trade", because
+// bb_launches.last_trade_at also moves on the launcher's own swaps.
+const OUTSIDE = `s.trader <> l.launcher AND s.block_number > l.block_number + ${SNIPER_BLOCKS}`;
+const HOUR = `s.block_time > now() - interval '1 hour'`;
 const SELECT = `SELECT l.*, m.description, m.image_url, m.website, m.x_handle,
-  w1.n AS trades_1h, w1.t AS traders_1h, w1.v AS volume_1h, w24.n AS trades_24h, w24.v AS volume_24h
+  w.n1 AS trades_1h, w.t1 AS traders_1h, w.t1_ex AS traders_1h_ex, w.v1 AS volume_1h, w.n24 AS trades_24h, w.t24_ex AS traders_24h_ex, w.v24 AS volume_24h, w.last_outside_at AS last_outside_trade_at
   FROM bb_launches l
   LEFT JOIN bb_launch_meta m ON m.chain_id = l.chain_id AND m.token = l.token
-  LEFT JOIN LATERAL (SELECT count(*)::int AS n, count(DISTINCT s.trader)::int AS t, COALESCE(sum(abs(amount0)), 0)::text AS v FROM bb_launch_swaps s WHERE s.chain_id = l.chain_id AND s.token = l.token AND s.block_time > now() - interval '1 hour') w1 ON true
-  LEFT JOIN LATERAL (SELECT count(*)::int AS n, COALESCE(sum(abs(amount0)), 0)::text AS v FROM bb_launch_swaps s WHERE s.chain_id = l.chain_id AND s.token = l.token AND s.block_time > now() - interval '24 hours') w24 ON true`;
+  LEFT JOIN LATERAL (
+    SELECT count(*) FILTER (WHERE ${HOUR})::int AS n1, count(DISTINCT s.trader) FILTER (WHERE ${HOUR})::int AS t1,
+           count(DISTINCT s.trader) FILTER (WHERE ${HOUR} AND ${OUTSIDE})::int AS t1_ex, COALESCE(sum(abs(amount0)) FILTER (WHERE ${HOUR}), 0)::text AS v1,
+           count(*)::int AS n24, count(DISTINCT s.trader) FILTER (WHERE ${OUTSIDE})::int AS t24_ex, COALESCE(sum(abs(amount0)), 0)::text AS v24,
+           max(s.block_time) FILTER (WHERE ${OUTSIDE}) AS last_outside_at
+      FROM bb_launch_swaps s WHERE s.chain_id = l.chain_id AND s.token = l.token AND s.block_time > now() - interval '${LIVE_WINDOW_HOURS} hours'
+  ) w ON true`;
 
-export type LaunchSort = "new" | "trending" | "mcap" | "volume" | "gainers" | "holders";
+export type LaunchSort = "live" | "new" | "mcap" | "volume" | "gainers" | "holders";
 export type VolumeWindow = "1h" | "24h" | "all";
-export const LAUNCH_SORTS: LaunchSort[] = ["new", "trending", "mcap", "volume", "gainers", "holders"];
+export const LAUNCH_SORTS: LaunchSort[] = ["live", "new", "mcap", "volume", "gainers", "holders"];
+
+/** The one place a sort name is parsed: allow-listed, with "trending" (the pre-Live name) kept as an alias of "live". */
+export function parseSort<F extends LaunchSort | null>(raw: string | null | undefined, fallback: F): LaunchSort | F {
+  if (raw === "trending") return "live";
+  return LAUNCH_SORTS.includes(raw as LaunchSort) ? (raw as LaunchSort) : fallback;
+}
 export const VOLUME_WINDOWS: VolumeWindow[] = ["1h", "24h", "all"];
 
 export type ListOpts = { sort?: LaunchSort; window?: VolumeWindow; chain?: ChainKey | null; filter?: LaunchFilter | null; limit?: number; offset?: number; launcher?: string; ethUsd?: number | null };
@@ -176,6 +214,12 @@ export type ListPage = { items: LaunchRow[]; hasMore: boolean };
  * the query (USDG = 1, ETH = the price passed in) so "market cap" and "volume"
  * rank correctly across pools with different quotes. "New" orders by block
  * TIME, never by block number (chains have different heights).
+ *
+ * "Live" (the home default) applies the ranking rule from lib/launchpad/ranking.ts in SQL so paging stays
+ * correct: tier 0 = an outside wallet traded it in the last day, ranked by outside wallets this hour, then today,
+ * then the last outside trade; tier 1 = younger than the grace window; tier 2 = quiet; tiers 1 and 2 by age.
+ * Outside tier 0 a launcher keeps only its newest row, and that row carries how many of its siblings were folded
+ * (`launcher_collapsed`). The tier travels with the row (`live_tier`) so the client never recomputes it.
  */
 export async function listLaunchesPage(opts: ListOpts = {}): Promise<ListPage> {
   const db = maybeDb();
@@ -212,18 +256,34 @@ export async function listLaunchesPage(opts: ListOpts = {}): Promise<ListPage> {
   // quote per token = 1 / (1.0001^tick · 10^(qd-18)); mcap = that · supply/1e18 · usd
   const mcapUsd = db`((1.0 / (power(1.0001, COALESCE(l.tick, l.start_tick)::double precision) * power(10, ${qd} - 18))) * (l.supply / 1e18) * ${usdPerUnit})`;
   const newest = db`l.block_time DESC, l.chain_id DESC, l.block_number DESC`;
+  if (sort === "live") {
+    const rows = await db<Raw[]>`
+      WITH base AS (
+        SELECT x.*, CASE WHEN x.traders_24h_ex >= 1 THEN 0 WHEN x.block_time > now() - make_interval(hours => ${GRACE_HOURS}) THEN 1 ELSE 2 END AS live_tier
+          FROM (${db.unsafe(SELECT)} ${where}) x
+      ), rest AS ( -- tiers 1 and 2 on purpose: the grace hour goes to a wallet's newest launch, not to every launch in a loop
+        SELECT chain_id, token, row_number() OVER (PARTITION BY launcher ORDER BY block_time DESC, chain_id DESC, block_number DESC) AS rn,
+               (count(*) OVER (PARTITION BY launcher) - 1)::int AS launcher_collapsed
+          FROM base WHERE live_tier > 0
+      )
+      SELECT base.*, COALESCE(rest.launcher_collapsed, 0) AS launcher_collapsed
+        FROM base LEFT JOIN rest ON rest.chain_id = base.chain_id AND rest.token = base.token
+       WHERE base.live_tier = 0 OR rest.rn = 1
+       ORDER BY base.live_tier, base.traders_1h_ex DESC, base.traders_24h_ex DESC, base.last_outside_trade_at DESC NULLS LAST, base.block_time DESC, base.chain_id DESC, base.block_number DESC
+       LIMIT ${limit + 1} OFFSET ${offset}`;
+    const shaped = rows.map((r) => shape(r, ethUsd));
+    return { items: shaped.slice(0, limit), hasMore: shaped.length > limit };
+  }
   const order =
     sort === "volume"
       ? db`ORDER BY ${volUsd} DESC, ${newest}`
       : sort === "mcap"
         ? db`ORDER BY ${mcapUsd} DESC, ${newest}`
-        : sort === "trending"
-          ? db`ORDER BY w1.n DESC, (w1.v::numeric / power(10, ${qd}) * ${usdPerUnit}) DESC, w24.n DESC, l.last_trade_at DESC NULLS LAST, ${newest}`
-          : sort === "gainers"
-            ? db`ORDER BY (l.start_tick - COALESCE(l.tick, l.start_tick)) DESC, ${newest}`
-            : sort === "holders"
-              ? db`ORDER BY l.holders DESC, ${newest}`
-              : db`ORDER BY ${newest}`;
+        : sort === "gainers"
+          ? db`ORDER BY (l.start_tick - COALESCE(l.tick, l.start_tick)) DESC, ${newest}`
+          : sort === "holders"
+            ? db`ORDER BY l.holders DESC, ${newest}`
+            : db`ORDER BY ${newest}`;
   const rows = await db<Raw[]>`${db.unsafe(SELECT)} ${where} ${order} LIMIT ${limit + 1} OFFSET ${offset}`;
   const shaped = rows.map((r) => shape(r, ethUsd));
   return { items: shaped.slice(0, limit), hasMore: shaped.length > limit };
@@ -471,8 +531,20 @@ export async function getWalletTrades(wallet: string, ethUsd: number | null = nu
 
 export type TrendingSnap = { window: "1h" | "24h"; items: LaunchRow[] };
 
-/** "Hot right now": top rows by the last hour's activity, ranked by lib/launchpad/trending.ts. */
+export const TRENDING_CANDIDATES = 40;
+
+/** "Hot right now" from rows already fetched: the first page of the live sort (all chains, no filter) is the candidate set. */
+export function trendingFrom(rows: LaunchRow[]): TrendingSnap {
+  return rankTrending(rows, Date.now());
+}
+
+/** True when a list request's first page doubles as the trending candidate set, so callers can skip `getTrending`. */
+export function isTrendingSource(opts: ListOpts): boolean {
+  return opts.sort === "live" && !opts.chain && !opts.filter && (opts.window ?? "all") === "all" && !opts.offset && (opts.limit ?? 0) >= TRENDING_CANDIDATES;
+}
+
+/** "Hot right now": the top of the live sort, ranked for the strip by lib/launchpad/ranking.ts. */
 export async function getTrending(ethUsd: number | null = null): Promise<TrendingSnap> {
-  const page = await listLaunchesPage({ sort: "trending", limit: 40, ethUsd });
-  return rankTrending(page.items, Date.now());
+  const page = await listLaunchesPage({ sort: "live", limit: TRENDING_CANDIDATES, ethUsd });
+  return trendingFrom(page.items);
 }

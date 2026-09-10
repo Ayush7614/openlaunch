@@ -2,15 +2,15 @@ import { NextResponse } from "next/server";
 import { isChainKey } from "@/lib/chainPublic";
 import { isFilter } from "@/lib/launchpad/search";
 import { clampLimit, clampOffset } from "@/lib/launchpad/paging";
-import { LAUNCH_SORTS, VOLUME_WINDOWS, listLaunchesPage, type LaunchSort, type VolumeWindow } from "@/lib/launchpad/queries";
+import { VOLUME_WINDOWS, listLaunchesPage, parseSort, type VolumeWindow } from "@/lib/launchpad/queries";
 import { ethUsd } from "@/lib/launchpad/ethPrice";
 
 export const dynamic = "force-dynamic";
 
-/** GET /api/launch/list?chain=base|robinhood&sort=new|trending|mcap|volume|gainers&window=1h|24h|all&limit=50 — agent-friendly JSON. */
+/** GET /api/launch/list?chain=base|robinhood&sort=live|new|mcap|volume|gainers|holders&window=1h|24h|all&limit=50 — agent-friendly JSON ("trending" still accepted as an alias of live). */
 export async function GET(req: Request) {
   const u = new URL(req.url);
-  const sort = (LAUNCH_SORTS.includes((u.searchParams.get("sort") ?? "") as LaunchSort) ? u.searchParams.get("sort") : "new") as LaunchSort;
+  const sort = parseSort(u.searchParams.get("sort"), "new");
   const window = (VOLUME_WINDOWS.includes((u.searchParams.get("window") ?? "") as VolumeWindow) ? u.searchParams.get("window") : "all") as VolumeWindow;
   const c = u.searchParams.get("chain");
   const chain = isChainKey(c) ? c : null;
