@@ -11,7 +11,7 @@ import type { LaunchRow } from "@/lib/launchpad/queries";
 import { fmtQuote } from "@/lib/launchpad/math";
 import { marketUsd } from "@/lib/launchpad/market-format";
 import { CHAIN_SHORT } from "@/lib/chainPublic";
-import { stickyKing } from "@/lib/launchpad/trending";
+import { stickyKing } from "@/lib/launchpad/ranking";
 import { launchKey, refreshInPlace } from "@/lib/launchpad/list-state";
 
 type Snap = { window: "1h" | "24h"; items: LaunchRow[] };

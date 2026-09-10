@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
 
 export default async function Home({ searchParams }: { searchParams: Promise<{ sort?: string; window?: string; chain?: string; filter?: string }> }) {
   const sp = await searchParams;
-  const sort: LaunchSort = LAUNCH_SORTS.includes(sp.sort as LaunchSort) ? (sp.sort as LaunchSort) : "new";
+  const sort: LaunchSort = LAUNCH_SORTS.includes(sp.sort as LaunchSort) ? (sp.sort as LaunchSort) : "live";
   const window: VolumeWindow = VOLUME_WINDOWS.includes(sp.window as VolumeWindow) ? (sp.window as VolumeWindow) : "all";
   const chain = isChainKey(sp.chain) ? sp.chain : null;
   const filter = isFilter(sp.filter) ? sp.filter : null;
