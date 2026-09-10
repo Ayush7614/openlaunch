@@ -1,8 +1,9 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { useAccount, useConnect, useDisconnect, useSwitchChain } from "wagmi";
+import { useAccount, useDisconnect, useSwitchChain } from "wagmi";
 import { CHAINS } from "@/lib/chainPublic";
+import ConnectWallet from "./ConnectWallet";
 import WalletMenu from "./WalletMenu";
 
 /**
@@ -11,7 +12,6 @@ import WalletMenu from "./WalletMenu";
  */
 export default function ConnectButton({ block = false, onNavigate }: { block?: boolean; onNavigate?: () => void }) {
   const { address, isConnected, chainId, connector: activeConnector } = useAccount();
-  const { connect, connectors, isPending } = useConnect();
   const { disconnectAsync, isPending: disconnecting } = useDisconnect();
   const { switchChainAsync, isPending: switching } = useSwitchChain();
   // Wallet state only exists on the client; render a neutral pill during SSR/hydration.
@@ -27,17 +27,8 @@ export default function ConnectButton({ block = false, onNavigate }: { block?: b
   if (!mounted) return <div className={`${base} border border-line text-faint`}>Wallet</div>;
 
   if (!isConnected || !address) {
-    const connector = connectors.find((c) => c.id === "coinbaseWallet") ?? connectors[0];
-    return (
-      <button
-        onClick={() => connector && connect({ connector })}
-        disabled={isPending || !connector}
-        // a quiet hairline utility (the ThemeToggle recipe): only the launch CTA is loud
-        className={`${base} border border-line text-body hover:text-ink hover:border-line-strong`}
-      >
-        {isPending ? "Connecting…" : "Connect wallet"}
-      </button>
-    );
+    // a quiet hairline utility (the ThemeToggle recipe): only the launch CTA is loud
+    return <ConnectWallet className={`${base} border border-line text-body hover:text-ink hover:border-line-strong`}>Connect wallet</ConnectWallet>;
   }
   return (
     <WalletMenu address={address} chainId={chainId} connectorName={activeConnector?.name}

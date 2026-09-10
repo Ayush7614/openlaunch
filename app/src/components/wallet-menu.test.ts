@@ -19,13 +19,13 @@ test("connected wallet chip is an account disclosure, never a one-click disconne
   assert.match(source, /<AccountMenu key=\{props.address.toLowerCase\(\)\}/);
 });
 
-test("wallet adapter preserves hydration, connector preference, and explicit async actions", () => {
+test("wallet adapter preserves hydration, routes connecting through the picker, and keeps explicit async actions", () => {
   assert.match(adapter, /useSyncExternalStore\(/);
   assert.match(adapter, /if \(!mounted\) return <div/);
   assert.match(adapter, /if \(!isConnected \|\| !address\)/);
-  assert.match(adapter, /connectors.find\(\(c\) => c.id === "coinbaseWallet"\) \?\? connectors\[0\]/);
-  assert.match(adapter, /disabled=\{isPending \|\| !connector\}/);
-  assert.match(adapter, /connector && connect\(\{ connector \}\)/);
+  // wallet choice and connect errors live in WalletPicker; the header never picks a connector itself
+  assert.match(adapter, /<ConnectWallet className=/);
+  assert.doesNotMatch(adapter, /useConnect\(|\bconnectors\b|\bconnect\(/);
   assert.match(adapter, /onSwitchChain=\{\(chain\) => switchChainAsync\(\{ chainId: CHAINS\[chain\].id \}\)\}/);
   assert.match(adapter, /onDisconnect=\{\(\) => disconnectAsync\(\)\}/);
   assert.match(adapter, /switching=\{switching\} disconnecting=\{disconnecting\}/);

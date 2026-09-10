@@ -19,10 +19,10 @@ test("Me keeps a server page shell and isolates dashboard state by wallet", () =
 test("the disconnected wallet view is a capability outline, not invented account data", () => {
   const disconnected = source.slice(source.indexOf("if (!isConnected || !address)"), source.indexOf("const collectable"));
   assert.match(disconnected, /After you connect/);
-  assert.match(disconnected, /connect\(\{ connector: c \}\)/);
-  assert.match(disconnected, /disabled=\{connecting \|\| !c\}/);
+  // connecting goes through the shared picker, which owns wallet choice and connect errors
+  assert.match(disconnected, /<ConnectWallet className=\{styles.connectButton\}>/);
+  assert.doesNotMatch(disconnected, /useConnect|connect\(\{ connector/);
   assert.match(disconnected, /Transactions and edits need your signature/);
-  assert.match(disconnected, /connectError/);
   assert.doesNotMatch(disconnected, /<Stat\b|\$[0-9]|Connected wallet|writeContract|signMessage/);
 });
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAccount, useBalance, useConfig, useConnect, useReadContract, useSwitchChain } from "wagmi";
+import { useAccount, useBalance, useConfig, useReadContract, useSwitchChain } from "wagmi";
 import { getPublicClient, getWalletClient } from "wagmi/actions";
 import { isAddress, maxUint160, maxUint256, parseEventLogs, parseUnits, zeroAddress, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
 import TokenAvatar from "./TokenAvatar";
@@ -21,6 +21,7 @@ import { CHAINS, CHAIN_LABELS, CHAIN_KEYS, BUILDER_DATA_SUFFIX, explorerTx, shor
 import { friendlyError } from "@/lib/errors";
 import { Spinner } from "@/components/Skeleton";
 import { startNav } from "@/components/RouteProgress";
+import WalletPicker from "@/components/WalletPicker";
 
 /**
  * Launch flow — honest states, nothing claimed before the chain says so:
@@ -157,7 +158,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
   }, [chain, quoteKey, stockQ]);
   const config = useConfig();
   const { address, isConnected, chainId } = useAccount();
-  const { connect, connectors, isPending: connecting } = useConnect();
+  const [pickerOpen, setPickerOpen] = useState(false);
   const { switchChainAsync, isPending: switching } = useSwitchChain();
 
   const [name, setName] = useState("");
@@ -685,16 +686,14 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
             configured={cfg.configured}
             connected={isConnected}
             onChain={onChain}
-            connecting={connecting || switching}
+            connecting={switching}
             valid={valid}
             phase={phase}
-            onConnect={() => {
-              const c = connectors.find((c) => c.id === "coinbaseWallet") ?? connectors[0];
-              if (c) connect({ connector: c });
-            }}
+            onConnect={() => setPickerOpen(true)}
             onSwitch={() => void switchChainAsync({ chainId: CHAIN.id })}
             label={initialBuyRaw ? "Launch + optional buy" : "Launch for free, gas only"}
           />
+          {pickerOpen ? <WalletPicker onClose={() => setPickerOpen(false)} /> : null}
           <PhaseNote phase={phase} chain={chain} />
           <p className="text-xs text-muted leading-relaxed">
             One transaction on {CHAIN_LABEL}: deploys the token, creates the Uniswap v4 pool ({quote.symbol} / your token), locks 100% of the supply in it forever, and registers the fee routing. Cost: gas only, usually a few cents.
