@@ -11,8 +11,10 @@ export default function manifest(): MetadataRoute.Manifest {
     display: "standalone",
     background_color: "#FAFAF8",
     theme_color: "#FAFAF8",
+    // "any" is only meaningful for SVG; raster icons declare their real pixel size (icon.png is 512²).
     icons: [
-      { src: "/icon.png", sizes: "any", type: "image/png" },
+      { src: "/icon.svg", sizes: "any", type: "image/svg+xml" },
+      { src: "/icon.png", sizes: "512x512", type: "image/png" },
       { src: "/apple-icon.png", sizes: "180x180", type: "image/png" },
     ],
   };

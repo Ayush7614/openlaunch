@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect } from "react";
 import "./globals.css";
 import { inter, spaceMono, unbounded } from "./fonts";
 
@@ -16,7 +17,9 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
-  console.error(error);
+  useEffect(() => {
+    console.error(error);
+  }, [error]);
   return (
     <html lang="en" className={`${inter.variable} ${spaceMono.variable} ${unbounded.variable}`}>
       <body className="min-h-screen flex flex-col">
