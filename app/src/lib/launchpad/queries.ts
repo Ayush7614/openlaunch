@@ -171,7 +171,8 @@ function shape(raw: Raw & { last_swap_block?: bigint; last_swap_log?: number; lo
 // Rolling stats per row, one probe of the swaps index per launch: the day window (LIVE_WINDOW_HOURS, the live gate) with
 // the hour's figures as FILTERs. An "outside" swap is by a wallet that is not the launcher, not NULL (fails the FILTER)
 // and not inside the sniper window (launch block + SNIPER_BLOCKS, the holders panel's definition: one bot buying every
-// launch in its first seconds would otherwise make every token "live"). Outside counts are the live gate and the trending
+// launch in its first seconds would otherwise make every token "live"). Sells in that window are excluded on purpose:
+// all supply starts in the pool, so a sell there can only be a sniper flipping what it just bought. Outside counts are the live gate and the trending
 // weight (lib/launchpad/ranking.ts); last_outside_at is what the live sort and its chip mean by "last trade", because
 // bb_launches.last_trade_at also moves on the launcher's own swaps.
 const OUTSIDE = `s.trader <> l.launcher AND s.block_number > l.block_number + ${SNIPER_BLOCKS}`;
@@ -260,7 +261,7 @@ export async function listLaunchesPage(opts: ListOpts = {}): Promise<ListPage> {
       WITH base AS (
         SELECT x.*, CASE WHEN x.traders_24h_ex >= 1 THEN 0 WHEN x.block_time > now() - make_interval(hours => ${GRACE_HOURS}) THEN 1 ELSE 2 END AS live_tier
           FROM (${db.unsafe(SELECT)} ${where}) x
-      ), rest AS (
+      ), rest AS ( -- tiers 1 and 2 on purpose: the grace hour goes to a wallet's newest launch, not to every launch in a loop
         SELECT chain_id, token, row_number() OVER (PARTITION BY launcher ORDER BY block_time DESC, chain_id DESC, block_number DESC) AS rn,
                (count(*) OVER (PARTITION BY launcher) - 1)::int AS launcher_collapsed
           FROM base WHERE live_tier > 0

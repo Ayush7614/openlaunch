@@ -3,8 +3,9 @@
  *
  * One rule, stated once:
  *   A token is LIVE when an outside wallet has traded it in the last LIVE_WINDOW_HOURS: not the launcher, and not a
- *   buy inside the sniper window (launch block + SNIPER_BLOCKS, see holders.ts). Until then it is NEW for its first
- *   GRACE_HOURS, then QUIET. Outside live, a launcher gets one row.
+ *   swap inside the sniper window (launch block + SNIPER_BLOCKS, see holders.ts; a sell there can only be a sniper's).
+ *   Until then it is NEW for its first GRACE_HOURS, then QUIET. Outside live, a launcher gets one row: the grace hour
+ *   goes to a wallet's newest launch, so one wallet cannot fill the board by launching in a loop.
  *
  * The list query (queries.ts, sort "live") applies the rule in SQL because ordering and paging happen in the
  * database, and sends the tier back with each row so the client shows the tier it was ranked by. Live rows rank by
