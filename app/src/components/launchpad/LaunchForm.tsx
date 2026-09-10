@@ -363,6 +363,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
                   key={k}
                   disabled={!ok}
                   onClick={() => {
+                    if (k === chain) return; // the active chain: nothing to switch, nothing to reset
                     setChain(k);
                     setQuoteKey(launchpad(k).quotes[0].key);
                     // a stock belongs to one chain's registry: never carry a Base pick over to Robinhood (or back)
