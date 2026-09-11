@@ -33,14 +33,23 @@ test("amountForUsd: short decimals parseUnits accepts, never more places than th
   }
 });
 
-test("suggestFirstBuy: only when connected, balance known and enough for amount + gas; every other case launches free", () => {
+test("suggestFirstBuy (ETH quote): only when connected and the balance is known and covers amount + gas; every other case launches free", () => {
   const enough = parseUnits("0.02", 18);
-  assert.deepEqual(suggestFirstBuy({ ...base, quote: eth, balance: enough, gasReserve: GAS }), { amount: "0.01" });
-  assert.deepEqual(suggestFirstBuy({ ...base, quote: eth, balance: parseUnits("0.0104", 18), gasReserve: GAS }), { amount: null, reason: "insufficient" }, "covers the amount but not the gas reserve");
-  assert.deepEqual(suggestFirstBuy({ ...base, quote: eth, balance: undefined, gasReserve: GAS }), { amount: null, reason: "unknown-balance" }, "a failed or pending balance read never blocks");
-  assert.deepEqual(suggestFirstBuy({ ...base, quote: eth, connected: false, balance: undefined, gasReserve: GAS }), { amount: null, reason: "no-wallet" });
-  assert.deepEqual(suggestFirstBuy({ ...base, quote: eth, balance: enough, gasReserve: GAS, declined: true }), { amount: null, reason: "declined" });
-  assert.deepEqual(suggestFirstBuy({ ...base, quote: { ...nvda, usd: null }, balance: enough, gasReserve: 0n }), { amount: null, reason: "no-price" });
-  assert.deepEqual(suggestFirstBuy({ ...base, quote: usdg, balance: parseUnits("25", 6), gasReserve: 0n }), { amount: "25" }, "ERC-20 quote: exact balance is enough, gas is paid in ETH");
-  assert.deepEqual(suggestFirstBuy({ ...base, quote: usdg, balance: parseUnits("24.99", 6), gasReserve: 0n }), { amount: null, reason: "insufficient" });
+  const ethIn = (balance: bigint | undefined, more = {}) => suggestFirstBuy({ ...base, quote: eth, balance, nativeBalance: balance, gasReserve: GAS, ...more });
+  assert.deepEqual(ethIn(enough), { amount: "0.01" });
+  assert.deepEqual(ethIn(parseUnits("0.0104", 18)), { amount: null, reason: "insufficient" }, "covers the amount but not the gas reserve");
+  assert.deepEqual(ethIn(undefined), { amount: null, reason: "unknown-balance" }, "a failed or pending balance read never blocks");
+  assert.deepEqual(ethIn(undefined, { connected: false }), { amount: null, reason: "no-wallet" });
+  assert.deepEqual(ethIn(enough, { declined: true }), { amount: null, reason: "declined" });
+  assert.deepEqual(suggestFirstBuy({ ...base, quote: { ...nvda, usd: null }, balance: enough, nativeBalance: enough, gasReserve: 0n }), { amount: null, reason: "no-price" });
+});
+
+test("suggestFirstBuy (ERC-20 quote): the token balance must cover the amount and the native balance must cover the gas", () => {
+  const usdgIn = (balance: bigint | undefined, nativeBalance: bigint | undefined) => suggestFirstBuy({ ...base, quote: usdg, balance, nativeBalance, gasReserve: GAS });
+  assert.deepEqual(usdgIn(parseUnits("25", 6), GAS), { amount: "25" }, "exact token balance is enough; gas is separate");
+  assert.deepEqual(usdgIn(parseUnits("24.99", 6), GAS), { amount: null, reason: "insufficient" });
+  assert.deepEqual(usdgIn(parseUnits("100", 6), GAS - 1n), { amount: null, reason: "no-gas" }, "tokens but no ETH for the approvals and the swap");
+  assert.deepEqual(usdgIn(parseUnits("100", 6), undefined), { amount: null, reason: "unknown-balance" }, "native balance unknown: no suggestion, launch stays free");
+  assert.deepEqual(usdgIn(undefined, GAS), { amount: null, reason: "unknown-balance" });
+  assert.deepEqual(suggestFirstBuy({ ...base, quote: nvda, balance: parseUnits("1", 18), nativeBalance: GAS, gasReserve: GAS }), { amount: "0.11" });
 });

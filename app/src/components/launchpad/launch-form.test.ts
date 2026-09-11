@@ -27,7 +27,9 @@ test("launch merge retains chain-scoped marks and honest optional-buy copy", () 
   assert.match(source, /<TokenAvatar chain=\{chain\}/);
   assert.match(source, /label=\{initialBuyRaw \? "Launch \+ first buy" : "Launch for free, gas only"\}/);
   // a suggested buy is computed from a known, sufficient balance and can be cleared; a typed amount keeps the strict checks
-  assert.match(source, /suggestFirstBuy\(\{ quote, connected: Boolean\(address\) && onChain, balance: buyBalance, gasReserve: quote\.key === "eth" \? GAS_RESERVE_WEI : 0n, declined: buyDeclined \|\| Boolean\(typedBuy\)/);
+  assert.match(source, /suggestFirstBuy\(\{ quote, connected: Boolean\(address\) && onChain, balance: buyBalance, nativeBalance, gasReserve: GAS_RESERVE_WEI, declined: buyDeclined \|\| Boolean\(typedBuy\)/);
+  // an ERC-20 quote's typed buy is checked for native gas too, not only the token balance
+  assert.match(source, /initialBuyRaw && quote\.key !== "eth" && nativeBalance !== undefined && nativeBalance < GAS_RESERVE_WEI/);
   assert.match(source, /const initialBuy = typedBuy \|\| suggestion\.amount \|\| ""/);
   assert.match(source, /No first buy/);
   assert.match(source, /Clear it and the launch stays free/);

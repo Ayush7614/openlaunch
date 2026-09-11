@@ -205,13 +205,15 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
 
   const onChain = chainId === CHAIN.id;
   const symbolClean = symbol.trim().toUpperCase();
-  // balance of whatever the first buy is paid with: read as soon as a wallet is connected, so the suggestion can be decided
-  const ethBal = useBalance({ address, chainId: CHAIN.id, query: { enabled: Boolean(address) && quote.key === "eth", refetchInterval: 15_000 } });
+  // Balances, read as soon as a wallet is connected so the suggestion can be decided: the native balance always (it pays
+  // the buy's gas, and the approvals an ERC-20 quote needs first), plus the quote token's balance for an ERC-20 quote.
+  const ethBal = useBalance({ address, chainId: CHAIN.id, query: { enabled: Boolean(address), refetchInterval: 15_000 } });
   const quoteBal = useReadContract({ address: quote.address, abi: ERC20_MIN_ABI, functionName: "balanceOf", args: address ? [address] : undefined, chainId: CHAIN.id, query: { enabled: Boolean(address) && quote.key !== "eth", refetchInterval: 15_000 } });
-  const buyBalance: bigint | undefined = quote.key === "eth" ? ethBal.data?.value : (quoteBal.data as bigint | undefined);
+  const nativeBalance: bigint | undefined = ethBal.data?.value;
+  const buyBalance: bigint | undefined = quote.key === "eth" ? nativeBalance : (quoteBal.data as bigint | undefined);
   const buyBalanceFailed = quote.key === "eth" ? ethBal.isError : quoteBal.isError;
-  // A suggested buy exists only when the wallet is connected and can cover it, so it can never block the launch below.
-  const suggestion = suggestFirstBuy({ quote, connected: Boolean(address) && onChain, balance: buyBalance, gasReserve: quote.key === "eth" ? GAS_RESERVE_WEI : 0n, declined: buyDeclined || Boolean(typedBuy), parse: parseUnits });
+  // A suggested buy exists only when the wallet is connected and can cover it and its gas, so it can never block the launch below.
+  const suggestion = suggestFirstBuy({ quote, connected: Boolean(address) && onChain, balance: buyBalance, nativeBalance, gasReserve: GAS_RESERVE_WEI, declined: buyDeclined || Boolean(typedBuy), parse: parseUnits });
   const initialBuy = typedBuy || suggestion.amount || "";
   const buySource: "typed" | "suggested" | "none" = typedBuy ? "typed" : suggestion.amount ? "suggested" : "none";
   const initialBuyRaw = parseBuyAmount(initialBuy, quote.decimals);
@@ -230,6 +232,9 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
   if (initialBuyRaw && address && buyBalance === undefined) errors.push(buyBalanceFailed ? `First buy: could not read your ${quote.symbol} balance. Retry, or clear the amount.` : "First buy: checking your balance…");
   if (initialBuyRaw && buyBalance !== undefined && initialBuyRaw + (quote.key === "eth" ? GAS_RESERVE_WEI : 0n) > buyBalance)
     errors.push(quote.key === "eth" ? "First buy: not enough ETH (leave a little for gas)." : `First buy: not enough ${quote.symbol} in this wallet.`);
+  // an ERC-20 first buy still pays gas (and its approvals) in ETH: the token balance alone is not enough
+  if (initialBuyRaw && quote.key !== "eth" && address && nativeBalance === undefined) errors.push(ethBal.isError ? "First buy: could not read your ETH balance for gas. Retry, or clear the amount." : "First buy: checking your ETH balance for gas…");
+  if (initialBuyRaw && quote.key !== "eth" && nativeBalance !== undefined && nativeBalance < GAS_RESERVE_WEI) errors.push("First buy: not enough ETH for gas (the buy and its approval need a little ETH).");
   const valid = errors.length === 0;
   const buyPreview = initialBuyRaw && startTick !== null ? initialBuyPreview({ startTick, amountInRaw: initialBuyRaw, lpFeePips: feePips, quoteDecimals: quote.decimals }) : null;
   const buyUsd = initialBuyRaw && quoteUsd ? units(initialBuyRaw, quote.decimals) * quoteUsd : null;
@@ -714,6 +719,8 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
             </p>
           ) : suggestion.reason === "insufficient" ? (
             <p className={helper}>Suggested {fmtQuoteUnits(Number(defaultFirstBuy(quote)), quote.decimals)} {quote.symbol}, but this wallet holds only gas. The launch stays free; you can buy on the token page later.</p>
+          ) : suggestion.reason === "no-gas" ? (
+            <p className={helper}>Suggested {fmtQuoteUnits(Number(defaultFirstBuy(quote)), quote.decimals)} {quote.symbol}, but this wallet has no ETH left for the buy&apos;s gas. The launch stays free; you can buy on the token page later.</p>
           ) : suggestion.reason === "no-wallet" ? (
             <p className={helper}>Connect a wallet on {CHAIN_LABEL} to see the suggested amount.</p>
           ) : null}
