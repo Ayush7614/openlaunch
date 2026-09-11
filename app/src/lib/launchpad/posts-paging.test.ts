@@ -4,6 +4,9 @@ import { TOKEN_POSTS_DEFAULT_LIMIT, TOKEN_POSTS_MAX_LIMIT, nextPostsCursor, pars
 
 test("parseTokenPostsPaging defaults, clamps and reads the cursor", () => {
   assert.deepEqual(parseTokenPostsPaging({}), { limit: TOKEN_POSTS_DEFAULT_LIMIT, beforeId: null });
+  assert.deepEqual(parseTokenPostsPaging({ limit: null }), { limit: TOKEN_POSTS_DEFAULT_LIMIT, beforeId: null }, "absent query param (URLSearchParams.get → null) uses the default, not 1");
+  assert.deepEqual(parseTokenPostsPaging({ limit: "" }), { limit: TOKEN_POSTS_DEFAULT_LIMIT, beforeId: null });
+  assert.deepEqual(parseTokenPostsPaging({ limit: undefined }), { limit: TOKEN_POSTS_DEFAULT_LIMIT, beforeId: null });
   assert.deepEqual(parseTokenPostsPaging({ limit: "20", before: "42" }), { limit: 20, beforeId: 42 });
   assert.deepEqual(parseTokenPostsPaging({ limit: 0, before: 0 }), { limit: 1, beforeId: null });
   assert.deepEqual(parseTokenPostsPaging({ limit: 9999 }), { limit: TOKEN_POSTS_MAX_LIMIT, beforeId: null });

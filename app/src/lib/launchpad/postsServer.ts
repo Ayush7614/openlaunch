@@ -61,10 +61,15 @@ export async function listTokenPosts(chain: ChainKey, token: string, limit = 100
   if (!db) return { posts: [], muted: false, nextCursor: null };
   const cid = chainIdOf(chain);
   const n = Math.min(300, Math.max(1, Math.trunc(limit) || 100));
+  // Both pages order by id DESC — the same key as the `id < beforeId`
+  // continuation predicate. Ordering by created_at DESC instead would skip or
+  // repeat rows across pages whenever id order and timestamp order disagree
+  // (same-second inserts, backfilled rows). ids are monotonic with insertion,
+  // so newest-first is preserved.
   const [rows, st] = await Promise.all([
     beforeId !== null && Number.isInteger(beforeId) && beforeId > 0
-      ? db<RawPost[]>`SELECT id, chain_id, token, wallet, parent_id, body, tag, created_at, reports, hidden FROM bb_posts WHERE chain_id = ${cid} AND token = ${token.toLowerCase()} AND NOT hidden AND id < ${beforeId} ORDER BY created_at DESC LIMIT ${n}`
-      : db<RawPost[]>`SELECT id, chain_id, token, wallet, parent_id, body, tag, created_at, reports, hidden FROM bb_posts WHERE chain_id = ${cid} AND token = ${token.toLowerCase()} AND NOT hidden ORDER BY created_at DESC LIMIT ${n}`,
+      ? db<RawPost[]>`SELECT id, chain_id, token, wallet, parent_id, body, tag, created_at, reports, hidden FROM bb_posts WHERE chain_id = ${cid} AND token = ${token.toLowerCase()} AND NOT hidden AND id < ${beforeId} ORDER BY id DESC LIMIT ${n}`
+      : db<RawPost[]>`SELECT id, chain_id, token, wallet, parent_id, body, tag, created_at, reports, hidden FROM bb_posts WHERE chain_id = ${cid} AND token = ${token.toLowerCase()} AND NOT hidden ORDER BY id DESC LIMIT ${n}`,
     db<{ comments_muted: boolean }[]>`SELECT comments_muted FROM bb_token_settings WHERE chain_id = ${cid} AND token = ${token.toLowerCase()}`,
   ]);
   const posts = rows.map(shape);

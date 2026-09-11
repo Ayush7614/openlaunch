@@ -12,7 +12,9 @@ export const TOKEN_POSTS_DEFAULT_LIMIT = 50;
 export const TOKEN_POSTS_MAX_LIMIT = 100;
 
 export function parseTokenPostsPaging(query: { limit?: unknown; before?: unknown }): { limit: number; beforeId: number | null } {
-  const rawLimit = Number(query.limit);
+  // NB: URLSearchParams.get() returns null when absent, and Number(null) /
+  // Number("") is 0 — both must fall through to the default, not clamp to 1.
+  const rawLimit = query.limit === null || query.limit === undefined || (typeof query.limit === "string" && query.limit.trim() === "") ? NaN : Number(query.limit);
   const limit = Number.isFinite(rawLimit)
     ? Math.min(TOKEN_POSTS_MAX_LIMIT, Math.max(1, Math.trunc(rawLimit)))
     : TOKEN_POSTS_DEFAULT_LIMIT;
