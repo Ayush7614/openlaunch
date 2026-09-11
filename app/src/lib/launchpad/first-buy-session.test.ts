@@ -31,18 +31,23 @@ test("server snapshot is always false; client snapshot follows the flag; writes 
   }
 });
 
-test("storage blocked or absent: reads are false and writes do not throw", () => {
+test("storage blocked or absent: writes do not throw and the latest value is served from memory until reload (CodeRabbit, PR #26)", () => {
   const g = globalThis as { sessionStorage?: Storage };
   const prev = g.sessionStorage;
   delete g.sessionStorage;
   try {
-    assert.equal(getFirstBuyDeclined(), false);
+    setFirstBuyDeclined(false);
+    assert.equal(getFirstBuyDeclined(), false, "absent storage, nothing declined yet");
     assert.doesNotThrow(() => setFirstBuyDeclined(true));
+    assert.equal(getFirstBuyDeclined(), true, "absent storage: the explicit dismissal survives a remount within the tab");
     Object.defineProperty(g, "sessionStorage", { configurable: true, get() { throw new Error("blocked"); } });
-    assert.equal(getFirstBuyDeclined(), false);
+    assert.equal(getFirstBuyDeclined(), true, "blocked storage: still the in-memory value");
     assert.doesNotThrow(() => setFirstBuyDeclined(false));
+    assert.equal(getFirstBuyDeclined(), false, "and it clears the same way");
+    assert.equal(getFirstBuyDeclinedServer(), false, "the server snapshot ignores memory too");
   } finally {
     delete g.sessionStorage;
     if (prev !== undefined) g.sessionStorage = prev;
+    setFirstBuyDeclined(false);
   }
 });

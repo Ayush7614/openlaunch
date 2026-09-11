@@ -9,18 +9,21 @@
 export const FIRST_BUY_DECLINED_KEY = "ol:first-buy-declined";
 
 const listeners = new Set<() => void>();
+/** The latest value, for tabs where storage is blocked or absent: it then holds until reload, the closest thing to a session such a tab has. */
+let inMemoryDeclined = false;
 
 export function subscribeFirstBuyDeclined(cb: () => void): () => void {
   listeners.add(cb);
   return () => { listeners.delete(cb); };
 }
 
-/** Client snapshot: the flag, or false when storage is blocked or absent. */
+/** Client snapshot: the flag from storage, or the in-memory value when storage is blocked or absent. */
 export function getFirstBuyDeclined(): boolean {
   try {
-    return typeof sessionStorage !== "undefined" && sessionStorage.getItem(FIRST_BUY_DECLINED_KEY) === "1";
+    if (typeof sessionStorage === "undefined") return inMemoryDeclined;
+    return sessionStorage.getItem(FIRST_BUY_DECLINED_KEY) === "1";
   } catch {
-    return false;
+    return inMemoryDeclined;
   }
 }
 
@@ -30,11 +33,12 @@ export function getFirstBuyDeclinedServer(): boolean {
 }
 
 export function setFirstBuyDeclined(declined: boolean): void {
+  inMemoryDeclined = declined;
   try {
     if (declined) sessionStorage.setItem(FIRST_BUY_DECLINED_KEY, "1");
     else sessionStorage.removeItem(FIRST_BUY_DECLINED_KEY);
   } catch {
-    /* storage blocked: the in-memory state still applies for this render */
+    /* storage blocked: the in-memory value above is what reads return until reload */
   }
   for (const cb of listeners) cb();
 }
