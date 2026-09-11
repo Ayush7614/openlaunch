@@ -39,6 +39,12 @@ test("launch merge retains chain-scoped marks and honest optional-buy copy", () 
   assert.match(source, /setTypedBuyFor\(\{ amount: v, quoteId \}\)/);
   assert.match(source, /No first buy/);
   assert.match(source, /Clear it and the launch stays free/);
+  // a cleared suggestion is visible and reversible; only the explicit button persists for the session
+  assert.match(source, /suggestion\.reason === "declined" && !typedBuy && address && onChain/);
+  assert.match(source, /onClick=\{suggestAgain\}/);
+  assert.match(source, /onClick=\{\(\) => declineFirstBuy\(true\)\}/);
+  assert.match(source, /if \(forSession\) \{ try \{ sessionStorage\.setItem\(FIRST_BUY_DECLINED_KEY/);
+  assert.match(source, /suggestion\.reason === "unknown-balance"/);
   assert.match(source, /Other traders can buy before you/);
   assert.match(source, /First-buy slippage tolerance: \{FIRST_BUY_SLIPPAGE_BPS \/ 100\}%/);
   assert.match(source, /Network gas and pool fees apply/);

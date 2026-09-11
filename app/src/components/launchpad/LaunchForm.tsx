@@ -51,7 +51,7 @@ const PERMIT_EXPIRY_S = 30 * 24 * 3600;
 const LAUNCH_GAS_WEI = 1_000_000_000_000_000n; // 0.001 ETH: deploy + pool init + position mint
 const BUY_GAS_WEI = 500_000_000_000_000n; // 0.0005 ETH: approvals + swap
 const GAS_RESERVE_WEI = LAUNCH_GAS_WEI + BUY_GAS_WEI;
-const FIRST_BUY_DECLINED_KEY = "ol:first-buy-declined"; // session only: a creator who cleared the suggestion is not nagged on the next launch
+const FIRST_BUY_DECLINED_KEY = "ol:first-buy-declined"; // session only, and only via the explicit "No first buy" button: a creator who said no is not nagged on the next launch
 
 function randomSalt(): Hex {
   const b = new Uint8Array(32);
@@ -193,7 +193,10 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
   const typedBuy = typedBuyFor && typedBuyFor.quoteId === quoteId ? typedBuyFor.amount : "";
   // Read once at mount. Safe for hydration: no wallet is connected on the first render, so the suggestion is absent either way.
   const [buyDeclined, setBuyDeclined] = useState(() => { try { return typeof sessionStorage !== "undefined" && sessionStorage.getItem(FIRST_BUY_DECLINED_KEY) === "1"; } catch { return false; /* storage blocked: suggest as usual */ } });
-  function declineFirstBuy() { setTypedBuyFor(null); setBuyDeclined(true); try { sessionStorage.setItem(FIRST_BUY_DECLINED_KEY, "1"); } catch { /* ignore */ } }
+  // Clearing the field or toggling a chip off declines for now (in memory); the button declines for the session. Both are
+  // visible on the form with a way back, so a creator who cleared it while exploring can never wonder where it went.
+  function declineFirstBuy(forSession = false) { setTypedBuyFor(null); setBuyDeclined(true); if (forSession) { try { sessionStorage.setItem(FIRST_BUY_DECLINED_KEY, "1"); } catch { /* ignore */ } } }
+  function suggestAgain() { setTypedBuyFor(null); setBuyDeclined(false); try { sessionStorage.removeItem(FIRST_BUY_DECLINED_KEY); } catch { /* ignore */ } }
   function chooseFirstBuy(v: string) { setTypedBuyFor({ amount: v, quoteId }); setBuyDeclined(false); try { sessionStorage.removeItem(FIRST_BUY_DECLINED_KEY); } catch { /* ignore */ } }
   // Generated lazily at launch time (a render-time random value would break hydration).
   const saltRef = useRef<Hex | null>(null);
@@ -716,7 +719,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
             {initialBuyRaw && buyBalance !== undefined ? (
               <span className="text-xs font-mono text-muted tnum">balance {fmtQuoteUnits(units(buyBalance, quote.decimals), quote.decimals)}</span>
             ) : null}
-            {initialBuyRaw ? <button type="button" onClick={declineFirstBuy} className={btn.secondarySm}>No first buy</button> : null}
+            {initialBuyRaw ? <button type="button" onClick={() => declineFirstBuy(true)} className={btn.secondarySm}>No first buy</button> : null}
           </div>
           {buyPreview ? (
             <p className="text-sm text-body">
@@ -730,6 +733,10 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
             <p className={helper}>Suggested {fmtQuoteUnits(Number(defaultFirstBuy(quote)), quote.decimals)} {quote.symbol}, but this wallet has no ETH left for the buy&apos;s gas. The launch stays free; you can buy on the token page later.</p>
           ) : suggestion.reason === "no-wallet" ? (
             <p className={helper}>Connect a wallet on {CHAIN_LABEL} to see the suggested amount.</p>
+          ) : suggestion.reason === "unknown-balance" ? (
+            <p className={helper}>{buyBalanceFailed || ethBal.isError ? "Could not read your balance, so nothing is suggested. The launch stays free; you can still type an amount." : "Checking your balance for the suggested amount…"}</p>
+          ) : suggestion.reason === "declined" && !typedBuy && address && onChain ? (
+            <p className={helper}>No first buy. The launch stays free.{defaultFirstBuy(quote) ? <> <button type="button" onClick={suggestAgain} className="font-medium text-brand underline underline-offset-4 hover:text-ink">Suggest {fmtQuoteUnits(Number(defaultFirstBuy(quote)), quote.decimals)} {quote.symbol} again</button></> : null}</p>
           ) : null}
           <p className={helper}>A token with no holders and no price move looks dead on every screener and sits under quiet launches on the home page. Your first buy opens the chart. Clear it and the launch stays free.</p>
           <p className={helper}>Other traders can buy before you. First-buy slippage tolerance: {FIRST_BUY_SLIPPAGE_BPS / 100}%. Network gas and pool fees apply.</p>
