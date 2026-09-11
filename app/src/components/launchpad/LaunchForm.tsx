@@ -187,11 +187,14 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
   const [beneficiary, setBeneficiary] = useState<Beneficiary>("burn");
   const [customAddr, setCustomAddr] = useState("");
   // First buy: what the creator typed, or the suggestion (lib/launchpad/first-buy.ts) unless they cleared it.
-  const [typedBuy, setTypedBuy] = useState("");
+  // A typed amount is bound to the quote it was typed for: switching chain or quote must not carry "25" USDG over as 25 ETH.
+  const [typedBuyFor, setTypedBuyFor] = useState<{ amount: string; quoteId: string } | null>(null);
+  const quoteId = `${chain}:${quote.address.toLowerCase()}`;
+  const typedBuy = typedBuyFor && typedBuyFor.quoteId === quoteId ? typedBuyFor.amount : "";
   // Read once at mount. Safe for hydration: no wallet is connected on the first render, so the suggestion is absent either way.
   const [buyDeclined, setBuyDeclined] = useState(() => { try { return typeof sessionStorage !== "undefined" && sessionStorage.getItem(FIRST_BUY_DECLINED_KEY) === "1"; } catch { return false; /* storage blocked: suggest as usual */ } });
-  function declineFirstBuy() { setTypedBuy(""); setBuyDeclined(true); try { sessionStorage.setItem(FIRST_BUY_DECLINED_KEY, "1"); } catch { /* ignore */ } }
-  function chooseFirstBuy(v: string) { setTypedBuy(v); setBuyDeclined(false); try { sessionStorage.removeItem(FIRST_BUY_DECLINED_KEY); } catch { /* ignore */ } }
+  function declineFirstBuy() { setTypedBuyFor(null); setBuyDeclined(true); try { sessionStorage.setItem(FIRST_BUY_DECLINED_KEY, "1"); } catch { /* ignore */ } }
+  function chooseFirstBuy(v: string) { setTypedBuyFor({ amount: v, quoteId }); setBuyDeclined(false); try { sessionStorage.removeItem(FIRST_BUY_DECLINED_KEY); } catch { /* ignore */ } }
   // Generated lazily at launch time (a render-time random value would break hydration).
   const saltRef = useRef<Hex | null>(null);
   // The metadataURI is keyed by meta_key, so findSalt can change the salt freely within one attempt. Both refs are

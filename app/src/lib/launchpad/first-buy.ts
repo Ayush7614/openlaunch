@@ -33,7 +33,9 @@ export function amountForUsd(usd: number, quoteUsd: number, decimals: number): s
   s = trimZeros(s);
   if (s === "0" || s === "") return null;
   const places = (s.split(".")[1] ?? "").length;
-  return places > decimals ? trimZeros(v.toFixed(decimals)) || null : s;
+  if (places <= decimals) return s;
+  const rounded = trimZeros(v.toFixed(decimals)); // fewer decimals than the amount needs: round to what the quote can carry
+  return rounded === "0" || rounded === "" ? null : rounded;
 }
 
 /** The amount the form suggests for a quote before looking at the wallet: the first preset, or $25 worth for a stock. */

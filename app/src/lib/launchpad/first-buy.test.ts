@@ -24,6 +24,9 @@ test("amountForUsd: short decimals parseUnits accepts, never more places than th
   assert.equal(amountForUsd(25, 0.00002, 18), "1250000");
   assert.equal(amountForUsd(25, 120000, 18), "0.00021");
   assert.equal(amountForUsd(25, 3, 0), "8", "a 0-decimal quote gets a whole number");
+  assert.equal(amountForUsd(25, 100, 0), null, "a 0-decimal quote where $25 is less than one unit: no suggestion, not \"0\"");
+  assert.equal(amountForUsd(25, 3000, 2), "0.01");
+  assert.equal(amountForUsd(25, 30000, 2), null, "rounds to 0.00 at 2 decimals");
   assert.equal(amountForUsd(25, 1e12, 2), null, "rounds to nothing at 2 decimals");
   assert.equal(amountForUsd(0, 1, 6), null);
   assert.equal(amountForUsd(25, 0, 6), null);
