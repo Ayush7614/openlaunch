@@ -25,13 +25,14 @@ export function clampSlippageBps(v: unknown): number {
 
 /**
  * Parse a percent string the user typed ("1", "0.5", "2.5%") into integer bps.
- * Null when empty or unusable (caller keeps the previous value and shows a hint).
+ * Null when empty, unusable, or outside 0.1–20% (caller keeps the previous
+ * value and shows a hint — never silently clamps a below-minimum entry up).
  */
 export function parseSlippageInput(raw: string): number | null {
   const t = raw.trim().replace(/%$/, "").trim();
   if (!t) return null;
   const pct = Number(t);
-  if (!Number.isFinite(pct) || pct <= 0 || pct > SLIPPAGE_MAX_BPS / 100) return null;
+  if (!Number.isFinite(pct) || pct < SLIPPAGE_MIN_BPS / 100 || pct > SLIPPAGE_MAX_BPS / 100) return null;
   return clampSlippageBps(Math.round(pct * 100));
 }
 
