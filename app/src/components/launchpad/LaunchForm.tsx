@@ -222,8 +222,9 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
   const nativeBalance: bigint | undefined = ethBal.data?.value;
   const buyBalance: bigint | undefined = quote.key === "eth" ? nativeBalance : (quoteBal.data as bigint | undefined);
   const buyBalanceFailed = quote.key === "eth" ? ethBal.isError : quoteBal.isError;
-  // A suggested buy exists only when the wallet is connected and can cover it and its gas, so it can never block the launch below.
-  const suggestion = suggestFirstBuy({ quote, connected: Boolean(address) && onChain, balance: buyBalance, nativeBalance, gasReserve: GAS_RESERVE_WEI, declined: buyDeclined || Boolean(typedBuy), parse: parseUnits });
+  // The suggested buy is selected from the start; a connected wallet's balances can only take it away (or a failed read),
+  // so it can never block the launch below. A typed amount keeps the strict checks.
+  const suggestion = suggestFirstBuy({ quote, connected: Boolean(address) && onChain, balance: buyBalance, nativeBalance, balanceFailed: buyBalanceFailed || ethBal.isError, gasReserve: GAS_RESERVE_WEI, declined: buyDeclined || Boolean(typedBuy), parse: parseUnits });
   const initialBuy = typedBuy || suggestion.amount || "";
   const buySource: "typed" | "suggested" | "none" = typedBuy ? "typed" : suggestion.amount ? "suggested" : "none";
   const initialBuyRaw = parseBuyAmount(initialBuy, quote.decimals);
@@ -731,11 +732,9 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
             <p className={helper}>Suggested {fmtQuoteUnits(Number(defaultFirstBuy(quote)), quote.decimals)} {quote.symbol}, but this wallet holds only gas. The launch stays free; you can buy on the token page later.</p>
           ) : suggestion.reason === "no-gas" ? (
             <p className={helper}>Suggested {fmtQuoteUnits(Number(defaultFirstBuy(quote)), quote.decimals)} {quote.symbol}, but this wallet has no ETH left for the buy&apos;s gas. The launch stays free; you can buy on the token page later.</p>
-          ) : suggestion.reason === "no-wallet" ? (
-            <p className={helper}>Connect a wallet on {CHAIN_LABEL} to see the suggested amount.</p>
           ) : suggestion.reason === "unknown-balance" ? (
-            <p className={helper}>{buyBalanceFailed || ethBal.isError ? "Could not read your balance, so nothing is suggested. The launch stays free; you can still type an amount." : "Checking your balance for the suggested amount…"}</p>
-          ) : suggestion.reason === "declined" && !typedBuy && address && onChain ? (
+            <p className={helper}>Could not read your balance, so nothing is suggested. The launch stays free; you can still type an amount.</p>
+          ) : suggestion.reason === "declined" && !typedBuy ? (
             <p className={helper}>No first buy. The launch stays free.{defaultFirstBuy(quote) ? <> <button type="button" onClick={suggestAgain} className="font-medium text-brand underline underline-offset-4 hover:text-ink">Suggest {fmtQuoteUnits(Number(defaultFirstBuy(quote)), quote.decimals)} {quote.symbol} again</button></> : null}</p>
           ) : null}
           <p className={helper}>A token with no holders and no price move looks dead on every screener and sits under quiet launches on the home page. Your first buy opens the chart. Clear it and the launch stays free.</p>
