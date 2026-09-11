@@ -202,3 +202,34 @@ test("cold start with both sources down is null, and a thrown feed read is treat
   c.advance(ETH_PRICE_TTL_MS + 1);
   assert.equal(await ethUsd({ fetchFn: boom, feedFn: async () => null, now: c.now }), null, "a null round is not a price either");
 });
+
+test("the memo never extends a stale value past the bound (CodeRabbit, PR #25)", async () => {
+  resetEthPriceCache();
+  const c = clock();
+  const seen = { n: 0 };
+  const down = mockFetch(new Response("x", { status: 503 }), seen);
+  assert.equal(await ethUsd({ fetchFn: mockFetch(okBody("2500"), seen), feedFn: feedDown, now: c.now }), 2500);
+  c.advance(ETH_STALE_MAX_MS - 1);
+  assert.equal(await ethUsd({ fetchFn: down, feedFn: feedDown, now: c.now }), 2500, "one ms inside the bound: the stale value is served");
+  c.advance(2); // now one ms past the bound, still well inside the 60s memo
+  assert.equal(await ethUsd({ fetchFn: down, feedFn: feedDown, now: c.now }), null, "the TTL memo does not carry a stale value past the bound");
+  assert.equal(seen.n, 3, "the bound forced a refresh attempt inside the TTL");
+  assert.equal(await ethUsd({ fetchFn: down, feedFn: feedDown, now: c.now }), null);
+  assert.equal(seen.n, 3, "once null, the memo applies again until the TTL lapses");
+});
+
+test("concurrent callers share one refresh, so an earlier slow attempt cannot overwrite a newer result (CodeRabbit, PR #25)", async () => {
+  resetEthPriceCache();
+  const c = clock();
+  const seen = { n: 0 };
+  let release: (r: Response) => void = () => {};
+  const slow = async () => { seen.n += 1; return new Promise<Response>((res) => { release = res; }); };
+  const first = ethUsd({ fetchFn: slow, feedFn: feedDown, now: c.now });
+  const second = ethUsd({ fetchFn: mockFetch(okBody("9999"), seen), feedFn: feedDown, now: c.now });
+  release(okBody("2500"));
+  assert.deepEqual(await Promise.all([first, second]), [2500, 2500], "the second caller joined the first refresh instead of starting its own");
+  assert.equal(seen.n, 1, "one network call for two concurrent callers");
+  assert.equal(ethPriceSource(), "coinbase");
+  c.advance(ETH_PRICE_TTL_MS + 1);
+  assert.equal(await ethUsd({ fetchFn: mockFetch(okBody("2600"), seen), feedFn: feedDown, now: c.now }), 2600, "after the TTL a new refresh runs");
+});

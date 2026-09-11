@@ -31,10 +31,13 @@ export const ETH_STALE_MAX_MS = 15 * 60_000;
 export type EthPriceSource = "coinbase" | "chainlink";
 type Cache = { at: number; goodAt: number; usd: number | null; source: EthPriceSource | null };
 let cached: Cache = { at: 0, goodAt: 0, usd: null, source: null };
+/** One refresh at a time: concurrent callers share it, so a slow earlier attempt can never overwrite a newer result. */
+let inflight: Promise<number | null> | null = null;
 
 /** Test-only: drop the memo so each case starts cold. */
 export function resetEthPriceCache(): void {
   cached = { at: 0, goodAt: 0, usd: null, source: null };
+  inflight = null;
 }
 
 /** Test-only: which source the current value came from (null when none). */
@@ -98,10 +101,16 @@ export async function ethUsd(
 ): Promise<number | null> {
   const now = opts.now ?? Date.now;
   const t = now();
-  if (t - cached.at < ETH_PRICE_TTL_MS) return cached.usd;
+  // the memo never extends a stale value past its bound: once over it, refresh regardless of the TTL
+  const staleExpired = cached.usd !== null && t - cached.goodAt > ETH_STALE_MAX_MS;
+  if (t - cached.at < ETH_PRICE_TTL_MS && !staleExpired) return cached.usd;
   const fetchFn: FetchFn = opts.fetchFn ?? ((input, init) => fetch(input, init as RequestInit));
   const feedFn: FeedFn = opts.feedFn ?? readFeed;
+  inflight ??= refresh(fetchFn, feedFn, t).finally(() => { inflight = null; });
+  return inflight;
+}
 
+async function refresh(fetchFn: FetchFn, feedFn: FeedFn, t: number): Promise<number | null> {
   let source: EthPriceSource = "coinbase";
   let usd = await fromCoinbase(fetchFn);
   if (usd === null) {
