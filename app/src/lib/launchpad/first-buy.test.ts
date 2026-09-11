@@ -30,6 +30,10 @@ test("amountForUsd: short decimals parseUnits accepts, never more places than th
   assert.equal(amountForUsd(25, 1e12, 2), null, "rounds to nothing at 2 decimals");
   assert.equal(amountForUsd(0, 1, 6), null);
   assert.equal(amountForUsd(25, 0, 6), null);
+  assert.equal(amountForUsd(Infinity, 1, 18), null, "non-finite usd never becomes \"Infinity\" for parseUnits");
+  assert.equal(amountForUsd(NaN, 1, 18), null);
+  assert.equal(amountForUsd(25, Infinity, 18), null);
+  assert.equal(amountForUsd(25, NaN, 18), null);
   for (const [usd, dec] of [[2464.485, 18], [223.05, 18], [0.0000195, 18], [1, 6]] as const) {
     const a = amountForUsd(25, usd, dec)!;
     assert.ok(parseUnits(a, dec) > 0n, `parseUnits accepts ${a}`);
