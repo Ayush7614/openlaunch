@@ -33,6 +33,10 @@ test("launch merge retains chain-scoped marks and honest optional-buy copy", () 
   // an ERC-20 quote's typed buy is checked for native gas too, not only the token balance
   assert.match(source, /initialBuyRaw && quote\.key !== "eth" && nativeBalance !== undefined && nativeBalance < GAS_RESERVE_WEI/);
   assert.match(source, /const initialBuy = typedBuy \|\| suggestion\.amount \|\| ""/);
+  // a typed amount is bound to the quote it was typed for, so a chain or quote switch drops it instead of re-reading it as another asset
+  assert.match(source, /const quoteId = `\$\{chain\}:\$\{quote\.address\.toLowerCase\(\)\}`/);
+  assert.match(source, /const typedBuy = typedBuyFor && typedBuyFor\.quoteId === quoteId \? typedBuyFor\.amount : ""/);
+  assert.match(source, /setTypedBuyFor\(\{ amount: v, quoteId \}\)/);
   assert.match(source, /No first buy/);
   assert.match(source, /Clear it and the launch stays free/);
   assert.match(source, /Other traders can buy before you/);
