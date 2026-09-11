@@ -32,6 +32,7 @@ import { jsonLdHtml, tokenCanonical } from "@/lib/seo";
 import { stockByAddress } from "@/lib/launchpad/stocksServer";
 import { BRAND_DOMAIN, BRAND_X } from "@/lib/brand";
 import { clampSocial } from "@/lib/launchpad/ogcard";
+import { capDisplay } from "@/lib/launchpad/market-cap";
 
 export const dynamic = "force-dynamic";
 
@@ -71,9 +72,7 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
   const mode = feeModeOf(l.lp_fee, l.recipients);
   const poolKey = { currency0: l.quote as Address, currency1: l.token as Address, fee: l.lp_fee, tickSpacing: TICK_SPACING, hooks: NATIVE as Address };
   const priceUsd = l.price_usd;
-  const fdvUsd = l.fdv_usd;
   const chainLabel = CHAIN_LABELS[chain];
-  const fdvQuoteLabel = fmtQuote(BigInt(Math.round(l.fdv_quote * 10 ** quote.decimals)), quote.decimals, quote.symbol);
   const shareText = `${l.name} ($${l.symbol}) on ${chainLabel}. ${l.lp_fee === 0 ? "0% fee" : mode === "burn" ? "fees burned" : "no platform fee"}, liquidity locked forever`;
 
   const supplyLabel = fmtCompact(Number(BigInt(l.supply)) / 1e18, 0);
@@ -171,7 +170,7 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
           </div>
         </div>
       </main>
-      <MobileBuyBar symbol={l.symbol} mcap={fdvUsd !== null ? fmtUsd(fdvUsd, { compact: true }) : fdvQuoteLabel} />
+      <MobileBuyBar symbol={l.symbol} mcap={capDisplay(l.fdv_quote, l.quote_usd, { key: l.quote_key, symbol: l.quote_symbol, decimals: l.quote_decimals }).compact} />
     </>
   );
 }

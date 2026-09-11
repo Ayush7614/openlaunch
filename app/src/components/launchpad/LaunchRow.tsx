@@ -10,6 +10,7 @@ import { ago } from "@/lib/launchpad/time";
 import ChangeChip from "./ChangeChip";
 import GitlawbBadge, { isGitlawbQuote } from "./GitlawbBadge";
 import { marketUsd } from "@/lib/launchpad/market-format";
+import { capDisplay } from "@/lib/launchpad/market-cap";
 import type { LiveTier } from "@/lib/launchpad/ranking";
 
 const columns = "md:grid-cols-[minmax(0,1fr)_6.5rem_5.5rem_6rem_5rem_2.5rem]";
@@ -37,9 +38,9 @@ export default function LaunchRow({ l, rank, window = "all", hl = null, now, pop
   const volUsd = window === "1h" ? l.volume_1h_usd : window === "24h" ? l.volume_24h_usd : l.volume_usd;
   const volLabel = volUsd !== null ? marketUsd(volUsd) : fmtQuote(volRaw, l.quote_decimals, l.quote_symbol);
   const volumeDetail = volUsd !== null ? fmtUsd(volUsd) : volLabel;
-  const fdvQuoteLabel = fmtQuote(BigInt(Math.round(l.fdv_quote * 10 ** l.quote_decimals)), l.quote_decimals, l.quote_symbol);
-  const capLabel = l.fdv_usd !== null ? marketUsd(l.fdv_usd) : fdvQuoteLabel;
-  const capDetail = l.fdv_usd !== null ? fmtUsd(l.fdv_usd) : fdvQuoteLabel;
+  const cap = capDisplay(l.fdv_quote, l.quote_usd, { key: l.quote_key, symbol: l.quote_symbol, decimals: l.quote_decimals }); // dollars lead; the quote figure is the detail
+  const capLabel = cap.main;
+  const capDetail = cap.usd !== null ? `${fmtUsd(cap.usd)} · ${cap.detail}` : `${cap.main} · ${cap.detail}`;
   const feeLabel = mode === "free" ? "0% trading fee" : `${pipsToPct(l.lp_fee)} fee → ${mode === "burn" ? "burned" : mode === "split" ? "split" : "beneficiary"}`;
   const flash = hl ? `bb-row-${hl.kind}` : "";
   const age = <time dateTime={l.block_time} title={new Date(l.block_time).toUTCString()} suppressHydrationWarning>{ago(l.block_time, now)}</time>;
@@ -66,8 +67,8 @@ export default function LaunchRow({ l, rank, window = "all", hl = null, now, pop
         <div className="min-w-0 text-right">
           <span className="mb-0.5 block text-[10px] text-muted md:sr-only">Market cap</span>
           <span key={hl?.at ?? "rest"} className={`block truncate font-mono text-sm font-bold text-ink tnum ${pop ? "bb-pop" : ""}`} title={capDetail}>{capLabel}</span>
-          <span className="hidden truncate font-mono text-[10px] text-muted tnum md:block" title={fdvQuoteLabel}>{l.fdv_usd !== null ? fdvQuoteLabel : l.quote_symbol}</span>
-          <span className="mt-0.5 block md:hidden"><span className="sr-only">Change since launch </span><ChangeChip v={l.change_from_launch} plain /></span>
+          <span className="hidden truncate font-mono text-[10px] text-muted tnum md:block" title={capDetail}>{cap.detail}</span>
+          <span className="mt-0.5 block md:hidden"><span className="block truncate font-mono text-[10px] text-muted tnum" title={capDetail}>{cap.detail}</span><span className="sr-only">Change since launch </span><ChangeChip v={l.change_from_launch} plain /></span>
         </div>
         <div className="hidden min-w-0 text-right md:block"><span className="sr-only">Change since launch </span><ChangeChip v={l.change_from_launch} plain /></div>
         <div className="hidden min-w-0 text-right font-mono text-xs text-body tnum md:block" title={volumeDetail}><span className="sr-only">Volume {window} </span><span className="block truncate">{volLabel}</span></div>

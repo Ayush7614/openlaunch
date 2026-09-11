@@ -12,12 +12,12 @@ import GitlawbBadge from "./GitlawbBadge";
 import { toast } from "./TxToasts";
 import { btn, card, helper, input, label } from "@/components/ui";
 import { ERC20_MIN_ABI, ERC20_TRANSFER_EVENT, LAUNCH_FACTORY_ABI, PERMIT2_ABI, UNIVERSAL_ROUTER_ABI, V4_QUOTER_ABI } from "@/lib/launchpad/abi";
-import { BPS, DEFAULT_SUPPLY, FEE_PRESETS, MCAP_PRESETS, TICK_SPACING, launchpad, quoteUsdOf, type Quote } from "@/lib/launchpad/config";
+import { BPS, DEFAULT_SUPPLY, FEE_PRESETS, TICK_SPACING, launchpad, quoteUsdOf, type Quote } from "@/lib/launchpad/config";
+import { capChipLabel, capDisplay, capEntry, capPick, capPresets, capToQuote } from "@/lib/launchpad/market-cap";
 import { fdvForStartTick, fmtCompact, fmtQuoteUnits, fmtUsd, initialBuyPreview, minOut, startTickForFdv, tickToTokensPerQuote, units } from "@/lib/launchpad/math";
 import { BUY_PRESETS, defaultFirstBuy, suggestFirstBuy } from "@/lib/launchpad/first-buy";
 import { encodeV4ExactInSingle, type PoolKey } from "@/lib/launchpad/swap";
-import { stockMcapPresets } from "@/lib/launchpad/stocks";
-import { GITLAWB_SITE, gitlawbMcapPresets } from "@/lib/launchpad/gitlawb";
+import { GITLAWB_SITE } from "@/lib/launchpad/gitlawb";
 import { CHAINS, CHAIN_LABELS, CHAIN_KEYS, BUILDER_DATA_SUFFIX, explorerTx, shortAddr, type ChainKey } from "@/lib/chainPublic";
 import { friendlyError } from "@/lib/errors";
 import { Spinner } from "@/components/Skeleton";
@@ -203,12 +203,17 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
   const metaKeyRef = useRef<Hex | null>(null);
   const [phase, setPhase] = useState<Phase>({ k: "idle" });
 
-  const presets = quote.key === "stock" ? stockMcapPresets(quote.usd ?? 0) : quote.key === "gitlawb" ? gitlawbMcapPresets(quote.usd) : MCAP_PRESETS[quote.key];
-  const mcap = customMcap.trim() ? Number(customMcap) : (mcapPick ?? presets[2] ?? 0);
+  // Starting cap: entered in dollars whenever the quote has a USD price, else in quote units (lib/launchpad/market-cap.ts).
+  // The tick is always computed from the quote-denominated cap; every figure shown leads with dollars.
+  const entry = capEntry(quoteUsd);
+  const presets = capPresets(entry, quote.key);
+  const pickedPreset = capPick(mcapPick, presets);
+  const mcapEntered = customMcap.trim() ? Number(customMcap) : (pickedPreset ?? 0);
+  const mcap = mcapEntered > 0 && Number.isFinite(mcapEntered) ? capToQuote(mcapEntered, entry) : 0;
   const startTick = mcap > 0 && Number.isFinite(mcap) ? startTickForFdv(mcap, quote.decimals) : null;
   const fdvPreview = startTick !== null ? fdvForStartTick(startTick, quote.decimals) : null;
   const tokensPerEth = startTick !== null ? tickToTokensPerQuote(startTick, quote.decimals) : null;
-  const fmtMcap = (v: number) => (quote.decimals <= 6 ? `${v.toLocaleString("en-US", { maximumFractionDigits: 0 })} ${quote.symbol}` : quote.key === "stock" ? `${v.toFixed(3)} ${quote.symbol}` : `${fmtQuoteUnits(v, quote.decimals)} ${quote.symbol}`);
+  const cap = (v: number) => capDisplay(v, quoteUsd, quote);
 
   const onChain = chainId === CHAIN.id;
   const symbolClean = symbol.trim().toUpperCase();
@@ -358,7 +363,6 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
     }
   }
 
-  const previewMcapUsd = fdvPreview !== null && quoteUsd ? fmtUsd(fdvPreview * quoteUsd, { compact: true }) : null;
 
   return (
     <div className="grid lg:grid-cols-[minmax(0,1fr)_22rem] gap-6 lg:gap-8 items-start">
@@ -581,7 +585,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
           </div>
           <div className="flex flex-wrap gap-2">
             {presets.map((v) => {
-              const active = !customMcap.trim() && (mcapPick ?? presets[2] ?? presets[0]) === v;
+              const active = !customMcap.trim() && pickedPreset === v;
               return (
                 <button
                   type="button"
@@ -592,7 +596,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
                   }}
                   className={`h-11 px-4 rounded-xl border font-mono text-sm font-bold tnum ${active ? "bg-ink text-inverse border-ink" : "bg-card text-ink border-line-strong hover:border-ink/40"}`}
                 >
-                  {quote.key === "stock" || quote.key === "gitlawb" ? `$${fmtCompact(v * (quote.usd ?? 0), 0)}` : quote.decimals <= 6 ? `$${fmtCompact(v, 0)}` : `${v} ${quote.symbol}`}
+                  {capChipLabel(v, entry, quote)}
                 </button>
               );
             })}
@@ -603,15 +607,15 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
                 onChange={(e) => setCustomMcap(e.target.value.replace(/[^0-9.]/g, ""))}
                 placeholder="custom"
                 inputMode="decimal"
-                aria-label={`custom starting market cap in ${quote.symbol}`}
+                aria-label={`custom starting market cap in ${entry.unit === "usd" ? "USD" : quote.symbol}`}
               />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-mono text-muted">{quote.symbol}</span>
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-mono text-muted">{entry.unit === "usd" ? "USD" : quote.symbol}</span>
             </div>
           </div>
           {fdvPreview !== null && tokensPerEth !== null ? (
             <p className="text-sm text-body">
-              Opens at <span className="font-mono font-bold text-ink tnum">{fmtMcap(fdvPreview)}</span>
-              {previewMcapUsd && quote.key !== "usdg" ? <span className="font-mono text-muted tnum"> ≈ {previewMcapUsd}</span> : null} fully diluted. The first {quote.key === "gitlawb" ? "1M " : ""}{quote.symbol} buys about{" "}
+              Opens at <span className="font-mono font-bold text-ink tnum">{cap(fdvPreview).main}</span>
+              <span className="font-mono text-muted tnum"> · {cap(fdvPreview).detail}</span> fully diluted. The first {quote.key === "gitlawb" ? "1M " : ""}{quote.symbol} buys about{" "}
               <span className="font-mono font-bold text-ink tnum">{fmtCompact(tokensPerEth * (quote.key === "gitlawb" ? 1e6 : 1), 0)}</span> tokens, then the price climbs along the curve.
             </p>
           ) : null}
@@ -722,7 +726,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
             <p className="text-sm text-body">
               Estimated buy: about <span className="font-mono font-bold text-ink tnum">{fmtCompact(buyPreview.tokensOut, 0)}</span> {symbolClean || "tokens"}{" "}
               <span className="font-mono text-muted tnum">({fmtPct(buyPreview.pctOfSupply)} of supply{buyUsd ? ` · ≈ ${fmtUsd(buyUsd)}` : ""})</span>. Estimated market cap after your buy:{" "}
-              <span className="font-mono font-bold text-ink tnum">{fmtMcap(buyPreview.fdvAfter)}</span>. Includes price impact and the pool fee; the exact amount is quoted on-chain right before the buy.
+              <span className="font-mono font-bold text-ink tnum">{cap(buyPreview.fdvAfter).main}</span><span className="font-mono text-muted tnum"> · {cap(buyPreview.fdvAfter).detail}</span>. Includes price impact and the pool fee; the exact amount is quoted on-chain right before the buy.
             </p>
           ) : suggestion.reason === "insufficient" ? (
             <p className={helper}>Suggested {fmtQuoteUnits(Number(defaultFirstBuy(quote)), quote.decimals)} {quote.symbol}, but this wallet holds only gas. The launch stays free; you can buy on the token page later.</p>
@@ -787,7 +791,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
           </div>
           {description.trim() ? <p className="mt-3 text-sm text-body line-clamp-3">{description.trim()}</p> : null}
           <dl className="mt-4 grid grid-cols-2 gap-2">
-            <Mini k="Opens at" v={fdvPreview !== null ? fmtMcap(fdvPreview) : "—"} sub={quote.key !== "usdg" ? previewMcapUsd : CHAIN_LABELS[chain]} />
+            <Mini k="Opens at" v={fdvPreview !== null ? cap(fdvPreview).main : "—"} sub={fdvPreview !== null ? cap(fdvPreview).detail : CHAIN_LABELS[chain]} />
             <Mini k="First buy" v={initialBuyRaw ? `${initialBuy.trim()} ${quote.symbol}` : "none"} sub={buyPreview ? `${buySource === "suggested" ? "suggested · " : ""}~${fmtPct(buyPreview.pctOfSupply)} of supply` : "pool opens untouched"} />
             <Mini k="Trading fee" v={FEE_PRESETS.find((f) => f.pips === feePips)?.label ?? "—"} sub={feePips === 0 ? "free pool" : beneficiary === "burn" ? "burned" : "to beneficiary"} />
             <Mini k="Platform fee" v="0" sub="always" accent />
