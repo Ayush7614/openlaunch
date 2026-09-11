@@ -21,9 +21,10 @@ test("clampSlippageBps bounds garbage to the default and rounds", () => {
 test("parseSlippageInput takes percent strings, rejects junk", () => {
   assert.equal(parseSlippageInput("1"), 100);
   assert.equal(parseSlippageInput("0.5"), 50);
+  assert.equal(parseSlippageInput("0.1"), 10, "minimum is selectable");
   assert.equal(parseSlippageInput("3%"), 300);
   assert.equal(parseSlippageInput(" 2.5 % "), 250);
-  for (const bad of ["", "  ", "0", "-1", "abc", "1%%", "21", "100"]) assert.equal(parseSlippageInput(bad), null, `${JSON.stringify(bad)} rejected`);
+  for (const bad of ["", "  ", "0", "0.01", "0.09", "-1", "abc", "1%%", "21", "100"]) assert.equal(parseSlippageInput(bad), null, `${JSON.stringify(bad)} rejected`);
 });
 
 test("formatSlippageBps trims cleanly", () => {
