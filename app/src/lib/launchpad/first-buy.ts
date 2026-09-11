@@ -28,7 +28,7 @@ function trimZeros(s: string): string {
 
 /** `usd` worth of a quote priced at `quoteUsd`, as a short decimal string that parseUnits accepts; null when it rounds to nothing. */
 export function amountForUsd(usd: number, quoteUsd: number, decimals: number): string | null {
-  if (!(usd > 0) || !(quoteUsd > 0) || !Number.isFinite(quoteUsd)) return null;
+  if (!(usd > 0) || !(quoteUsd > 0) || !Number.isFinite(usd) || !Number.isFinite(quoteUsd)) return null;
   const v = usd / quoteUsd;
   let s = v >= 1 ? v.toFixed(2) : v.toPrecision(2);
   if (/e/i.test(s)) s = v.toFixed(Math.min(decimals, 12));
