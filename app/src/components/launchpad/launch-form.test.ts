@@ -11,6 +11,8 @@ const ast = ts.createSourceFile("LaunchForm.tsx", source, ts.ScriptTarget.Latest
 test("launch merge preserves optional funding checks and post-launch buy isolation", () => {
   assert.match(source, /initialBuyRaw && address && buyBalance === undefined/);
   assert.match(source, /initialBuyRaw \+ \(quote\.key === "eth" \? GAS_RESERVE_WEI : 0n\) > buyBalance/);
+  // the reserve covers both transactions: the launch is sent first and pays its own gas before the buy runs
+  assert.match(source, /const GAS_RESERVE_WEI = LAUNCH_GAS_WEI \+ BUY_GAS_WEI;/);
   assert.match(source, /if \(initialBuyRaw && ev\?\.args\.token\) \{\s*try \{/);
   assert.match(source, /buyProblem = friendlyError\(err, \{ slippagePct: FIRST_BUY_SLIPPAGE_BPS \/ 100 \}\)/);
   const receiptCheck = source.indexOf('if (receipt.status !== "success")');

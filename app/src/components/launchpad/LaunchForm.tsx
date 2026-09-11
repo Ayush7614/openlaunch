@@ -46,7 +46,11 @@ type Beneficiary = "burn" | "me" | "custom";
 
 const FIRST_BUY_SLIPPAGE_BPS = 300; // Other buyers can trade between the launch and this separate buy.
 const PERMIT_EXPIRY_S = 30 * 24 * 3600;
-const GAS_RESERVE_WEI = 500_000_000_000_000n; // 0.0005 ETH kept back so the buy itself can pay for gas
+// Native ETH kept back from a first buy: the launch transaction is sent first and pays its own gas, then the buy (and, for
+// an ERC-20 quote, its approvals). Both parts are generous for Base and Robinhood Chain gas prices.
+const LAUNCH_GAS_WEI = 1_000_000_000_000_000n; // 0.001 ETH: deploy + pool init + position mint
+const BUY_GAS_WEI = 500_000_000_000_000n; // 0.0005 ETH: approvals + swap
+const GAS_RESERVE_WEI = LAUNCH_GAS_WEI + BUY_GAS_WEI;
 const FIRST_BUY_DECLINED_KEY = "ol:first-buy-declined"; // session only: a creator who cleared the suggestion is not nagged on the next launch
 
 function randomSalt(): Hex {
@@ -234,7 +238,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
     errors.push(quote.key === "eth" ? "First buy: not enough ETH (leave a little for gas)." : `First buy: not enough ${quote.symbol} in this wallet.`);
   // an ERC-20 first buy still pays gas (and its approvals) in ETH: the token balance alone is not enough
   if (initialBuyRaw && quote.key !== "eth" && address && nativeBalance === undefined) errors.push(ethBal.isError ? "First buy: could not read your ETH balance for gas. Retry, or clear the amount." : "First buy: checking your ETH balance for gas…");
-  if (initialBuyRaw && quote.key !== "eth" && nativeBalance !== undefined && nativeBalance < GAS_RESERVE_WEI) errors.push("First buy: not enough ETH for gas (the buy and its approval need a little ETH).");
+  if (initialBuyRaw && quote.key !== "eth" && nativeBalance !== undefined && nativeBalance < GAS_RESERVE_WEI) errors.push("First buy: not enough ETH for gas (the launch, the approval and the buy each need a little ETH).");
   const valid = errors.length === 0;
   const buyPreview = initialBuyRaw && startTick !== null ? initialBuyPreview({ startTick, amountInRaw: initialBuyRaw, lpFeePips: feePips, quoteDecimals: quote.decimals }) : null;
   const buyUsd = initialBuyRaw && quoteUsd ? units(initialBuyRaw, quote.decimals) * quoteUsd : null;
