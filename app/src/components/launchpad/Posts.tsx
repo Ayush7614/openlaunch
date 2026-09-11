@@ -54,10 +54,11 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
   const [now, setNow] = useState(0);
   const [shownCount, setShownCount] = useState(COMMENTS_PAGE);
   // Draft restores async after hydration so server and client render the same empty composer first.
+  // The loaded value is always assigned (even when empty) so text typed for one
+  // token can never leak into — and be submitted from — another token's composer.
   useEffect(() => {
     const t = setTimeout(() => {
-      const d = loadDraft(chain, token);
-      if (d) setBody(d.slice(0, POST_MAX));
+      setBody(loadDraft(chain, token).slice(0, POST_MAX));
       setShownCount(COMMENTS_PAGE);
     }, 0);
     return () => clearTimeout(t);
