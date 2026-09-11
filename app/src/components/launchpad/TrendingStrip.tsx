@@ -10,6 +10,7 @@ import { useLive } from "./LiveProvider";
 import type { LaunchRow } from "@/lib/launchpad/queries";
 import { fmtQuote } from "@/lib/launchpad/math";
 import { marketUsd } from "@/lib/launchpad/market-format";
+import { capDisplay } from "@/lib/launchpad/market-cap";
 import { CHAIN_SHORT } from "@/lib/chainPublic";
 import { stickyKing } from "@/lib/launchpad/ranking";
 import { launchKey, refreshInPlace } from "@/lib/launchpad/list-state";
@@ -90,7 +91,7 @@ export default function TrendingStrip({ initial }: { initial: Snap }) {
                     <div className="min-w-0"><p className="truncate text-[13px] font-semibold text-ink">{row.name}</p><p className="truncate font-mono text-[10px] text-muted">{row.symbol}</p></div>
                   </div>
                   <div className="mt-3 flex min-w-0 items-baseline justify-between gap-2">
-                    <span className="truncate font-mono text-sm font-bold text-ink tnum"><span className="sr-only">Market cap </span>{row.fdv_usd !== null ? marketUsd(row.fdv_usd) : "—"}</span>
+                    <span className="truncate font-mono text-sm font-bold text-ink tnum"><span className="sr-only">Market cap </span>{capDisplay(row.fdv_quote, row.quote_usd, { key: row.quote_key, symbol: row.quote_symbol, decimals: row.quote_decimals }).main}</span>
                     <ChangeChip v={row.change_from_launch} plain />
                   </div>
                   <div className="mt-2 flex items-center justify-between gap-2 border-t border-line pt-2 text-[10px] text-muted">
