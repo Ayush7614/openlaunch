@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { useAccount, useBalance, useConfig, useReadContract, useSwitchChain } from "wagmi";
 import { getPublicClient, getWalletClient } from "wagmi/actions";
@@ -16,6 +16,7 @@ import { BPS, DEFAULT_SUPPLY, FEE_PRESETS, TICK_SPACING, launchpad, quoteUsdOf, 
 import { capChipLabel, capDisplay, capEntry, capPick, capPresets, capToQuote } from "@/lib/launchpad/market-cap";
 import { fdvForStartTick, fmtCompact, fmtQuoteUnits, fmtUsd, initialBuyPreview, minOut, startTickForFdv, tickToTokensPerQuote, units } from "@/lib/launchpad/math";
 import { BUY_PRESETS, defaultFirstBuy, suggestFirstBuy } from "@/lib/launchpad/first-buy";
+import { getFirstBuyDeclined, getFirstBuyDeclinedServer, setFirstBuyDeclined, subscribeFirstBuyDeclined } from "@/lib/launchpad/first-buy-session";
 import { encodeV4ExactInSingle, type PoolKey } from "@/lib/launchpad/swap";
 import { GITLAWB_SITE } from "@/lib/launchpad/gitlawb";
 import { CHAINS, CHAIN_LABELS, CHAIN_KEYS, BUILDER_DATA_SUFFIX, explorerTx, shortAddr, type ChainKey } from "@/lib/chainPublic";
@@ -51,7 +52,6 @@ const PERMIT_EXPIRY_S = 30 * 24 * 3600;
 const LAUNCH_GAS_WEI = 1_000_000_000_000_000n; // 0.001 ETH: deploy + pool init + position mint
 const BUY_GAS_WEI = 500_000_000_000_000n; // 0.0005 ETH: approvals + swap
 const GAS_RESERVE_WEI = LAUNCH_GAS_WEI + BUY_GAS_WEI;
-const FIRST_BUY_DECLINED_KEY = "ol:first-buy-declined"; // session only: a creator who cleared the suggestion is not nagged on the next launch
 
 function randomSalt(): Hex {
   const b = new Uint8Array(32);
@@ -191,10 +191,16 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
   const [typedBuyFor, setTypedBuyFor] = useState<{ amount: string; quoteId: string } | null>(null);
   const quoteId = `${chain}:${quote.address.toLowerCase()}`;
   const typedBuy = typedBuyFor && typedBuyFor.quoteId === quoteId ? typedBuyFor.amount : "";
-  // Read once at mount. Safe for hydration: no wallet is connected on the first render, so the suggestion is absent either way.
-  const [buyDeclined, setBuyDeclined] = useState(() => { try { return typeof sessionStorage !== "undefined" && sessionStorage.getItem(FIRST_BUY_DECLINED_KEY) === "1"; } catch { return false; /* storage blocked: suggest as usual */ } });
-  function declineFirstBuy() { setTypedBuyFor(null); setBuyDeclined(true); try { sessionStorage.setItem(FIRST_BUY_DECLINED_KEY, "1"); } catch { /* ignore */ } }
-  function chooseFirstBuy(v: string) { setTypedBuyFor({ amount: v, quoteId }); setBuyDeclined(false); try { sessionStorage.removeItem(FIRST_BUY_DECLINED_KEY); } catch { /* ignore */ } }
+  // Declined for this tab session (the "No first buy" button) is an external store read with useSyncExternalStore: the
+  // server snapshot is false, so server and client markup match during hydration and the client re-renders with the
+  // real flag right after (lib/launchpad/first-buy-session.ts). Clearing the field or a chip declines in memory only.
+  // Both states are visible on the form with a way back, so a creator who cleared it while exploring never wonders where it went.
+  const sessionDeclined = useSyncExternalStore(subscribeFirstBuyDeclined, getFirstBuyDeclined, getFirstBuyDeclinedServer);
+  const [declinedNow, setDeclinedNow] = useState(false);
+  const buyDeclined = declinedNow || sessionDeclined;
+  function declineFirstBuy(forSession = false) { setTypedBuyFor(null); setDeclinedNow(true); if (forSession) setFirstBuyDeclined(true); }
+  function suggestAgain() { setTypedBuyFor(null); setDeclinedNow(false); setFirstBuyDeclined(false); }
+  function chooseFirstBuy(v: string) { setTypedBuyFor({ amount: v, quoteId }); setDeclinedNow(false); setFirstBuyDeclined(false); }
   // Generated lazily at launch time (a render-time random value would break hydration).
   const saltRef = useRef<Hex | null>(null);
   // The metadataURI is keyed by meta_key, so findSalt can change the salt freely within one attempt. Both refs are
@@ -224,8 +230,9 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
   const nativeBalance: bigint | undefined = ethBal.data?.value;
   const buyBalance: bigint | undefined = quote.key === "eth" ? nativeBalance : (quoteBal.data as bigint | undefined);
   const buyBalanceFailed = quote.key === "eth" ? ethBal.isError : quoteBal.isError;
-  // A suggested buy exists only when the wallet is connected and can cover it and its gas, so it can never block the launch below.
-  const suggestion = suggestFirstBuy({ quote, connected: Boolean(address) && onChain, balance: buyBalance, nativeBalance, gasReserve: GAS_RESERVE_WEI, declined: buyDeclined || Boolean(typedBuy), parse: parseUnits });
+  // The suggested buy is selected from the start; a connected wallet's balances can only take it away (or a failed read),
+  // so it can never block the launch below. A typed amount keeps the strict checks.
+  const suggestion = suggestFirstBuy({ quote, connected: Boolean(address) && onChain, balance: buyBalance, nativeBalance, balanceFailed: buyBalanceFailed || ethBal.isError, gasReserve: GAS_RESERVE_WEI, declined: buyDeclined || Boolean(typedBuy), parse: parseUnits });
   const initialBuy = typedBuy || suggestion.amount || "";
   const buySource: "typed" | "suggested" | "none" = typedBuy ? "typed" : suggestion.amount ? "suggested" : "none";
   const initialBuyRaw = parseBuyAmount(initialBuy, quote.decimals);
@@ -720,7 +727,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
             {initialBuyRaw && buyBalance !== undefined ? (
               <span className="text-xs font-mono text-muted tnum">balance {fmtQuoteUnits(units(buyBalance, quote.decimals), quote.decimals)}</span>
             ) : null}
-            {initialBuyRaw ? <button type="button" onClick={declineFirstBuy} className={btn.secondarySm}>No first buy</button> : null}
+            {initialBuyRaw ? <button type="button" onClick={() => declineFirstBuy(true)} className={btn.secondarySm}>No first buy</button> : null}
           </div>
           {buyPreview ? (
             <p className="text-sm text-body">
@@ -732,8 +739,10 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
             <p className={helper}>Suggested {fmtQuoteUnits(Number(defaultFirstBuy(quote)), quote.decimals)} {quote.symbol}, but this wallet holds only gas. The launch stays free; you can buy on the token page later.</p>
           ) : suggestion.reason === "no-gas" ? (
             <p className={helper}>Suggested {fmtQuoteUnits(Number(defaultFirstBuy(quote)), quote.decimals)} {quote.symbol}, but this wallet has no ETH left for the buy&apos;s gas. The launch stays free; you can buy on the token page later.</p>
-          ) : suggestion.reason === "no-wallet" ? (
-            <p className={helper}>Connect a wallet on {CHAIN_LABEL} to see the suggested amount.</p>
+          ) : suggestion.reason === "unknown-balance" ? (
+            <p className={helper}>Could not read your balance, so nothing is suggested. The launch stays free; you can still type an amount.</p>
+          ) : suggestion.reason === "declined" && !typedBuy ? (
+            <p className={helper}>No first buy. The launch stays free.{defaultFirstBuy(quote) ? <> <button type="button" onClick={suggestAgain} className="font-medium text-brand underline underline-offset-4 hover:text-ink">Suggest {fmtQuoteUnits(Number(defaultFirstBuy(quote)), quote.decimals)} {quote.symbol} again</button></> : null}</p>
           ) : null}
           <p className={helper}>A token with no holders and no price move looks dead on every screener and sits under quiet launches on the home page. Your first buy opens the chart. Clear it and the launch stays free.</p>
           <p className={helper}>Other traders can buy before you. First-buy slippage tolerance: {FIRST_BUY_SLIPPAGE_BPS / 100}%. Network gas and pool fees apply.</p>

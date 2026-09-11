@@ -29,7 +29,7 @@ test("launch merge retains chain-scoped marks and honest optional-buy copy", () 
   assert.match(source, /<TokenAvatar chain=\{chain\}/);
   assert.match(source, /label=\{initialBuyRaw \? "Launch \+ first buy" : "Launch for free, gas only"\}/);
   // a suggested buy is computed from a known, sufficient balance and can be cleared; a typed amount keeps the strict checks
-  assert.match(source, /suggestFirstBuy\(\{ quote, connected: Boolean\(address\) && onChain, balance: buyBalance, nativeBalance, gasReserve: GAS_RESERVE_WEI, declined: buyDeclined \|\| Boolean\(typedBuy\)/);
+  assert.match(source, /suggestFirstBuy\(\{ quote, connected: Boolean\(address\) && onChain, balance: buyBalance, nativeBalance, balanceFailed: buyBalanceFailed \|\| ethBal\.isError, gasReserve: GAS_RESERVE_WEI, declined: buyDeclined \|\| Boolean\(typedBuy\)/);
   // an ERC-20 quote's typed buy is checked for native gas too, not only the token balance
   assert.match(source, /initialBuyRaw && quote\.key !== "eth" && nativeBalance !== undefined && nativeBalance < GAS_RESERVE_WEI/);
   assert.match(source, /const initialBuy = typedBuy \|\| suggestion\.amount \|\| ""/);
@@ -39,6 +39,15 @@ test("launch merge retains chain-scoped marks and honest optional-buy copy", () 
   assert.match(source, /setTypedBuyFor\(\{ amount: v, quoteId \}\)/);
   assert.match(source, /No first buy/);
   assert.match(source, /Clear it and the launch stays free/);
+  // a cleared suggestion is visible and reversible; only the explicit button persists for the session
+  assert.match(source, /suggestion\.reason === "declined" && !typedBuy/);
+  assert.match(source, /onClick=\{suggestAgain\}/);
+  assert.match(source, /onClick=\{\(\) => declineFirstBuy\(true\)\}/);
+  assert.match(source, /if \(forSession\) setFirstBuyDeclined\(true\)/);
+  // hydration: the session flag is read through useSyncExternalStore with a false server snapshot, never in a state initializer
+  assert.match(source, /useSyncExternalStore\(subscribeFirstBuyDeclined, getFirstBuyDeclined, getFirstBuyDeclinedServer\)/);
+  assert.doesNotMatch(source, /sessionStorage/, "the form never touches sessionStorage directly");
+  assert.match(source, /suggestion\.reason === "unknown-balance"/);
   assert.match(source, /Other traders can buy before you/);
   assert.match(source, /First-buy slippage tolerance: \{FIRST_BUY_SLIPPAGE_BPS \/ 100\}%/);
   assert.match(source, /Network gas and pool fees apply/);
