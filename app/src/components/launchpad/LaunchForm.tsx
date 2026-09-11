@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { useAccount, useBalance, useConfig, useReadContract, useSwitchChain } from "wagmi";
 import { getPublicClient, getWalletClient } from "wagmi/actions";
@@ -15,6 +15,7 @@ import { ERC20_MIN_ABI, ERC20_TRANSFER_EVENT, LAUNCH_FACTORY_ABI, PERMIT2_ABI, U
 import { BPS, DEFAULT_SUPPLY, FEE_PRESETS, MCAP_PRESETS, TICK_SPACING, launchpad, quoteUsdOf, type Quote } from "@/lib/launchpad/config";
 import { fdvForStartTick, fmtCompact, fmtQuoteUnits, fmtUsd, initialBuyPreview, minOut, startTickForFdv, tickToTokensPerQuote, units } from "@/lib/launchpad/math";
 import { BUY_PRESETS, defaultFirstBuy, suggestFirstBuy } from "@/lib/launchpad/first-buy";
+import { getFirstBuyDeclined, getFirstBuyDeclinedServer, setFirstBuyDeclined, subscribeFirstBuyDeclined } from "@/lib/launchpad/first-buy-session";
 import { encodeV4ExactInSingle, type PoolKey } from "@/lib/launchpad/swap";
 import { stockMcapPresets } from "@/lib/launchpad/stocks";
 import { GITLAWB_SITE, gitlawbMcapPresets } from "@/lib/launchpad/gitlawb";
@@ -51,7 +52,6 @@ const PERMIT_EXPIRY_S = 30 * 24 * 3600;
 const LAUNCH_GAS_WEI = 1_000_000_000_000_000n; // 0.001 ETH: deploy + pool init + position mint
 const BUY_GAS_WEI = 500_000_000_000_000n; // 0.0005 ETH: approvals + swap
 const GAS_RESERVE_WEI = LAUNCH_GAS_WEI + BUY_GAS_WEI;
-const FIRST_BUY_DECLINED_KEY = "ol:first-buy-declined"; // session only, and only via the explicit "No first buy" button: a creator who said no is not nagged on the next launch
 
 function randomSalt(): Hex {
   const b = new Uint8Array(32);
@@ -191,13 +191,16 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
   const [typedBuyFor, setTypedBuyFor] = useState<{ amount: string; quoteId: string } | null>(null);
   const quoteId = `${chain}:${quote.address.toLowerCase()}`;
   const typedBuy = typedBuyFor && typedBuyFor.quoteId === quoteId ? typedBuyFor.amount : "";
-  // Read once at mount. Safe for hydration: no wallet is connected on the first render, so the suggestion is absent either way.
-  const [buyDeclined, setBuyDeclined] = useState(() => { try { return typeof sessionStorage !== "undefined" && sessionStorage.getItem(FIRST_BUY_DECLINED_KEY) === "1"; } catch { return false; /* storage blocked: suggest as usual */ } });
-  // Clearing the field or toggling a chip off declines for now (in memory); the button declines for the session. Both are
-  // visible on the form with a way back, so a creator who cleared it while exploring can never wonder where it went.
-  function declineFirstBuy(forSession = false) { setTypedBuyFor(null); setBuyDeclined(true); if (forSession) { try { sessionStorage.setItem(FIRST_BUY_DECLINED_KEY, "1"); } catch { /* ignore */ } } }
-  function suggestAgain() { setTypedBuyFor(null); setBuyDeclined(false); try { sessionStorage.removeItem(FIRST_BUY_DECLINED_KEY); } catch { /* ignore */ } }
-  function chooseFirstBuy(v: string) { setTypedBuyFor({ amount: v, quoteId }); setBuyDeclined(false); try { sessionStorage.removeItem(FIRST_BUY_DECLINED_KEY); } catch { /* ignore */ } }
+  // Declined for this tab session (the "No first buy" button) is an external store read with useSyncExternalStore: the
+  // server snapshot is false, so server and client markup match during hydration and the client re-renders with the
+  // real flag right after (lib/launchpad/first-buy-session.ts). Clearing the field or a chip declines in memory only.
+  // Both states are visible on the form with a way back, so a creator who cleared it while exploring never wonders where it went.
+  const sessionDeclined = useSyncExternalStore(subscribeFirstBuyDeclined, getFirstBuyDeclined, getFirstBuyDeclinedServer);
+  const [declinedNow, setDeclinedNow] = useState(false);
+  const buyDeclined = declinedNow || sessionDeclined;
+  function declineFirstBuy(forSession = false) { setTypedBuyFor(null); setDeclinedNow(true); if (forSession) setFirstBuyDeclined(true); }
+  function suggestAgain() { setTypedBuyFor(null); setDeclinedNow(false); setFirstBuyDeclined(false); }
+  function chooseFirstBuy(v: string) { setTypedBuyFor({ amount: v, quoteId }); setDeclinedNow(false); setFirstBuyDeclined(false); }
   // Generated lazily at launch time (a render-time random value would break hydration).
   const saltRef = useRef<Hex | null>(null);
   // The metadataURI is keyed by meta_key, so findSalt can change the salt freely within one attempt. Both refs are

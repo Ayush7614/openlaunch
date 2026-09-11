@@ -43,7 +43,10 @@ test("launch merge retains chain-scoped marks and honest optional-buy copy", () 
   assert.match(source, /suggestion\.reason === "declined" && !typedBuy/);
   assert.match(source, /onClick=\{suggestAgain\}/);
   assert.match(source, /onClick=\{\(\) => declineFirstBuy\(true\)\}/);
-  assert.match(source, /if \(forSession\) \{ try \{ sessionStorage\.setItem\(FIRST_BUY_DECLINED_KEY/);
+  assert.match(source, /if \(forSession\) setFirstBuyDeclined\(true\)/);
+  // hydration: the session flag is read through useSyncExternalStore with a false server snapshot, never in a state initializer
+  assert.match(source, /useSyncExternalStore\(subscribeFirstBuyDeclined, getFirstBuyDeclined, getFirstBuyDeclinedServer\)/);
+  assert.doesNotMatch(source, /sessionStorage/, "the form never touches sessionStorage directly");
   assert.match(source, /suggestion\.reason === "unknown-balance"/);
   assert.match(source, /Other traders can buy before you/);
   assert.match(source, /First-buy slippage tolerance: \{FIRST_BUY_SLIPPAGE_BPS \/ 100\}%/);
