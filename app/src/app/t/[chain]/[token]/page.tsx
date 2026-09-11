@@ -170,7 +170,7 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
           </div>
         </div>
       </main>
-      <MobileBuyBar symbol={l.symbol} mcap={capDisplay(l.fdv_quote, l.quote_usd, { key: l.quote_key, symbol: l.quote_symbol, decimals: l.quote_decimals }).main} />
+      <MobileBuyBar symbol={l.symbol} mcap={capDisplay(l.fdv_quote, l.quote_usd, { key: l.quote_key, symbol: l.quote_symbol, decimals: l.quote_decimals }).compact} />
     </>
   );
 }

@@ -68,7 +68,7 @@ export default function LaunchRow({ l, rank, window = "all", hl = null, now, pop
           <span className="mb-0.5 block text-[10px] text-muted md:sr-only">Market cap</span>
           <span key={hl?.at ?? "rest"} className={`block truncate font-mono text-sm font-bold text-ink tnum ${pop ? "bb-pop" : ""}`} title={capDetail}>{capLabel}</span>
           <span className="hidden truncate font-mono text-[10px] text-muted tnum md:block" title={capDetail}>{cap.detail}</span>
-          <span className="mt-0.5 block md:hidden"><span className="sr-only">Change since launch </span><ChangeChip v={l.change_from_launch} plain /></span>
+          <span className="mt-0.5 block md:hidden"><span className="block truncate font-mono text-[10px] text-muted tnum" title={capDetail}>{cap.detail}</span><span className="sr-only">Change since launch </span><ChangeChip v={l.change_from_launch} plain /></span>
         </div>
         <div className="hidden min-w-0 text-right md:block"><span className="sr-only">Change since launch </span><ChangeChip v={l.change_from_launch} plain /></div>
         <div className="hidden min-w-0 text-right font-mono text-xs text-body tnum md:block" title={volumeDetail}><span className="sr-only">Volume {window} </span><span className="block truncate">{volLabel}</span></div>

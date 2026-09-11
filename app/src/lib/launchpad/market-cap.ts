@@ -44,20 +44,25 @@ export function capChipLabel(v: number, entry: CapEntry, quote: Pick<Quote, "sym
 
 /** A quote-denominated cap as quote text: "9.87 ETH", "25,000 USDG", "0.112 NVDA". */
 export function capQuoteLabel(fdvQuote: number, quote: Pick<Quote, "key" | "symbol" | "decimals">): string {
-  if (quote.decimals <= 6) return `${fdvQuote.toLocaleString("en-US", { maximumFractionDigits: 0 })} ${quote.symbol}`;
+  if (quote.decimals <= 6) return `${fdvQuote.toLocaleString("en-US", { maximumFractionDigits: Math.abs(fdvQuote) < 100 ? 2 : 0 })} ${quote.symbol}`; // a 0.5 USDG cap is "0.5 USDG", not "1 USDG"
   if (quote.key === "stock") return `${fdvQuote.toFixed(3)} ${quote.symbol}`;
   return `${fmtQuoteUnits(fdvQuote, quote.decimals)} ${quote.symbol}`;
 }
 
+export const NO_USD_PRICE = "no USD price";
+
 /**
  * How a cap is shown anywhere on the site: the dollar figure leads and the quote figure is the detail; without a USD
- * price the quote figure leads and the detail says so. Never a bare dash.
+ * price the quote figure leads and the detail says so. Never a bare dash. `compact` is the one-string form for sites
+ * with room for a single figure: the dollar figure when priced, else the quote figure with the mark, so an unpriced
+ * cap is never shown as if it were dollars.
  */
-export function capDisplay(fdvQuote: number, quoteUsd: number | null, quote: Pick<Quote, "key" | "symbol" | "decimals">): { main: string; detail: string; usd: number | null } {
+export function capDisplay(fdvQuote: number, quoteUsd: number | null, quote: Pick<Quote, "key" | "symbol" | "decimals">): { main: string; detail: string; compact: string; usd: number | null } {
   const quoteText = capQuoteLabel(fdvQuote, quote);
   if (quoteUsd !== null && Number.isFinite(quoteUsd) && quoteUsd > 0) {
     const usd = fdvQuote * quoteUsd;
-    return { main: marketUsd(usd), detail: quoteText, usd };
+    const main = marketUsd(usd);
+    return { main, detail: quoteText, compact: main, usd };
   }
-  return { main: quoteText, detail: "no USD price", usd: null };
+  return { main: quoteText, detail: NO_USD_PRICE, compact: `${quoteText} · ${NO_USD_PRICE}`, usd: null };
 }

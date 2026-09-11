@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MCAP_DEFAULT_INDEX, MCAP_USD_TARGETS, capChipLabel, capDisplay, capEntry, capPick, capPresets, capQuoteLabel, capToQuote } from "./market-cap.ts";
+import { MCAP_DEFAULT_INDEX, MCAP_USD_TARGETS, NO_USD_PRICE, capChipLabel, capDisplay, capEntry, capPick, capPresets, capQuoteLabel, capToQuote } from "./market-cap.ts";
 import { fdvForStartTick, startTickForFdv } from "./math.ts";
 
 const eth = { key: "eth" as const, symbol: "ETH", decimals: 18 };
@@ -52,14 +52,18 @@ test("labels: chips in dollars or quote units; quote text per quote kind", () =>
   assert.equal(capChipLabel(10, capEntry(null), eth), "10 ETH");
   assert.equal(capQuoteLabel(10.1234, eth), "10.123 ETH");
   assert.equal(capQuoteLabel(25_000, usdg), "25,000 USDG");
+  assert.equal(capQuoteLabel(0.5, usdg), "0.5 USDG", "fractional USDG keeps its cents (CodeRabbit, PR #27)");
+  assert.equal(capQuoteLabel(99.99, usdg), "99.99 USDG");
+  assert.equal(capQuoteLabel(100.4, usdg), "100 USDG", "from 100 units up, whole units");
   assert.equal(capQuoteLabel(0.11208, nvda), "0.112 NVDA");
   assert.equal(capQuoteLabel(1_250_000, gitlawb), "1.25M GITLAWB");
 });
 
 test("capDisplay: dollars lead with the quote figure as detail; without a price the quote figure leads and says so", () => {
-  assert.deepEqual(capDisplay(10, 2500, eth), { main: "$25K", detail: "10 ETH", usd: 25_000 });
-  assert.deepEqual(capDisplay(25_000, 1, usdg), { main: "$25K", detail: "25,000 USDG", usd: 25_000 });
-  assert.deepEqual(capDisplay(0.112, 223.05, nvda), { main: "$24.98", detail: "0.112 NVDA", usd: 0.112 * 223.05 }, "under $1,000 the figure keeps cents");
-  assert.deepEqual(capDisplay(10, null, eth), { main: "10 ETH", detail: "no USD price", usd: null });
-  assert.deepEqual(capDisplay(0.5, 0, nvda), { main: "0.500 NVDA", detail: "no USD price", usd: null });
+  assert.deepEqual(capDisplay(10, 2500, eth), { main: "$25K", detail: "10 ETH", compact: "$25K", usd: 25_000 });
+  assert.deepEqual(capDisplay(25_000, 1, usdg), { main: "$25K", detail: "25,000 USDG", compact: "$25K", usd: 25_000 });
+  assert.deepEqual(capDisplay(0.112, 223.05, nvda), { main: "$24.98", detail: "0.112 NVDA", compact: "$24.98", usd: 0.112 * 223.05 }, "under $1,000 the figure keeps cents");
+  assert.deepEqual(capDisplay(10, null, eth), { main: "10 ETH", detail: NO_USD_PRICE, compact: "10 ETH · no USD price", usd: null }, "one-string sites still carry the mark");
+  assert.deepEqual(capDisplay(0.5, 0, nvda), { main: "0.500 NVDA", detail: NO_USD_PRICE, compact: "0.500 NVDA · no USD price", usd: null });
+  assert.deepEqual(capDisplay(0.5, 1, usdg), { main: "$0.5", detail: "0.5 USDG", compact: "$0.5", usd: 0.5 });
 });

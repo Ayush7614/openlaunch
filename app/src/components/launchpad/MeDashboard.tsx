@@ -250,7 +250,7 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
                       </div>
                       <div className={styles.tokenMeta}>
                         <FeeChip lpFee={l.lp_fee} mode={feeModeOf(l.lp_fee, l.recipients)} />
-                        <span>mc {capDisplay(l.fdv_quote, l.quote_usd, { key: l.quote_key, symbol: l.quote_symbol, decimals: l.quote_decimals }).main}</span>
+                        <span>mc {capDisplay(l.fdv_quote, l.quote_usd, { key: l.quote_key, symbol: l.quote_symbol, decimals: l.quote_decimals }).compact}</span>
                         <span>· {l.buys + l.sells} trades</span>
                         {now ? <span suppressHydrationWarning>· {ago(l.block_time, now)} ago</span> : null}
                       </div>
@@ -299,7 +299,7 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
                       {isGitlawbQuote(t.quote_key) ? <GitlawbBadge /> : null}
                     </div>
                     <div className={styles.tokenMeta}>
-                      {t.my_buys} buys · {t.my_sells} sells · mc {capDisplay(t.fdv_quote, t.quote_usd, { key: t.quote_key, symbol: t.quote_symbol, decimals: t.quote_decimals }).main}
+                      {t.my_buys} buys · {t.my_sells} sells · mc {capDisplay(t.fdv_quote, t.quote_usd, { key: t.quote_key, symbol: t.quote_symbol, decimals: t.quote_decimals }).compact}
                     </div>
                   </div>
                   <div className={styles.holdingValue}>

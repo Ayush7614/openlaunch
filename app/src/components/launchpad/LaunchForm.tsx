@@ -214,7 +214,6 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
   const fdvPreview = startTick !== null ? fdvForStartTick(startTick, quote.decimals) : null;
   const tokensPerEth = startTick !== null ? tickToTokensPerQuote(startTick, quote.decimals) : null;
   const cap = (v: number) => capDisplay(v, quoteUsd, quote);
-  const fmtMcap = (v: number) => cap(v).main;
 
   const onChain = chainId === CHAIN.id;
   const symbolClean = symbol.trim().toUpperCase();
@@ -727,7 +726,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
             <p className="text-sm text-body">
               Estimated buy: about <span className="font-mono font-bold text-ink tnum">{fmtCompact(buyPreview.tokensOut, 0)}</span> {symbolClean || "tokens"}{" "}
               <span className="font-mono text-muted tnum">({fmtPct(buyPreview.pctOfSupply)} of supply{buyUsd ? ` · ≈ ${fmtUsd(buyUsd)}` : ""})</span>. Estimated market cap after your buy:{" "}
-              <span className="font-mono font-bold text-ink tnum">{fmtMcap(buyPreview.fdvAfter)}</span>. Includes price impact and the pool fee; the exact amount is quoted on-chain right before the buy.
+              <span className="font-mono font-bold text-ink tnum">{cap(buyPreview.fdvAfter).main}</span><span className="font-mono text-muted tnum"> · {cap(buyPreview.fdvAfter).detail}</span>. Includes price impact and the pool fee; the exact amount is quoted on-chain right before the buy.
             </p>
           ) : suggestion.reason === "insufficient" ? (
             <p className={helper}>Suggested {fmtQuoteUnits(Number(defaultFirstBuy(quote)), quote.decimals)} {quote.symbol}, but this wallet holds only gas. The launch stays free; you can buy on the token page later.</p>
