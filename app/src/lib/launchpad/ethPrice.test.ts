@@ -139,11 +139,12 @@ test("failures back off for one TTL and the request carries a timeout", async ()
   assert.equal(ETH_FETCH_TIMEOUT_MS, 5_000);
 });
 
-test("feedEthUsd: a positive round under the max age is a price; older, zero or negative is not", () => {
+test("feedEthUsd: a positive round under the max age is a price; older, future, zero or negative is not", () => {
   const nowS = 1_700_000_000;
   assert.equal(feedEthUsd({ answer: 244134000000n, updatedAt: nowS - 488 }, nowS), 2441.34, "the round seen on-chain when the feed address was verified");
   assert.equal(feedEthUsd({ answer: 244134000000n, updatedAt: nowS - ETH_FEED_MAX_AGE_S }, nowS), 2441.34, "exactly the max age still counts");
   assert.equal(feedEthUsd({ answer: 244134000000n, updatedAt: nowS - ETH_FEED_MAX_AGE_S - 1 }, nowS), null, "one second past it does not");
+  assert.equal(feedEthUsd({ answer: 244134000000n, updatedAt: nowS + 60 }, nowS), null, "future round (clock skew / bad RPC) is not a price");
   assert.equal(feedEthUsd({ answer: 0n, updatedAt: nowS }, nowS), null);
   assert.equal(feedEthUsd({ answer: -1n, updatedAt: nowS }, nowS), null);
   assert.equal(feedEthUsd({ answer: 244134000000n, updatedAt: 0 }, nowS), null, "no update timestamp");
