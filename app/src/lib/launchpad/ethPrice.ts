@@ -56,7 +56,7 @@ export function parseEthSpot(body: unknown): number | null {
 
 export type FeedRound = { answer: bigint; updatedAt: number };
 
-/** USD from a Chainlink ETH/USD round: positive answer, updated within ETH_FEED_MAX_AGE_S of `nowS`; else null. */
+/** USD from a Chainlink ETH/USD round: positive answer, updated within ETH_FEED_MAX_AGE_S of `nowS` and never from the future; else null. */
 export function feedEthUsd(round: FeedRound | null, nowS: number): number | null {
   return feedUsd(round, nowS, ETH_FEED_DECIMALS, ETH_FEED_MAX_AGE_S);
 }
