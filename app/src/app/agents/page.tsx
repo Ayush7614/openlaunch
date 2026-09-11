@@ -83,6 +83,7 @@ export default function AgentsPage() {
             <div className={styles.metadata}>
               <div className={styles.subheading}><span className={styles.method}>POST</span><h3>Add metadata first</h3><span className={styles.optional}>Optional</span></div>
               <p className={styles.prose}>For an image, description or links, send metadata first. The response contains the <code>uri</code> to pass as <code>metadataURI</code> and the predicted token address.</p>
+              <p className={styles.prose}>Buy a little right after the launch confirms (a Universal Router swap on the new pool; the site&apos;s form suggests about $25). A token with no holder and no price move reads as dead on screeners and sits under quiet launches on the home page until an outside wallet trades it.</p>
               <AgentsCodeBlock title="Metadata request shape" language="Reference" code={`POST ${SITE_URL}/api/launch/meta\n\n{chain, launcher, salt, name, symbol, description?, image_url?, website?, x_handle?}`} />
             </div>
           </section>

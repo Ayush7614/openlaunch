@@ -11,6 +11,8 @@ const ast = ts.createSourceFile("LaunchForm.tsx", source, ts.ScriptTarget.Latest
 test("launch merge preserves optional funding checks and post-launch buy isolation", () => {
   assert.match(source, /initialBuyRaw && address && buyBalance === undefined/);
   assert.match(source, /initialBuyRaw \+ \(quote\.key === "eth" \? GAS_RESERVE_WEI : 0n\) > buyBalance/);
+  // the reserve covers both transactions: the launch is sent first and pays its own gas before the buy runs
+  assert.match(source, /const GAS_RESERVE_WEI = LAUNCH_GAS_WEI \+ BUY_GAS_WEI;/);
   assert.match(source, /if \(initialBuyRaw && ev\?\.args\.token\) \{\s*try \{/);
   assert.match(source, /buyProblem = friendlyError\(err, \{ slippagePct: FIRST_BUY_SLIPPAGE_BPS \/ 100 \}\)/);
   const receiptCheck = source.indexOf('if (receipt.status !== "success")');
@@ -25,7 +27,18 @@ test("launch merge preserves optional funding checks and post-launch buy isolati
 
 test("launch merge retains chain-scoped marks and honest optional-buy copy", () => {
   assert.match(source, /<TokenAvatar chain=\{chain\}/);
-  assert.match(source, /label=\{initialBuyRaw \? "Launch \+ optional buy" : "Launch for free, gas only"\}/);
+  assert.match(source, /label=\{initialBuyRaw \? "Launch \+ first buy" : "Launch for free, gas only"\}/);
+  // a suggested buy is computed from a known, sufficient balance and can be cleared; a typed amount keeps the strict checks
+  assert.match(source, /suggestFirstBuy\(\{ quote, connected: Boolean\(address\) && onChain, balance: buyBalance, nativeBalance, gasReserve: GAS_RESERVE_WEI, declined: buyDeclined \|\| Boolean\(typedBuy\)/);
+  // an ERC-20 quote's typed buy is checked for native gas too, not only the token balance
+  assert.match(source, /initialBuyRaw && quote\.key !== "eth" && nativeBalance !== undefined && nativeBalance < GAS_RESERVE_WEI/);
+  assert.match(source, /const initialBuy = typedBuy \|\| suggestion\.amount \|\| ""/);
+  // a typed amount is bound to the quote it was typed for, so a chain or quote switch drops it instead of re-reading it as another asset
+  assert.match(source, /const quoteId = `\$\{chain\}:\$\{quote\.address\.toLowerCase\(\)\}`/);
+  assert.match(source, /const typedBuy = typedBuyFor && typedBuyFor\.quoteId === quoteId \? typedBuyFor\.amount : ""/);
+  assert.match(source, /setTypedBuyFor\(\{ amount: v, quoteId \}\)/);
+  assert.match(source, /No first buy/);
+  assert.match(source, /Clear it and the launch stays free/);
   assert.match(source, /Other traders can buy before you/);
   assert.match(source, /First-buy slippage tolerance: \{FIRST_BUY_SLIPPAGE_BPS \/ 100\}%/);
   assert.match(source, /Network gas and pool fees apply/);
