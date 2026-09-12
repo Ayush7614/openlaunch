@@ -1,14 +1,16 @@
 /**
  * Cursor pagination for token comments (pure; unit-tested).
  *
- * GET /api/posts?chain=&token= returned every visible post on the token in
- * one unbounded fetch (server capped at LIMIT 300, no cursor). A viral token
+ * GET /api/posts?chain=&token= previously returned the newest 100 posts with
+ * no cursor (server ceiling 300, route never passed a limit). A viral token
  * pays the full scan on every poll. This owns the query parsing so the route
- * and postsServer share one definition: `limit` (1–100, default 50) and
- * `before` (exclusive id cursor, newest page first).
+ * and postsServer share one definition: `limit` (1–100, default 100 to match
+ * the previous response) and `before` (exclusive id cursor, newest page first).
+ * Callers without params get the same first page as before, plus nextCursor;
+ * clients can now fetch older pages instead of re-scanning everything.
  */
 
-export const TOKEN_POSTS_DEFAULT_LIMIT = 50;
+export const TOKEN_POSTS_DEFAULT_LIMIT = 100;
 export const TOKEN_POSTS_MAX_LIMIT = 100;
 
 export function parseTokenPostsPaging(query: { limit?: unknown; before?: unknown }): { limit: number; beforeId: number | null } {
