@@ -36,20 +36,43 @@ export function draftKey(chain: string, token: string): string {
   return `ol:comment-draft:${chain}:${token.toLowerCase()}`;
 }
 
-export function loadDraft(chain: string, token: string): string {
+/** Composer draft: body plus the reply destination (null = top-level post). */
+export type CommentDraft = { body: string; parentId: number | null };
+
+function cleanParentId(v: unknown): number | null {
+  return typeof v === "number" && Number.isInteger(v) && v > 0 ? v : null;
+}
+
+/** Load the full draft (body + reply target). Understands the new JSON shape and legacy plain-text drafts. */
+export function loadCommentDraft(chain: string, token: string): CommentDraft {
   try {
-    if (typeof localStorage === "undefined") return "";
-    return localStorage.getItem(draftKey(chain, token)) ?? "";
+    if (typeof localStorage === "undefined") return { body: "", parentId: null };
+    const raw = localStorage.getItem(draftKey(chain, token));
+    if (!raw) return { body: "", parentId: null };
+    try {
+      const parsed = JSON.parse(raw) as { body?: unknown; parentId?: unknown };
+      if (parsed && typeof parsed === "object" && typeof parsed.body === "string") {
+        return { body: parsed.body, parentId: cleanParentId(parsed.parentId) };
+      }
+    } catch {
+      /* legacy plain-text draft falls through */
+    }
+    return { body: raw, parentId: null };
   } catch {
-    return "";
+    return { body: "", parentId: null };
   }
 }
 
-export function saveDraft(chain: string, token: string, body: string): void {
+export function loadDraft(chain: string, token: string): string {
+  return loadCommentDraft(chain, token).body;
+}
+
+export function saveDraft(chain: string, token: string, body: string, parentId: number | null = null): void {
   try {
     if (typeof localStorage === "undefined") return;
-    if (!body) localStorage.removeItem(draftKey(chain, token));
-    else localStorage.setItem(draftKey(chain, token), body.slice(0, 2000));
+    const pid = cleanParentId(parentId);
+    if (!body && pid === null) localStorage.removeItem(draftKey(chain, token));
+    else localStorage.setItem(draftKey(chain, token), JSON.stringify({ body: body.slice(0, 2000), parentId: pid }));
   } catch {
     /* storage blocked: the in-memory textarea state is what survives */
   }

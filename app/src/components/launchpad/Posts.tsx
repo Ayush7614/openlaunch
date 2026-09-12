@@ -10,7 +10,7 @@ import { useLive } from "./LiveProvider";
 import { toast } from "./TxToasts";
 import { btn } from "@/components/ui";
 import { buildModMessage, buildPostMessage, buildReportMessage, POST_MAX, REPORT_REASONS, validateBody, type ReportReason } from "@/lib/launchpad/posts";
-import { COMMENTS_PAGE, clearDraft, groupReplies, loadDraft, saveDraft, visibleTopIds } from "@/lib/launchpad/post-threads";
+import { COMMENTS_PAGE, clearDraft, groupReplies, loadCommentDraft, saveDraft, visibleTopIds } from "@/lib/launchpad/post-threads";
 import type { PostRow } from "@/lib/launchpad/postsServer";
 import { ago, nowMs } from "@/lib/launchpad/time";
 import { CHAINS, CHAIN_SHORT, shortAddr, type ChainKey } from "@/lib/chainPublic";
@@ -56,9 +56,13 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
   // Draft restores async after hydration so server and client render the same empty composer first.
   // The loaded value is always assigned (even when empty) so text typed for one
   // token can never leak into — and be submitted from — another token's composer.
+  // The reply destination restores with the body: otherwise a reload turns a
+  // reply draft into a top-level post (parentId: null).
   useEffect(() => {
     const t = setTimeout(() => {
-      setBody(loadDraft(chain, token).slice(0, POST_MAX));
+      const d = loadCommentDraft(chain, token);
+      setBody(d.body.slice(0, POST_MAX));
+      setReplyTo(d.parentId);
       setShownCount(COMMENTS_PAGE);
     }, 0);
     return () => clearTimeout(t);
@@ -97,6 +101,13 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
     [subscribe, chain, token, load],
   );
 
+  // A restored reply target may be gone (hidden, deleted, or another token's
+  // id). Derive the effective target during render so the draft posts
+  // top-level instead of 404ing — no set-state-in-effect, no flash of a stale
+  // "Replying to #". Before posts load we assume the target exists.
+  const replyMissing = replyTo !== null && posts.length > 0 && !posts.some((p) => p.id === replyTo);
+  const effectiveReplyTo = replyMissing ? null : replyTo;
+
   async function submit() {
     if (!address) return;
     const v = validateBody(body);
@@ -104,14 +115,16 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
       setErr(v.error);
       return;
     }
+    // Re-derive here: posts may have changed since the last render.
+    const target = replyTo !== null && posts.length > 0 && !posts.some((p) => p.id === replyTo) ? null : replyTo;
     setBusy(true);
     setErr(null);
     try {
       const n = nonce();
       const ts = nowMs();
-      const message = buildPostMessage({ chain, token, wallet: address, nonce: n, ts, parentId: replyTo, body: v.body });
+      const message = buildPostMessage({ chain, token, wallet: address, nonce: n, ts, parentId: target, body: v.body });
       const { signature } = await signed(config, chain, message);
-      const res = await fetch("/api/posts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ chain, token, wallet: address, parentId: replyTo, body: v.body, nonce: n, ts, signature }) });
+      const res = await fetch("/api/posts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ chain, token, wallet: address, parentId: target, body: v.body, nonce: n, ts, signature }) });
       const d = (await res.json()) as { ok?: boolean; post?: PostRow; error?: string };
       if (!res.ok || !d.post) throw new Error(d.error ?? "post rejected");
       setPosts((cur) => [d.post!, ...cur]);
@@ -186,12 +199,16 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
           </div>
         ) : (
           <div className="space-y-2">
-            {replyTo !== null ? (
+            {effectiveReplyTo !== null ? (
               <p className="text-[11px] text-muted">
-                Replying to #{replyTo}{" "}
-                <button type="button" className="underline hover:text-ink" onClick={() => setReplyTo(null)}>
+                Replying to #{effectiveReplyTo}{" "}
+                <button type="button" className="underline hover:text-ink" onClick={() => { setReplyTo(null); saveDraft(chain, token, body, null); }}>
                   cancel
                 </button>
+              </p>
+            ) : replyMissing ? (
+              <p className="text-[11px] text-muted" role="status">
+                The comment you were replying to is gone — posting as a top-level comment.
               </p>
             ) : null}
             <textarea
@@ -199,7 +216,7 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
               onChange={(e) => {
                 const next = e.target.value.slice(0, POST_MAX);
                 setBody(next);
-                saveDraft(chain, token, next);
+                saveDraft(chain, token, next, effectiveReplyTo);
               }}
               placeholder={`Say something about ${symbol}…`}
               aria-label={`Comment about ${symbol}`}
@@ -209,7 +226,7 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
             <div className="flex items-center justify-between gap-3">
               <span id={`comment-count-${chain}`} aria-live="polite" className="text-[11px] text-muted font-mono tnum">{POST_MAX - body.length}</span>
               <button type="button" onClick={() => void submit()} disabled={busy || !body.trim()} className={btn.primarySm}>
-                {busy ? "Sign in wallet…" : replyTo !== null ? "Reply" : "Post"}
+                {busy ? "Sign in wallet…" : effectiveReplyTo !== null ? "Reply" : "Post"}
               </button>
             </div>
             {err ? <p className="text-xs text-down-ink" role="alert">{err}</p> : null}
@@ -223,7 +240,7 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
           const thread = repliesById.get(p.id) ?? [];
           return (
           <li key={p.id} className="px-4 py-3">
-            <PostItem p={p} now={now} canReply={isConnected && !muted} onReply={() => setReplyTo(p.id)} onReport={address && p.wallet !== address.toLowerCase() ? (r) => void report(p, r) : undefined} />
+            <PostItem p={p} now={now} canReply={isConnected && !muted} onReply={() => { setReplyTo(p.id); saveDraft(chain, token, body, p.id); }} onReport={address && p.wallet !== address.toLowerCase() ? (r) => void report(p, r) : undefined} />
             {thread.length ? (
               <ul className="mt-2 ml-6 pl-3 border-l border-line space-y-2">
                 {thread.map((r) => (
