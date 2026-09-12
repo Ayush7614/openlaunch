@@ -234,3 +234,18 @@ test("concurrent callers share one refresh, so an earlier slow attempt cannot ov
   c.advance(ETH_PRICE_TTL_MS + 1);
   assert.equal(await ethUsd({ fetchFn: mockFetch(okBody("2600"), seen), feedFn: feedDown, now: c.now }), 2600, "after the TTL a new refresh runs");
 });
+
+test("a Chainlink round published while Coinbase is failing is accepted, not rejected as future (PR #29)", async () => {
+  resetEthPriceCache();
+  const c = clock();
+  const startS = Math.floor(c.now() / 1000);
+  // Coinbase fails after 5s; the feed round is published 3s after the request
+  // started, so it is 2s old once the fallback runs.
+  const slowDown = async () => {
+    c.advance(5_000);
+    return new Response("x", { status: 503 });
+  };
+  const publishedWhileWaiting = async () => ({ answer: 244134000000n, updatedAt: startS + 3 });
+  assert.equal(await ethUsd({ fetchFn: slowDown, feedFn: publishedWhileWaiting, now: c.now }), 2441.34);
+  assert.equal(ethPriceSource(), "chainlink");
+});
