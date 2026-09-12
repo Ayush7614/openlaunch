@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { clampSlippageBps, formatSlippageBps, getSlippageBps, getSlippageBpsServer, parseSlippageInput, SLIPPAGE_DEFAULT_BPS, SLIPPAGE_MAX_BPS, SLIPPAGE_MIN_BPS, SLIPPAGE_PRESETS_BPS, loadSlippageBps, setSlippageBps, slippageStorageKey, subscribeSlippage } from "./trade-slippage.ts";
+import { clampSlippageBps, formatSlippageBps, getSlippageBps, getSlippageBpsServer, parseSlippageField, parseSlippageInput, SLIPPAGE_DEFAULT_BPS, SLIPPAGE_MAX_BPS, SLIPPAGE_MIN_BPS, SLIPPAGE_PRESETS_BPS, loadSlippageBps, setSlippageBps, slippageStorageKey, subscribeSlippage } from "./trade-slippage.ts";
 
 test("presets include the old 1% default", () => {
   assert.ok(SLIPPAGE_PRESETS_BPS.includes(SLIPPAGE_DEFAULT_BPS));
@@ -25,6 +25,21 @@ test("parseSlippageInput takes percent strings, rejects junk", () => {
   assert.equal(parseSlippageInput("3%"), 300);
   assert.equal(parseSlippageInput(" 2.5 % "), 250);
   for (const bad of ["", "  ", "0", "0.01", "0.09", "-1", "abc", "1%%", "21", "100"]) assert.equal(parseSlippageInput(bad), null, `${JSON.stringify(bad)} rejected`);
+});
+
+test("parseSlippageField validates raw input: comma is a decimal, minus/letters are rejected (PR #30)", () => {
+  assert.equal(parseSlippageField("0.5"), 50);
+  assert.equal(parseSlippageField("0,5"), 50, "decimal comma (mobile keyboards) normalizes to a dot");
+  assert.equal(parseSlippageField("0,5%"), 50);
+  assert.equal(parseSlippageField("1"), 100);
+  assert.equal(parseSlippageField("-3"), null, "minus must not strip into a valid tolerance");
+  assert.equal(parseSlippageField("0,5".replace(".", ",")), 50);
+  for (const bad of ["0,5x", "a1", "1a", "--3", ""]) {
+    if (bad === "") { assert.equal(parseSlippageField(bad), null); continue; }
+    assert.equal(parseSlippageField(bad), null, `${JSON.stringify(bad)} keeps the previous tolerance`);
+  }
+  // The old handler stripped to "05" (5%); the field parser must not do that.
+  assert.notEqual(parseSlippageField("0,5"), 500);
 });
 
 test("formatSlippageBps trims cleanly", () => {
