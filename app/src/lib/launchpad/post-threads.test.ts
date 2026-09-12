@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { COMMENTS_PAGE, clearDraft, draftKey, groupReplies, loadDraft, saveDraft, visibleTopIds } from "./post-threads.ts";
+import { COMMENTS_PAGE, clearDraft, draftKey, groupReplies, loadCommentDraft, loadDraft, saveDraft, visibleTopIds } from "./post-threads.ts";
 import type { PostRow } from "./postsServer.ts";
 
 const post = (id: number, parent_id: number | null): PostRow => ({ id, chain: "base", token: "0xtoken", wallet: "0xwallet", parent_id, body: `body ${id}`, tag: null, created_at: "2026-01-01T00:00:00.000Z", reports: 0, hidden: false });
@@ -35,4 +35,54 @@ test("draft key is per token and lowercase; node loads empty and saves are no-op
   saveDraft("base", "0xabc", "hello");
   clearDraft("base", "0xabc");
   assert.equal(loadDraft("base", "0xabc"), "", "no localStorage in node: always empty, never throws");
+});
+
+function withMemoryStorage(): Map<string, string> {
+  const store = new Map<string, string>();
+  const g = globalThis as Record<string, unknown>;
+  g.localStorage = {
+    getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
+    setItem: (k: string, v: string) => void store.set(k, String(v)),
+    removeItem: (k: string) => void store.delete(k),
+  };
+  return store;
+}
+
+function withoutStorage(): void {
+  const g = globalThis as Record<string, unknown>;
+  delete g.localStorage;
+}
+
+test("draft restores both a top-level draft and a reply draft (PR #31)", () => {
+  const store = withMemoryStorage();
+  try {
+    saveDraft("base", "0xabc", "top-level hello");
+    assert.deepEqual(loadCommentDraft("base", "0xabc"), { body: "top-level hello", parentId: null });
+    assert.equal(loadDraft("base", "0xabc"), "top-level hello");
+
+    saveDraft("base", "0xabc", "reply hello", 42);
+    assert.deepEqual(loadCommentDraft("base", "0xabc"), { body: "reply hello", parentId: 42 });
+
+    clearDraft("base", "0xabc");
+    assert.deepEqual(loadCommentDraft("base", "0xabc"), { body: "", parentId: null });
+    assert.equal(store.size, 0);
+  } finally {
+    withoutStorage();
+  }
+});
+
+test("draft understands legacy plain-text drafts and rejects bad parent ids", () => {
+  const store = withMemoryStorage();
+  try {
+    store.set(draftKey("base", "0xabc"), "legacy hello");
+    assert.deepEqual(loadCommentDraft("base", "0xabc"), { body: "legacy hello", parentId: null });
+
+    store.set(draftKey("base", "0xabc"), JSON.stringify({ body: "x", parentId: -7 }));
+    assert.deepEqual(loadCommentDraft("base", "0xabc"), { body: "x", parentId: null });
+
+    store.set(draftKey("base", "0xabc"), JSON.stringify({ body: "x", parentId: "42" }));
+    assert.deepEqual(loadCommentDraft("base", "0xabc"), { body: "x", parentId: null });
+  } finally {
+    withoutStorage();
+  }
 });
