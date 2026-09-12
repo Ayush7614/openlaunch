@@ -15,7 +15,7 @@ import { fmtCompact, fmtQuoteUnits, fmtUsd, minOut, units, pipsToPct } from "@/l
 import { encodeV4ExactInSingle, type PoolKey } from "@/lib/launchpad/swap";
 import { CHAINS, CHAIN_LABELS, BUILDER_DATA_SUFFIX, explorerTx, type ChainKey } from "@/lib/chainPublic";
 import { tradeQuoteKey } from "@/lib/launchpad/token-market";
-import { SLIPPAGE_PRESETS_BPS, formatSlippageBps, getSlippageBps, getSlippageBpsServer, parseSlippageInput, setSlippageBps, subscribeSlippage } from "@/lib/launchpad/trade-slippage";
+import { SLIPPAGE_PRESETS_BPS, formatSlippageBps, getSlippageBps, getSlippageBpsServer, parseSlippageField, setSlippageBps, subscribeSlippage } from "@/lib/launchpad/trade-slippage";
 import { friendlyError } from "@/lib/errors";
 import { Spinner } from "@/components/Skeleton";
 import ConnectWallet from "@/components/ConnectWallet";
@@ -114,12 +114,15 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
     if (!address || amountIn === null || !quote_ || quote_.forKey !== quoteKey || busy || insufficient || transactionLock.current) return;
     // Lock before the first await, including wallet lookup and RPC preflight.
     transactionLock.current = true;
+    // Capture the tolerance for this transaction: minOut and the error text
+    // must agree even if the user picks another preset mid-flight.
+    const tradeSlippageBps = slippageBps;
     setPhase({ k: "preparing" });
     try {
       if (!onChain) await switchChainAsync({ chainId: CHAIN.id });
       const pub = getPublicClient(config, { chainId: CHAIN.id })!;
       const wallet = await getWalletClient(config, { chainId: CHAIN.id });
-      const min = minOut(quote_.out, slippageBps);
+      const min = minOut(quote_.out, tradeSlippageBps);
 
       // Whatever ERC20 we are paying with (the token on a sell, an ERC20 quote on a buy) goes through Permit2.
       const payToken: Address | null = side === "sell" ? token : isNative ? null : quote.address;
@@ -172,7 +175,7 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
       onTraded?.();
       router.refresh();
     } catch (err) {
-      setPhase({ k: "error", message: friendlyError(err) });
+      setPhase({ k: "error", message: friendlyError(err, { slippagePct: tradeSlippageBps / 100 }) });
     } finally {
       transactionLock.current = false;
     }
@@ -237,9 +240,9 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
                 className="h-7 w-16 rounded-md border border-line bg-transparent px-1.5 pr-5 text-right font-mono text-[11px] text-ink tnum outline-offset-2 placeholder:text-faint disabled:opacity-40"
                 value={slippageInput ?? String(slippageBps / 100)}
                 onChange={(e) => {
-                  const raw = e.target.value.replace(/[^0-9.%]/g, "");
+                  const raw = e.target.value;
                   setSlippageInput(raw);
-                  const parsed = parseSlippageInput(raw);
+                  const parsed = parseSlippageField(raw);
                   if (parsed === null) { setSlippageError(raw.trim() === "" ? null : "0.1–20%"); return; }
                   setSlippageError(null);
                   setSlippageBps(chain, parsed);

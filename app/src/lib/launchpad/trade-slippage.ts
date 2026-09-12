@@ -36,6 +36,23 @@ export function parseSlippageInput(raw: string): number | null {
   return clampSlippageBps(Math.round(pct * 100));
 }
 
+/**
+ * Validate the raw field value before stripping characters (PR #30).
+ *
+ * The input handler used to `replace(/[^0-9.%]/g, "")` first, so pasting
+ * `0,5` became `05` (5% instead of 0.5%) and `-3` became `3`. This validates
+ * the raw text: a leading `-` or any letter is rejected (caller keeps the
+ * previous tolerance), while a decimal comma (common on mobile keyboards) is
+ * normalized to a dot. Covered by unit tests since parser-only tests bypass
+ * the input transformation.
+ */
+export function parseSlippageField(raw: string): number | null {
+  if (raw.includes("-")) return null;
+  const normalized = raw.replace(/,/g, ".");
+  if (/[^0-9.%\s]/.test(normalized)) return null;
+  return parseSlippageInput(normalized);
+}
+
 /** "1%" / "0.5%" for labels. */
 export function formatSlippageBps(bps: number): string {
   const pct = bps / 100;
