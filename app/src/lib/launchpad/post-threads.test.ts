@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { COMMENTS_PAGE, clearDraft, draftKey, groupReplies, loadCommentDraft, loadDraft, saveDraft, visibleTopIds } from "./post-threads.ts";
+import { COMMENTS_PAGE, clearDraft, draftKey, groupReplies, loadCommentDraft, loadDraft, resolveReplyTarget, saveDraft, visibleTopIds } from "./post-threads.ts";
 import type { PostRow } from "./postsServer.ts";
 
 const post = (id: number, parent_id: number | null): PostRow => ({ id, chain: "base", token: "0xtoken", wallet: "0xwallet", parent_id, body: `body ${id}`, tag: null, created_at: "2026-01-01T00:00:00.000Z", reports: 0, hidden: false });
@@ -85,4 +85,13 @@ test("draft understands legacy plain-text drafts and rejects bad parent ids", ()
   } finally {
     withoutStorage();
   }
+});
+
+test("resolveReplyTarget blocks before first load and falls back on empty/missing parents (PR #31)", () => {
+  assert.deepEqual(resolveReplyTarget(null, [], false), { target: null, pending: false, missing: false }, "top-level never blocks");
+  assert.deepEqual(resolveReplyTarget(null, [], true), { target: null, pending: false, missing: false });
+  assert.deepEqual(resolveReplyTarget(42, [], false), { target: 42, pending: true, missing: false }, "restored reply is pending before validation, never signed");
+  assert.deepEqual(resolveReplyTarget(42, [], true), { target: null, pending: false, missing: true }, "empty loaded list means the parent is gone → top-level");
+  assert.deepEqual(resolveReplyTarget(42, [{ id: 42 }], true), { target: 42, pending: false, missing: false }, "present parent stays a reply");
+  assert.deepEqual(resolveReplyTarget(42, [{ id: 7 }], true), { target: null, pending: false, missing: true }, "hidden/deleted parent falls back instead of 404ing");
 });
