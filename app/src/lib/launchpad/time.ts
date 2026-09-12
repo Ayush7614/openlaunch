@@ -1,6 +1,8 @@
 /** "12s" / "3m" / "5h" / "2d" — shared by server and client components. */
 export function ago(iso: string, now: number): string {
-  const s = Math.max(0, Math.floor((now - new Date(iso).getTime()) / 1000));
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return "0s";
+  const s = Math.max(0, Math.floor((now - t) / 1000));
   if (s < 60) return `${s}s`;
   if (s < 3600) return `${Math.floor(s / 60)}m`;
   if (s < 86400) return `${Math.floor(s / 3600)}h`;
