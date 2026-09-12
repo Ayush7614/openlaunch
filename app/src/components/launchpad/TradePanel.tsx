@@ -114,14 +114,19 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
     if (!address || amountIn === null || !quote_ || quote_.forKey !== quoteKey || busy || insufficient || transactionLock.current) return;
     // Lock before the first await, including wallet lookup and RPC preflight.
     transactionLock.current = true;
-    // Capture the tolerance for this transaction: minOut and the error text
-    // must agree even if the user picks another preset mid-flight.
-    const tradeSlippageBps = slippageBps;
     setPhase({ k: "preparing" });
+    // Declared here so catch can use it; assigned after preflight so the
+    // synchronous lock/preparing prefix stays dependency-free for the safety
+    // harness. Null means preflight failed before the tolerance was read —
+    // those errors are never slippage reverts, so the default applies.
+    let tradeSlippageBps: number | null = null;
     try {
       if (!onChain) await switchChainAsync({ chainId: CHAIN.id });
       const pub = getPublicClient(config, { chainId: CHAIN.id })!;
       const wallet = await getWalletClient(config, { chainId: CHAIN.id });
+      // The closure value is fixed per render, so mid-flight preset picks in a
+      // newer render cannot change this transaction's tolerance either way.
+      tradeSlippageBps = slippageBps;
       const min = minOut(quote_.out, tradeSlippageBps);
 
       // Whatever ERC20 we are paying with (the token on a sell, an ERC20 quote on a buy) goes through Permit2.
@@ -175,7 +180,7 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
       onTraded?.();
       router.refresh();
     } catch (err) {
-      setPhase({ k: "error", message: friendlyError(err, { slippagePct: tradeSlippageBps / 100 }) });
+      setPhase({ k: "error", message: friendlyError(err, tradeSlippageBps !== null ? { slippagePct: tradeSlippageBps / 100 } : {}) });
     } finally {
       transactionLock.current = false;
     }
