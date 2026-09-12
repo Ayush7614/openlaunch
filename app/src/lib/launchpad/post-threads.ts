@@ -86,3 +86,24 @@ export function clearDraft(chain: string, token: string): void {
     /* ignore */
   }
 }
+
+/**
+ * Resolve a restored reply target against the loaded posts (PR #31).
+ *
+ * Draft restoration and the initial posts fetch race: posts starts empty, so
+ * an empty list must not read as "parent missing" before the fetch, nor as
+ * "parent exists" for signing. While !postsLoaded a non-null replyTo is
+ * pending (caller blocks submit instead of signing an unvalidated parent);
+ * after loading, membership decides — even when the list is empty — and a
+ * missing/hidden parent falls back to null (top-level).
+ */
+export function resolveReplyTarget(
+  replyTo: number | null,
+  posts: readonly { id: number }[],
+  postsLoaded: boolean,
+): { target: number | null; pending: boolean; missing: boolean } {
+  if (replyTo === null) return { target: null, pending: false, missing: false };
+  if (!postsLoaded) return { target: replyTo, pending: true, missing: false };
+  if (posts.some((p) => p.id === replyTo)) return { target: replyTo, pending: false, missing: false };
+  return { target: null, pending: false, missing: true };
+}
