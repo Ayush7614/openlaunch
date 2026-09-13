@@ -3,7 +3,7 @@
 import { ArrowUpRight, ChevronDown } from "lucide-react";
 import { useLive } from "./LiveProvider";
 import { GitlawbMark } from "./GitlawbBadge";
-import { fmtQuote, fmtUsd, units } from "@/lib/launchpad/math";
+import { fmtQuote, fmtUnitsExact, fmtUsd } from "@/lib/launchpad/math";
 import { GITLAWB_DECIMALS, GITLAWB_SYMBOL } from "@/lib/launchpad/gitlawb";
 import { BRAND_GITHUB } from "@/lib/brand";
 
@@ -15,7 +15,7 @@ export default function LaunchMechanism() {
   // some quote has no price right now: the dollar sums undercount, so say "≈" instead of showing a confident smaller number
   const usdNote = t.usd_partial ? "Some launches are quoted in an asset with no USD price right now; dollar totals exclude them until it returns." : undefined;
   const usd = (v: number, compact = false) => `${t.usd_partial ? "≈" : ""}${fmtUsd(v, { compact })}`;
-  const gitlawbBurnedExact = `${units(t.gitlawb_burned, GITLAWB_DECIMALS).toLocaleString("en-US", { maximumFractionDigits: 2 })} ${GITLAWB_SYMBOL}`;
+  const gitlawbBurnedExact = `${fmtUnitsExact(t.gitlawb_burned, GITLAWB_DECIMALS)} ${GITLAWB_SYMBOL}`; // every digit of the raw amount, no float
   return <div className="border-t border-line pt-4">
     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
       <span className="text-[11px] text-muted">Open by design. Free by construction.</span>

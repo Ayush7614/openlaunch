@@ -37,6 +37,7 @@ test("hero metrics preserve shared live totals without inventing per-chain dolla
   // the GITLAWB burn: a GITLAWB amount (compact, exact in the title), never a USD figure, no per-chain split, behind the breakdown toggle
   assert.match(metrics, /fmtQuote\(t\.gitlawb_burned, GITLAWB_DECIMALS, GITLAWB_SYMBOL\)/);
   assert.match(metrics, /title=\{gitlawbBurnedExact\}/);
+  assert.match(metrics, /fmtUnitsExact\(t\.gitlawb_burned, GITLAWB_DECIMALS\)/, "the title carries every digit of the raw amount (no float, no rounding)");
   assert.doesNotMatch(metrics, /fmtUsd\([^)]*gitlawb/i, "the GITLAWB burn is never priced in USD");
   assert.doesNotMatch(metrics, /by_chain\.\w+\.gitlawb_burned/, "no per-chain split for the GITLAWB burn");
   const details = metrics.indexOf("<details");
