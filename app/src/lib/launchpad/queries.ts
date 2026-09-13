@@ -434,7 +434,7 @@ export async function searchLaunches(q: string, opts: { chain?: ChainKey | null;
     // "_" matches those literal characters, not every row. Pre-limit orders by
     // block time — never raw block numbers across chains (Base heights dwarf
     // Robinhood's, so the old ORDER BY hid exact matches on the low chain).
-    : await db<Raw[]>`${db.unsafe(SELECT)} WHERE (l.name ILIKE ${"%" + escapeLike(n) + "%"} ESCAPE '\' OR l.symbol ILIKE ${"%" + escapeLike(n) + "%"} ESCAPE '\') ${chainCond} ORDER BY l.block_time DESC, l.chain_id DESC, l.block_number DESC LIMIT 200`;
+    : await db<Raw[]>`${db.unsafe(SELECT)} WHERE (l.name ILIKE ${"%" + escapeLike(n) + "%"} ESCAPE '\\' OR l.symbol ILIKE ${"%" + escapeLike(n) + "%"} ESCAPE '\\') ${chainCond} ORDER BY l.block_time DESC, l.chain_id DESC, l.block_number DESC LIMIT 200`;
   const shaped = rows.map((r) => shape(r, opts.ethUsd ?? null));
   shaped.sort((a, b) => compareSearchHit(a, b, n));
   return shaped.slice(0, limit);
