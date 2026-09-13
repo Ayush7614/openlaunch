@@ -8,6 +8,7 @@ import { isAddress, maxUint160, maxUint256, parseEventLogs, parseUnits, zeroAddr
 import TokenAvatar from "./TokenAvatar";
 import ImageUpload from "./ImageUpload";
 import FeeChip from "./FeeChip";
+import LaunchFeeSettings, { type FeeBeneficiary } from "./LaunchFeeSettings";
 import GitlawbBadge from "./GitlawbBadge";
 import { toast } from "./TxToasts";
 import { btn, card, helper, input, label } from "@/components/ui";
@@ -19,7 +20,7 @@ import { BUY_PRESETS, defaultFirstBuy, suggestFirstBuy } from "@/lib/launchpad/f
 import { getFirstBuyDeclined, getFirstBuyDeclinedServer, setFirstBuyDeclined, subscribeFirstBuyDeclined } from "@/lib/launchpad/first-buy-session";
 import { encodeV4ExactInSingle, type PoolKey } from "@/lib/launchpad/swap";
 import { GITLAWB_SITE } from "@/lib/launchpad/gitlawb";
-import { CHAINS, CHAIN_LABELS, CHAIN_KEYS, BUILDER_DATA_SUFFIX, explorerTx, shortAddr, type ChainKey } from "@/lib/chainPublic";
+import { CHAINS, CHAIN_LABELS, CHAIN_KEYS, BUILDER_DATA_SUFFIX, explorerTx, type ChainKey } from "@/lib/chainPublic";
 import { friendlyError } from "@/lib/errors";
 import { Spinner } from "@/components/Skeleton";
 import { startNav } from "@/components/RouteProgress";
@@ -42,8 +43,6 @@ type Phase =
   | { k: "indexing"; hash: Hex }
   | { k: "done"; hash: Hex; token: string }
   | { k: "error"; message: string };
-
-type Beneficiary = "burn" | "me" | "custom";
 
 const FIRST_BUY_SLIPPAGE_BPS = 300; // Other buyers can trade between the launch and this separate buy.
 const PERMIT_EXPIRY_S = 30 * 24 * 3600;
@@ -184,7 +183,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
   const [mcapPick, setMcapPick] = useState<number | null>(null);
   const [customMcap, setCustomMcap] = useState("");
   const [feePips, setFeePips] = useState<number>(0);
-  const [beneficiary, setBeneficiary] = useState<Beneficiary>("burn");
+  const [beneficiary, setBeneficiary] = useState<FeeBeneficiary>("burn");
   const [customAddr, setCustomAddr] = useState("");
   // First buy: what the creator typed, or the suggestion (lib/launchpad/first-buy.ts) unless they cleared it.
   // A typed amount is bound to the quote it was typed for: switching chain or quote must not carry "25" USDG over as 25 ETH.
@@ -222,6 +221,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
   const cap = (v: number) => capDisplay(v, quoteUsd, quote);
 
   const onChain = chainId === CHAIN.id;
+  // Normalize for the preview and launch payload, never the live IME composition.
   const symbolClean = symbol.trim().toUpperCase();
   // Balances, read as soon as a wallet is connected so the suggestion can be decided: the native balance always (it pays
   // the buy's gas, and the approvals an ERC-20 quote needs first), plus the quote token's balance for an ERC-20 quote.
@@ -238,7 +238,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
   const initialBuyRaw = parseBuyAmount(initialBuy, quote.decimals);
   const errors: string[] = [];
   if (name.trim().length === 0 || name.trim().length > 32) errors.push("Name: 1–32 characters.");
-  if (!/^[A-Z0-9]{1,10}$/.test(symbolClean)) errors.push("Symbol: 1–10 letters or digits.");
+  if (!/^[A-Z0-9]{1,10}$/.test(symbolClean)) errors.push("Symbol: use 1–10 English letters (A–Z) or digits (0–9).");
   if (startTick === null) errors.push("Starting market cap must be a positive number.");
   if (quoteKey === "stock" && !stock) errors.push(STOCK_PICK_MESSAGE);
   if (quoteKey === "gitlawb" && quote.usd === null && !customMcap.trim() && startTick === null) errors.push("GITLAWB price unavailable right now: enter a custom starting market cap in GITLAWB, or reload.");
@@ -410,7 +410,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
                   aria-pressed={active}
                 >
                   <div className={`font-semibold text-sm ${active ? "text-brand" : "text-ink"}`}>{CHAIN_LABELS[k]}</div>
-                  <div className="text-xs text-body mt-0.5 leading-snug">{k === "base" ? "Priced in ETH, GITLAWB or a Coinbase tokenized stock. Gas ≈ cents." : ok ? "Priced in USDG (dollars), ETH, GITLAWB or a Robinhood Stock Token. Gas ≈ cents." : "Coming soon."}</div>
+                  <div className="text-xs text-body mt-0.5 leading-snug">{!ok ? "Not configured here. Contract settings are missing in this environment." : k === "base" ? "Priced in ETH, GITLAWB or a Coinbase tokenized stock. Gas ≈ cents." : "Priced in USDG (dollars), ETH, GITLAWB or a Robinhood Stock Token. Gas ≈ cents."}</div>
                 </button>
               );
             })}
@@ -552,7 +552,26 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
               <label className={label} htmlFor="symbol">
                 Symbol
               </label>
-              <input id="symbol" className={`${input} font-mono uppercase`} value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} placeholder="SKY" maxLength={10} autoComplete="off" />
+              <input
+                id="symbol"
+                className={`${input} font-mono`}
+                value={symbol}
+                onChange={(e) => setSymbol(e.target.value)}
+                onKeyDown={(e) => {
+                  // Some IMEs end composition before the confirming Enter keydown.
+                  if (e.key === "Enter" && (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229)) e.preventDefault();
+                }}
+                placeholder="SKY"
+                autoComplete="off"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                aria-describedby="symbol-help"
+                aria-invalid={Boolean(symbol) && !/^[A-Z0-9]{1,10}$/.test(symbolClean)}
+              />
+              <p id="symbol-help" className={`${helper} mt-2`}>
+                1–10 English letters (A–Z) or digits (0–9), published in uppercase. Your token name can use other languages.
+              </p>
             </div>
           </div>
           <div>
@@ -629,67 +648,15 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
         </section>
 
         {/* fees */}
-        <section className={`${card} p-5 space-y-4`}>
-          <div className="flex items-baseline justify-between gap-3 flex-wrap">
-            <h2 className="text-sm font-semibold text-ink">Trading fee</h2>
-            <span className="text-xs text-up font-medium">Platform fee: 0, always</span>
-          </div>
-          <div className="grid sm:grid-cols-3 gap-2">
-            {FEE_PRESETS.map((f) => {
-              const active = feePips === f.pips;
-              return (
-                <button
-                  type="button"
-                  key={f.pips}
-                  onClick={() => {
-                    setFeePips(f.pips);
-                    if (f.pips === 0) setBeneficiary("burn");
-                  }}
-                  className={`text-left rounded-xl border p-3.5 transition-colors ${active ? "border-brand bg-brand-soft" : "border-line-strong bg-card hover:border-ink/40"}`}
-                  aria-pressed={active}
-                >
-                  <div className={`font-mono font-bold text-lg tnum ${active ? "text-brand" : "text-ink"}`}>{f.label}</div>
-                  <div className="text-xs text-body mt-0.5 leading-snug">{f.blurb}</div>
-                </button>
-              );
-            })}
-          </div>
-
-          {feePips > 0 ? (
-            <div className="space-y-3 pt-1">
-              <p className={label}>Who receives the fee?</p>
-              <div className="grid sm:grid-cols-3 gap-2">
-                {(
-                  [
-                    { k: "burn", t: "Burn it", d: "No beneficiary. Every fee is sent to 0x…dEaD at collect time." },
-                    { k: "me", t: "Me", d: address ? shortAddr(address) : "The connected wallet." },
-                    { k: "custom", t: "Someone else", d: "Any address: a friend, a charity, a DAO." },
-                  ] as { k: Beneficiary; t: string; d: string }[]
-                ).map((o) => {
-                  const active = beneficiary === o.k;
-                  return (
-                    <button
-                      type="button"
-                      key={o.k}
-                      onClick={() => setBeneficiary(o.k)}
-                      className={`text-left rounded-xl border p-3.5 transition-colors ${active ? "border-brand bg-brand-soft" : "border-line-strong bg-card hover:border-ink/40"}`}
-                      aria-pressed={active}
-                    >
-                      <div className={`font-semibold text-sm ${active ? "text-brand" : "text-ink"}`}>{o.t}</div>
-                      <div className="text-xs text-body mt-0.5 leading-snug">{o.d}</div>
-                    </button>
-                  );
-                })}
-              </div>
-              {beneficiary === "custom" ? (
-                <input className={`${input} font-mono`} value={customAddr} onChange={(e) => setCustomAddr(e.target.value.trim())} placeholder="0x…" aria-label="beneficiary address" />
-              ) : null}
-              <p className={helper}>Fixed forever at launch. Not even you can change it later. That&apos;s the point.</p>
-            </div>
-          ) : (
-            <p className={helper}>A 0% pool: trades cost only Uniswap gas. Nobody, including you, earns from volume.</p>
-          )}
-        </section>
+        <LaunchFeeSettings
+          feePips={feePips}
+          beneficiary={beneficiary}
+          address={address}
+          customAddress={customAddr}
+          onFeeChange={setFeePips}
+          onBeneficiaryChange={setBeneficiary}
+          onCustomAddressChange={setCustomAddr}
+        />
 
         {/* submit */}
         <section className={`${card} p-5 space-y-4`}>
@@ -731,7 +698,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
           </div>
           {buyPreview ? (
             <p className="text-sm text-body">
-              Estimated buy: about <span className="font-mono font-bold text-ink tnum">{fmtCompact(buyPreview.tokensOut, 0)}</span> {symbolClean || "tokens"}{" "}
+              Estimated buy: about <span className="font-mono font-bold text-ink tnum">{fmtCompact(buyPreview.tokensOut, 0)}</span> <span className="break-all">{symbolClean || "tokens"}</span>{" "}
               <span className="font-mono text-muted tnum">({fmtPct(buyPreview.pctOfSupply)} of supply{buyUsd ? ` · ≈ ${fmtUsd(buyUsd)}` : ""})</span>. Estimated market cap after your buy:{" "}
               <span className="font-mono font-bold text-ink tnum">{cap(buyPreview.fdvAfter).main}</span><span className="font-mono text-muted tnum"> · {cap(buyPreview.fdvAfter).detail}</span>. Includes price impact and the pool fee; the exact amount is quoted on-chain right before the buy.
             </p>
@@ -791,7 +758,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
             <TokenAvatar chain={chain} token={`0x${symbolClean || "token"}`} symbol={symbolClean || "?"} image={/^https:\/\//.test(image.trim()) ? image.trim() : null} size={48} />
             <div className="min-w-0">
               <div className="font-semibold text-ink truncate">{name.trim() || "Your token"}</div>
-              <div className="font-mono text-xs text-muted">{symbolClean || "TICKER"}</div>
+              <div className="font-mono text-xs text-muted truncate">{symbolClean || "TICKER"}</div>
             </div>
             <div className="ml-auto flex items-center gap-1.5">
               {quote.key === "gitlawb" ? <GitlawbBadge size="md" /> : null}
