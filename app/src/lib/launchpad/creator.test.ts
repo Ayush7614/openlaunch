@@ -64,6 +64,7 @@ test("share card shaping", () => {
   assert.deepEqual(shapeCard({ name: "Lawb Fan", symbol: "LAWB", chain: "base", fdv_usd: 9800, fdv_quote: 580_000_000, quote_key: "gitlawb", quote_symbol: "GITLAWB", change_from_launch: 0, lp_fee: 10000, recipients: [], block_time: "2026-09-06T09:30:00Z" }, now).quote, { symbol: "GITLAWB", ticker: "GL", kind: "gitlawb" }, "GITLAWB quotes get the Gitlawb mark");
   assert.equal(feeLabel(0, []), "0% fee");
   assert.equal(feeLabel(30000, [{ payout: "0x1", bps: 10000 }]), "3% fee → beneficiary");
+  assert.equal(feeLabel(10000, [{ payout: "0x1", bps: 6000 }, { payout: "0x2", bps: 4000 }]), "1% fee → beneficiaries");
   assert.equal(ageLabel("2026-09-06T11:59:30Z", now), "1m old");
   assert.equal(shapeCard({ name: "X", symbol: "X", chain: "base", fdv_usd: null, fdv_quote: 2.5, quote_key: "eth", quote_symbol: "ETH", change_from_launch: -0.5, lp_fee: 0, recipients: [], block_time: "2026-09-01T00:00:00Z" }, now).mcap, "2.50 ETH");
 });
