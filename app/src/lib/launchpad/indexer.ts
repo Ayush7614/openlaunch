@@ -179,23 +179,26 @@ async function applyFeeIn(db: Db, chain: ChainKey, cid: number, time: string, lo
   }
   if (log.eventName === "Burned") {
     const info = tokenIdToToken.get(log.args.tokenId.toString());
+    // Unknown position = the launch itself is not indexed yet (receipt path racing the poller). Inserting now would
+    // pin the row with token NULL and skip the launch totals for good (the poller's later pass hits ON CONFLICT and
+    // the rebuild script joins on token), so leave it for the poller, which indexes the launch first.
+    if (!info) return false;
     const cur = log.args.currency.toLowerCase();
     const r = await db`
       INSERT INTO bb_launch_fee_events (chain_id, tx_hash, log_index, kind, token_id, token, currency, amount, block_number, block_time)
-      VALUES (${cid}, ${tx}, ${li}, 'burned', ${log.args.tokenId}, ${info?.token ?? null}, ${cur}, ${log.args.amount.toString()}, ${bn}, ${time})
+      VALUES (${cid}, ${tx}, ${li}, 'burned', ${log.args.tokenId}, ${info.token}, ${cur}, ${log.args.amount.toString()}, ${bn}, ${time})
       ON CONFLICT DO NOTHING RETURNING tx_hash`;
     if (r.length === 0) return false;
-    if (info) {
-      if (cur === info.quote) await db`UPDATE bb_launches SET fees_quote_burned = fees_quote_burned + ${log.args.amount.toString()}::numeric WHERE chain_id = ${cid} AND token = ${info.token}`;
-      else await db`UPDATE bb_launches SET fees_token_burned = fees_token_burned + ${log.args.amount.toString()}::numeric WHERE chain_id = ${cid} AND token = ${info.token}`;
-    }
+    if (cur === info.quote) await db`UPDATE bb_launches SET fees_quote_burned = fees_quote_burned + ${log.args.amount.toString()}::numeric WHERE chain_id = ${cid} AND token = ${info.token}`;
+    else await db`UPDATE bb_launches SET fees_token_burned = fees_token_burned + ${log.args.amount.toString()}::numeric WHERE chain_id = ${cid} AND token = ${info.token}`;
     return true;
   }
   if (log.eventName === "Paid") {
     const info = tokenIdToToken.get(log.args.tokenId.toString());
+    if (!info) return false; // same as Burned: the poller fills it in once the launch is indexed
     const r = await db`
       INSERT INTO bb_launch_fee_events (chain_id, tx_hash, log_index, kind, token_id, token, currency, account, amount, block_number, block_time)
-      VALUES (${cid}, ${tx}, ${li}, 'paid', ${log.args.tokenId}, ${info?.token ?? null}, ${log.args.currency.toLowerCase()}, ${log.args.account.toLowerCase()}, ${log.args.amount.toString()}, ${bn}, ${time})
+      VALUES (${cid}, ${tx}, ${li}, 'paid', ${log.args.tokenId}, ${info.token}, ${log.args.currency.toLowerCase()}, ${log.args.account.toLowerCase()}, ${log.args.amount.toString()}, ${bn}, ${time})
       ON CONFLICT DO NOTHING RETURNING tx_hash`;
     return r.length > 0;
   }
