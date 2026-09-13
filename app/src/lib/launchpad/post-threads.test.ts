@@ -87,11 +87,22 @@ test("draft understands legacy plain-text drafts and rejects bad parent ids", ()
   }
 });
 
-test("resolveReplyTarget blocks before first load and falls back on empty/missing parents (PR #31)", () => {
+test("resolveReplyTarget blocks before first load and preserves reply when posts window is truncated (PR #31)", () => {
   assert.deepEqual(resolveReplyTarget(null, [], false), { target: null, pending: false, missing: false }, "top-level never blocks");
   assert.deepEqual(resolveReplyTarget(null, [], true), { target: null, pending: false, missing: false });
   assert.deepEqual(resolveReplyTarget(42, [], false), { target: 42, pending: true, missing: false }, "restored reply is pending before validation, never signed");
-  assert.deepEqual(resolveReplyTarget(42, [], true), { target: null, pending: false, missing: true }, "empty loaded list means the parent is gone → top-level");
+  // After a successful load the posts window is truncated (latest 100). Absence there is not proof the parent was deleted.
+  assert.deepEqual(resolveReplyTarget(42, [], true), { target: 42, pending: false, missing: false }, "empty window is not proof parent is gone — preserve");
   assert.deepEqual(resolveReplyTarget(42, [{ id: 42 }], true), { target: 42, pending: false, missing: false }, "present parent stays a reply");
-  assert.deepEqual(resolveReplyTarget(42, [{ id: 7 }], true), { target: null, pending: false, missing: true }, "hidden/deleted parent falls back instead of 404ing");
+  assert.deepEqual(resolveReplyTarget(42, [{ id: 7 }], true), { target: 42, pending: false, missing: false }, "parent not in truncated window preserves target");
+});
+
+test("resolveReplyTarget preserves valid parent outside returned window (PR #31 regression)", () => {
+  // Saved reply to 100, response contains only 200..101 — parent still exists but is outside the window.
+  const window = Array.from({ length: 100 }, (_, i) => ({ id: 200 - i }));
+  assert.equal(window.some((p) => p.id === 100), false, "100 is outside the latest-100 window");
+  assert.deepEqual(resolveReplyTarget(100, window, true), { target: 100, pending: false, missing: false }, "valid parent outside window must not become top-level");
+  // Before validation (postsLoaded false) the same draft stays pending even on failure (503 / network rejection) — no silent fallback
+  assert.deepEqual(resolveReplyTarget(100, [], false), { target: 100, pending: true, missing: false }, "failed/no-load keeps pending so draft isn't lost");
+  assert.deepEqual(resolveReplyTarget(100, window, false), { target: 100, pending: true, missing: false });
 });

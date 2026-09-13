@@ -93,9 +93,13 @@ export function clearDraft(chain: string, token: string): void {
  * Draft restoration and the initial posts fetch race: posts starts empty, so
  * an empty list must not read as "parent missing" before the fetch, nor as
  * "parent exists" for signing. While !postsLoaded a non-null replyTo is
- * pending (caller blocks submit instead of signing an unvalidated parent);
- * after loading, membership decides — even when the list is empty — and a
- * missing/hidden parent falls back to null (top-level).
+ * pending (caller blocks submit instead of signing an unvalidated parent).
+ *
+ * After loading the posts window is truncated (latest 100 rows). Absence in
+ * that window is not authoritative evidence the parent was deleted/hidden, so
+ * we preserve the saved destination and let the server reject it if truly gone.
+ * No silent top-level fallback — the user keeps their intended reply target
+ * unless we have checked it authoritatively.
  */
 export function resolveReplyTarget(
   replyTo: number | null,
@@ -104,6 +108,8 @@ export function resolveReplyTarget(
 ): { target: number | null; pending: boolean; missing: boolean } {
   if (replyTo === null) return { target: null, pending: false, missing: false };
   if (!postsLoaded) return { target: replyTo, pending: true, missing: false };
-  if (posts.some((p) => p.id === replyTo)) return { target: replyTo, pending: false, missing: false };
-  return { target: null, pending: false, missing: true };
+  // Window is truncated: missing from the latest 100 does not mean deleted.
+  // Preserve the target; server will return 404 if truly gone and the UI will
+  // surface that error instead of silently changing the destination.
+  return { target: replyTo, pending: false, missing: false };
 }

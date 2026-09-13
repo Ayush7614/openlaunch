@@ -83,13 +83,13 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
       const res = await fetch(`/api/posts?chain=${chain}&token=${token}`, { cache: "no-store" });
       if (!res.ok) return;
       const d = (await res.json()) as { posts: PostRow[]; muted: boolean };
+      if (!Array.isArray(d.posts)) return;
       setPosts(d.posts);
       setMuted(d.muted);
       setNow(nowMs());
-    } catch {
-      /* keep */
-    } finally {
       setPostsLoaded(true);
+    } catch {
+      /* keep postsLoaded false so a restored reply stays pending and the draft isn't lost (503 / network rejection) */
     }
   }, [chain, token]);
 
@@ -111,11 +111,11 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
     [subscribe, chain, token, load],
   );
 
-  // A restored reply target may be gone (hidden, deleted, or another token's
-  // id). Resolve during render so the draft posts top-level instead of 404ing
-  // — no set-state-in-effect. Validation runs only after the first load
-  // settles, even when the loaded list is empty; before that a restored reply
-  // is pending and submit blocks instead of signing an unvalidated parent.
+  // A restored reply target is validated only after the first successful load.
+  // Before that a restored reply is pending and submit blocks instead of signing
+  // an unvalidated parent. After load the truncated posts window (latest 100) is
+  // not authoritative — a missing id there does not mean the parent is gone, so
+  // we preserve the target and let the server decide (no silent top-level fallback).
   const { target: effectiveReplyTo, pending: validationPending, missing: replyMissing } = resolveReplyTarget(replyTo, posts, postsLoaded);
 
   async function submit() {
