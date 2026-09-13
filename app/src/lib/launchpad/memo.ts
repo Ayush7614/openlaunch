@@ -35,7 +35,7 @@ export function memo<T>(key: string, ttlMs: number, fn: () => Promise<T>, now: (
     return hit.value as Promise<T>;
   }
   const value = fn().catch((err) => {
-    store.delete(key);
+    if (store.get(key)?.value === value) store.delete(key);
     throw err;
   });
   if (hit) store.delete(key);
@@ -44,7 +44,7 @@ export function memo<T>(key: string, ttlMs: number, fn: () => Promise<T>, now: (
     // Expired entries first (each judged by its own TTL)…
     for (const [k, v] of store) {
       if (store.size <= MEMO_MAX_KEYS) break;
-      if (t - v.at > v.ttlMs) store.delete(k);
+      if (t - v.at >= v.ttlMs) store.delete(k);
     }
     // …then oldest first. Map preserves insertion order and the key just
     // written is newest, so this never evicts the caller's own entry.
