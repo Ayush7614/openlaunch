@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { b20RpcUrl, rpcUrl } from "@/lib/chain";
 import { responseHasB20Error } from "@/lib/launchpad/baseStocks";
-import { CHAINS, isChainKey } from "@/lib/chainPublic";
+import { CHAINS, DEFAULT_CHAIN, isChainKey } from "@/lib/chainPublic";
 import { arc } from "@/lib/bridge/chains";
 import { upstreamStatus } from "@/lib/rpc-proxy";
 
@@ -63,7 +63,7 @@ function safeJson(text: string): unknown {
 }
 
 export async function POST(req: Request) {
-  const c = new URL(req.url).searchParams.get("chain") ?? "base";
+  const c = new URL(req.url).searchParams.get("chain") ?? DEFAULT_CHAIN;
   // Arc is a bridge-only network: same read allowlist and per-IP bucket, its own
   // upstream (ARC_RPC_URL, else the official public node) so browsers never hit
   // a public RPC directly and the API key stays server-side.

@@ -10,6 +10,25 @@ import { BRIDGE_CHAINS, isBridgeChainId } from "@/lib/bridge/types";
 import WalletAvatar from "./WalletAvatar";
 import styles from "./WalletMenu.module.css";
 
+/** The letter tile beside each network in the switcher; tone "" keeps the brand default. */
+/** Official network marks (app/public/brand). A chain with a dark-mode variant lists both; the CSS swaps them by theme. */
+const NETWORK_LOGOS: Record<ChainKey, { light: string; dark?: string; width: number; height: number }> = {
+  base: { light: "/brand/base.svg", width: 22, height: 22 },
+  robinhood: { light: "/brand/robinhood-black.svg", dark: "/brand/robinhood-white.svg", width: 16, height: 21 },
+};
+
+function NetworkLogo({ chain }: { chain: ChainKey }) {
+  const logo = NETWORK_LOGOS[chain];
+  return (
+    <span className={styles.networkLogo} aria-hidden>
+      {logo.dark ? <>
+        <Image className={styles.lightLogo} src={logo.light} alt="" width={logo.width} height={logo.height} draggable={false} />
+        <Image className={styles.darkLogo} src={logo.dark} alt="" width={logo.width} height={logo.height} draggable={false} />
+      </> : <Image src={logo.light} alt="" width={logo.width} height={logo.height} draggable={false} />}
+    </span>
+  );
+}
+
 type WalletMenuProps = {
   address: string;
   chainId?: number;
@@ -128,12 +147,7 @@ function AccountMenu({ address, chainId, connectorName, block = false, switching
               <div className={styles.networks} role="group" aria-label="Wallet network">
                 {CHAIN_KEYS.map((chain) => (
                   <button type="button" key={chain} className={styles.networkButton} aria-pressed={chain === key} disabled={busy} onClick={() => void runAction(chain)}>
-                    <span className={styles.networkLogo} aria-hidden>
-                      {chain === "base" ? <Image src="/brand/base.svg" alt="" width={22} height={22} draggable={false} /> : <>
-                        <Image className={styles.lightLogo} src="/brand/robinhood-black.svg" alt="" width={16} height={21} draggable={false} />
-                        <Image className={styles.darkLogo} src="/brand/robinhood-white.svg" alt="" width={16} height={21} draggable={false} />
-                      </>}
-                    </span>
+                    <NetworkLogo chain={chain} />
                     <span>{CHAIN_SHORT[chain]}</span>
                     {localBusy === chain ? <span className={styles.pendingDot} aria-label="Switching" /> : chain === key ? <Check size={14} className={styles.networkCheck} aria-hidden /> : null}
                   </button>
