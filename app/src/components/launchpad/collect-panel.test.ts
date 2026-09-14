@@ -32,3 +32,12 @@ test("claim reads and withdraws each currency separately", () => {
   assert.match(source, /onClick=\{\(\) => void send\("claim", c\.currency\)\}/);
   assert.match(source, /functionName: "claim", args: \[currency \?\? quote\.address\]/);
 });
+
+test("pending feedback stays on the button whose transaction was sent", () => {
+  assert.match(source, /\{ k: "sent"; hash: Hex; what: "collect" \| "claim"; currency\?: Address \}/);
+  assert.match(source, /setPhase\(\{ k: "sent", hash, what, currency \}\)/);
+  // a claim in flight must not show "Confirming…" on Collect, and vice versa
+  assert.match(source, /phase\.k === "sent" && phase\.what === "collect" \? <><Spinner size=\{13\} \/> Confirming…/);
+  assert.match(source, /phase\.k === "sent" && phase\.what === "claim" && phase\.currency === c\.currency \? <><Spinner size=\{13\} \/> Confirming…/);
+  assert.doesNotMatch(source, /: phase\.k === "sent" \? <><Spinner/);
+});

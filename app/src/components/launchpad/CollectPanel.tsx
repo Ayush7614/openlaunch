@@ -58,7 +58,7 @@ export default function CollectPanel({
   const CHAIN = CHAINS[chain];
   const LOCKER_ADDRESS = launchpad(chain).locker;
   const quoteUsd = quoteUsdOf(quote, ethUsd);
-  const [phase, setPhase] = useState<{ k: "idle" } | { k: "busy"; what: "collect" | "claim"; currency?: Address } | { k: "sent"; hash: Hex } | { k: "error"; message: string }>({ k: "idle" });
+  const [phase, setPhase] = useState<{ k: "idle" } | { k: "busy"; what: "collect" | "claim"; currency?: Address } | { k: "sent"; hash: Hex; what: "collect" | "claim"; currency?: Address } | { k: "error"; message: string }>({ k: "idle" });
 
   // Credited balances on both sides: [quote, launched token].
   const mine = useReadContracts({
@@ -98,7 +98,7 @@ export default function CollectPanel({
         const { request } = await pub.simulateContract({ address: LOCKER_ADDRESS, abi: LAUNCH_LOCKER_ABI, functionName: "claim", args: [currency ?? quote.address], account: address, dataSuffix: BUILDER_DATA_SUFFIX });
         hash = await wallet.writeContract(request);
       }
-      setPhase({ k: "sent", hash });
+      setPhase({ k: "sent", hash, what, currency });
       const receipt = await pub.waitForTransactionReceipt({ hash });
       if (receipt.status !== "success") throw new Error("Transaction reverted on-chain.");
       await fetch(`/api/launch/sync?chain=${chain}&tx=${hash}`, { method: "POST" }).catch(() => {});
@@ -178,11 +178,11 @@ export default function CollectPanel({
           </dl>
           <div className="flex flex-wrap gap-2 pt-1">
             <button type="button" onClick={() => void send("collect")} disabled={busy || !address || !onChain} className={`${btn.secondarySm} flex-1`}>
-              {phase.k === "busy" && phase.what === "collect" ? <><Spinner size={13} /> Collecting…</> : phase.k === "sent" ? <><Spinner size={13} /> Confirming…</> : "Collect fees"}
+              {phase.k === "busy" && phase.what === "collect" ? <><Spinner size={13} /> Collecting…</> : phase.k === "sent" && phase.what === "collect" ? <><Spinner size={13} /> Confirming…</> : "Collect fees"}
             </button>
             {claims.map((c) => (
               <button key={c.currency} type="button" onClick={() => void send("claim", c.currency)} disabled={busy || !onChain} className={`${btn.secondarySm} flex-1`} title="A payout to you could not be delivered and was credited instead">
-                {phase.k === "busy" && phase.what === "claim" && phase.currency === c.currency ? <><Spinner size={13} /> Claiming…</> : `Claim ${c.label(c.raw)}`}
+                {phase.k === "busy" && phase.what === "claim" && phase.currency === c.currency ? <><Spinner size={13} /> Claiming…</> : phase.k === "sent" && phase.what === "claim" && phase.currency === c.currency ? <><Spinner size={13} /> Confirming…</> : `Claim ${c.label(c.raw)}`}
               </button>
             ))}
           </div>
