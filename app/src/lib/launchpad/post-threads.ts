@@ -113,3 +113,52 @@ export function resolveReplyTarget(
   // surface that error instead of silently changing the destination.
   return { target: replyTo, pending: false, missing: false };
 }
+
+/**
+ * Stale-load guard for TokenComments (PR #31).
+ *
+ * A fetch for token A resolving after the switch to token B must not touch
+ * B's posts or postsLoaded. The component bumps a generation counter on every
+ * token switch / cleanup and aborts the previous request; each load captures
+ * its id up front and checks this predicate before any state update. Pure so
+ * the out-of-order scenario is unit-testable without mounting the component
+ * (the repo harness is node:test on pure helpers, no React/jsdom setup).
+ */
+export function shouldIgnoreLoad(entryId: number, currentGeneration: number, aborted: boolean): boolean {
+  return aborted || entryId !== currentGeneration;
+}
+
+/** First-load status for the comments list. loadError set => Retry shown; postsLoaded stays false so a restored reply keeps pending (never silently top-level). */
+export type PostsLoadState = { postsLoaded: boolean; loadError: string | null };
+
+export const initialPostsLoadState: PostsLoadState = { postsLoaded: false, loadError: null };
+
+export type PostsLoadOutcome =
+  | { kind: "ok" }
+  | { kind: "http-error"; status: number }
+  | { kind: "invalid" }
+  | { kind: "network-error" }
+  | { kind: "ignored" };
+
+/**
+ * Reducer for the initial comments fetch (PR #31).
+ *
+ * Failure paths preserve the draft and its reply destination: postsLoaded
+ * stays false (restored reply keeps pending, submit keeps blocking) and a
+ * loadError message arms the Retry button. Only "ok" flips postsLoaded and
+ * clears the error; "ignored" (abort/stale) leaves state untouched.
+ */
+export function nextPostsLoadState(prev: PostsLoadState, outcome: PostsLoadOutcome): PostsLoadState {
+  switch (outcome.kind) {
+    case "ok":
+      return { postsLoaded: true, loadError: null };
+    case "http-error":
+      return { postsLoaded: false, loadError: `Could not load comments (${outcome.status}).` };
+    case "invalid":
+      return { postsLoaded: false, loadError: "Could not load comments." };
+    case "network-error":
+      return { postsLoaded: false, loadError: "Could not load comments. Check your connection." };
+    case "ignored":
+      return prev;
+  }
+}

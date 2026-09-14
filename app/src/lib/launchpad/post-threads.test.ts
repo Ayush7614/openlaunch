@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { COMMENTS_PAGE, clearDraft, draftKey, groupReplies, loadCommentDraft, loadDraft, resolveReplyTarget, saveDraft, visibleTopIds } from "./post-threads.ts";
+import { COMMENTS_PAGE, clearDraft, draftKey, groupReplies, initialPostsLoadState, loadCommentDraft, loadDraft, nextPostsLoadState, resolveReplyTarget, saveDraft, shouldIgnoreLoad, visibleTopIds } from "./post-threads.ts";
 import type { PostRow } from "./postsServer.ts";
 
 const post = (id: number, parent_id: number | null): PostRow => ({ id, chain: "base", token: "0xtoken", wallet: "0xwallet", parent_id, body: `body ${id}`, tag: null, created_at: "2026-01-01T00:00:00.000Z", reports: 0, hidden: false });
@@ -105,4 +105,32 @@ test("resolveReplyTarget preserves valid parent outside returned window (PR #31 
   // Before validation (postsLoaded false) the same draft stays pending even on failure (503 / network rejection) — no silent fallback
   assert.deepEqual(resolveReplyTarget(100, [], false), { target: 100, pending: true, missing: false }, "failed/no-load keeps pending so draft isn't lost");
   assert.deepEqual(resolveReplyTarget(100, window, false), { target: 100, pending: true, missing: false });
+});
+
+test("shouldIgnoreLoad drops stale/aborted responses so token A cannot overwrite token B (PR #31)", () => {
+  // Token A starts load id 1; switching to B bumps generation to 2 and aborts A.
+  assert.equal(shouldIgnoreLoad(1, 1, false), false, "current generation, live request: apply");
+  assert.equal(shouldIgnoreLoad(1, 2, false), true, "older request resolving after token switch: ignore");
+  assert.equal(shouldIgnoreLoad(1, 2, true), true, "aborted request: ignore");
+  assert.equal(shouldIgnoreLoad(2, 2, true), true, "current generation but aborted: ignore");
+  assert.equal(shouldIgnoreLoad(2, 2, false), false, "newer request for the current token: apply");
+});
+
+test("nextPostsLoadState keeps a restored reply pending with Retry after 503/network failure (PR #31)", () => {
+  // Initial 503: postsLoaded stays false (reply stays pending, submit blocks), error arms Retry.
+  const after503 = nextPostsLoadState(initialPostsLoadState, { kind: "http-error", status: 503 });
+  assert.deepEqual(after503, { postsLoaded: false, loadError: "Could not load comments (503)." });
+  assert.deepEqual(resolveReplyTarget(42, [], after503.postsLoaded), { target: 42, pending: true, missing: false }, "draft destination preserved, still pending — never silently top-level");
+
+  // Network rejection: same shape, connection hint.
+  const afterNet = nextPostsLoadState(initialPostsLoadState, { kind: "network-error" });
+  assert.deepEqual(afterNet, { postsLoaded: false, loadError: "Could not load comments. Check your connection." });
+  assert.deepEqual(resolveReplyTarget(42, [], afterNet.postsLoaded), { target: 42, pending: true, missing: false });
+
+  // Retry succeeding clears the error and unblocks validation.
+  const recovered = nextPostsLoadState(after503, { kind: "ok" });
+  assert.deepEqual(recovered, { postsLoaded: true, loadError: null });
+
+  // Abort/stale completion leaves failure state untouched (no error wipe, no phantom load).
+  assert.equal(nextPostsLoadState(after503, { kind: "ignored" }), after503, "ignored outcomes return prev state");
 });
