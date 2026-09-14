@@ -10,7 +10,7 @@ import { useLive } from "./LiveProvider";
 import { toast } from "./TxToasts";
 import { btn } from "@/components/ui";
 import { buildModMessage, buildPostMessage, buildReportMessage, POST_MAX, REPORT_REASONS, validateBody, type ReportReason } from "@/lib/launchpad/posts";
-import { COMMENTS_PAGE, clearDraft, groupReplies, loadCommentDraft, resolveReplyTarget, saveDraft, visibleTopIds } from "@/lib/launchpad/post-threads";
+import { COMMENTS_PAGE, clearDraft, groupReplies, loadCommentDraft, nextPostsLoadState, resolveReplyTarget, saveDraft, shouldIgnoreLoad, visibleTopIds } from "@/lib/launchpad/post-threads";
 import type { PostRow } from "@/lib/launchpad/postsServer";
 import { ago, nowMs } from "@/lib/launchpad/time";
 import { CHAINS, CHAIN_SHORT, shortAddr, type ChainKey } from "@/lib/chainPublic";
@@ -58,6 +58,10 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
   // an empty list must not read as "parent missing" before the fetch, nor as
   // "parent exists" for signing. Submit of a restored reply blocks meanwhile.
   const [postsLoaded, setPostsLoaded] = useState(false);
+  // Set when the initial comments fetch fails (503 / network rejection / bad
+  // payload). postsLoaded stays false so a restored reply keeps pending and
+  // the draft is never silently turned top-level; the composer shows Retry.
+  const [loadError, setLoadError] = useState<string | null>(null);
   // Draft restores async after hydration so server and client render the same empty composer first.
   // The loaded value is always assigned (even when empty) so text typed for one
   // token can never leak into — and be submitted from — another token's composer.
@@ -71,6 +75,7 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
       setShownCount(COMMENTS_PAGE);
       setPosts([]);
       setPostsLoaded(false);
+      setLoadError(null);
       setErr(null);
     }, 0);
     return () => clearTimeout(t);
@@ -88,19 +93,31 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
     request.current?.abort();
     const controller = new AbortController();
     request.current = controller;
+    const ignored = () => shouldIgnoreLoad(id, generation.current, controller.signal.aborted);
     try {
       const res = await fetch(`/api/posts?chain=${chain}&token=${token}`, { cache: "no-store", signal: controller.signal });
-      if (!res.ok) return;
+      if (ignored()) return;
+      if (!res.ok) {
+        // Failure, not proof of anything: keep postsLoaded false so a restored
+        // reply stays pending (submit blocks) and the draft keeps its destination.
+        setLoadError(nextPostsLoadState({ postsLoaded: false, loadError: null }, { kind: "http-error", status: res.status }).loadError);
+        return;
+      }
       const d = (await res.json()) as { posts: PostRow[]; muted: boolean };
-      if (!Array.isArray(d.posts)) return;
-      if (id !== generation.current || controller.signal.aborted) return;
+      if (!Array.isArray(d.posts)) {
+        if (ignored()) return;
+        setLoadError(nextPostsLoadState({ postsLoaded: false, loadError: null }, { kind: "invalid" }).loadError);
+        return;
+      }
+      if (ignored()) return;
       setPosts(d.posts);
       setMuted(d.muted);
       setNow(nowMs());
       setPostsLoaded(true);
+      setLoadError(null);
     } catch {
-      if (id !== generation.current || controller.signal.aborted) return;
-      /* keep postsLoaded false so a restored reply stays pending and the draft isn't lost (503 / network rejection) */
+      if (ignored()) return;
+      setLoadError(nextPostsLoadState({ postsLoaded: false, loadError: null }, { kind: "network-error" }).loadError);
     }
   }, [chain, token]);
 
@@ -231,9 +248,27 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
         ) : (
           <div className="space-y-2">
             {validationPending ? (
-              <p className="text-[11px] text-muted" role="status">
-                Checking reply target…
-              </p>
+              <div className="space-y-1">
+                <p className="text-[11px] text-muted" role="status">
+                  Checking reply target…
+                </p>
+                {replyTo !== null ? (
+                  <p className="text-[11px] text-muted">
+                    Replying to #{replyTo}{" "}
+                    <button type="button" className="underline hover:text-ink" onClick={() => { setReplyTo(null); saveDraft(chain, token, body, null); }}>
+                      cancel
+                    </button>
+                  </p>
+                ) : null}
+                {loadError ? (
+                  <p className="text-[11px] text-down-ink" role="alert">
+                    {loadError}{" "}
+                    <button type="button" className="underline hover:text-ink" onClick={() => { setLoadError(null); void load(); }}>
+                      Try again
+                    </button>
+                  </p>
+                ) : null}
+              </div>
             ) : effectiveReplyTo !== null ? (
               <p className="text-[11px] text-muted">
                 Replying to #{effectiveReplyTo}{" "}
