@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { earnedRaw, feeShareBps, holdingUsd, isBurnOnly } from "./creator.ts";
+import { earnedRaw, earnedSides, feeShareBps, feeSidesUsd, hasFees, holdingUsd, isBurnOnly } from "./creator.ts";
 import { buildEditMessage, isNonce, validateEdit } from "./editAuth.ts";
 import { ageLabel, clampSocial, feeLabel, shapeCard } from "./ogcard.ts";
 
@@ -18,6 +18,29 @@ test("earnedRaw = (collected − burned) × share, never negative", () => {
   assert.equal(earnedRaw(1000n, 1000n, 5000), 0n);
   assert.equal(earnedRaw(1000n, 0n, 0), 0n);
   assert.equal(earnedRaw(10n ** 18n, 0n, 10000), 10n ** 18n);
+});
+
+test("earnedSides applies the share to the quote side and the launched token side", () => {
+  const l = { fees_quote_collected: "1000", fees_quote_burned: "200", fees_token_collected: (10n ** 21n).toString(), fees_token_burned: "0" };
+  assert.deepEqual(earnedSides(l, 5000), { quote: 400n, token: 5n * 10n ** 20n });
+  assert.deepEqual(earnedSides(l, 0), { quote: 0n, token: 0n });
+  // a sells-only launch has fees only on the token side
+  assert.deepEqual(earnedSides({ ...l, fees_quote_collected: "0", fees_quote_burned: "0" }, 10000), { quote: 0n, token: 10n ** 21n });
+});
+
+test("feeSidesUsd prices the token side at the pool price; null without a quote price", () => {
+  // 1242 USDG (6 decimals) + 1000 tokens at 0.01 USDG each, USDG = $1
+  assert.equal(feeSidesUsd({ quote: 1_242_000_000n, token: 1000n * 10n ** 18n }, 6, 0.01, 1), 1252);
+  assert.equal(feeSidesUsd({ quote: 0n, token: 2n * 10n ** 18n }, 18, 0.5, 2000), 2000);
+  assert.equal(feeSidesUsd({ quote: 1n, token: 1n }, 6, 1, null), null);
+});
+
+test("hasFees is true when either side is non-zero", () => {
+  assert.equal(hasFees({ quote: 0n, token: 1n }), true);
+  assert.equal(hasFees({ quote: 1n, token: 0n }), true);
+  assert.equal(hasFees({ quote: 0n, token: 0n }), false);
+  assert.equal(hasFees(null), false);
+  assert.equal(hasFees(undefined), false);
 });
 
 test("isBurnOnly / holdingUsd", () => {
