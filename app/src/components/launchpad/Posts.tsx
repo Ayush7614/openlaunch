@@ -77,25 +77,41 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
   }, [chain, token]);
   const seenPosts = useRef<string>("");
   const isCreator = Boolean(address && address.toLowerCase() === launcher.toLowerCase());
+  // Guard against stale loads: a fetch for token A resolving after the switch
+  // to token B must not overwrite B's posts or unblock B's reply validation.
+  // Same generation + AbortController pattern as PriceChart.
+  const request = useRef<AbortController | null>(null);
+  const generation = useRef(0);
 
   const load = useCallback(async () => {
+    const id = ++generation.current;
+    request.current?.abort();
+    const controller = new AbortController();
+    request.current = controller;
     try {
-      const res = await fetch(`/api/posts?chain=${chain}&token=${token}`, { cache: "no-store" });
+      const res = await fetch(`/api/posts?chain=${chain}&token=${token}`, { cache: "no-store", signal: controller.signal });
       if (!res.ok) return;
       const d = (await res.json()) as { posts: PostRow[]; muted: boolean };
       if (!Array.isArray(d.posts)) return;
+      if (id !== generation.current || controller.signal.aborted) return;
       setPosts(d.posts);
       setMuted(d.muted);
       setNow(nowMs());
       setPostsLoaded(true);
     } catch {
+      if (id !== generation.current || controller.signal.aborted) return;
       /* keep postsLoaded false so a restored reply stays pending and the draft isn't lost (503 / network rejection) */
     }
   }, [chain, token]);
 
   useEffect(() => {
-    const id = setTimeout(() => void load(), 0);
-    return () => clearTimeout(id);
+    const lifetime = generation;
+    const timer = setTimeout(() => void load(), 0);
+    return () => {
+      clearTimeout(timer);
+      lifetime.current++;
+      request.current?.abort();
+    };
   }, [load]);
   // refresh when the shared poller says there is a newer post on this token
   useEffect(
