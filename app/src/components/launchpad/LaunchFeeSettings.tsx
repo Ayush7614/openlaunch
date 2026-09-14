@@ -1,11 +1,12 @@
 "use client";
 
-import { useId } from "react";
+import { useId, type ReactNode } from "react";
 import { ArrowUpRight, Flame, LockKeyhole, Wallet } from "lucide-react";
 import { isAddress } from "viem";
-import { FEE_PRESETS } from "@/lib/launchpad/config";
+import { FEE_PRESETS, MAX_RECIPIENTS } from "@/lib/launchpad/config";
+import { bpsToPct, isBurnAddress, type SplitResult } from "@/lib/launchpad/recipients";
 import { shortAddr } from "@/lib/chainPublic";
-import { card, input } from "@/components/ui";
+import { card } from "@/components/ui";
 import styles from "./LaunchFeeSettings.module.css";
 
 export type FeeBeneficiary = "burn" | "me" | "custom";
@@ -14,22 +15,22 @@ type Props = {
   feePips: number;
   beneficiary: FeeBeneficiary;
   address?: string;
-  customAddress: string;
+  split: SplitResult;
+  children: ReactNode;
   onFeeChange: (pips: number) => void;
   onBeneficiaryChange: (value: FeeBeneficiary) => void;
-  onCustomAddressChange: (value: string) => void;
 };
 
-export default function LaunchFeeSettings({ feePips, beneficiary, address, customAddress, onFeeChange, onBeneficiaryChange, onCustomAddressChange }: Props) {
+export default function LaunchFeeSettings({ feePips, beneficiary, address, split, children, onFeeChange, onBeneficiaryChange }: Props) {
   const id = useId();
   const feePerHundred = feePips / 10_000;
-  const customInvalid = Boolean(customAddress.trim()) && !isAddress(customAddress.trim());
-  const recipient = beneficiary === "burn" ? "Burn address" : beneficiary === "me" ? "Your wallet" : "Recipient wallet";
-  const destination = beneficiary === "burn" ? "0x…dEaD" : beneficiary === "me" ? address : customAddress.trim();
+  const custom = beneficiary === "custom";
+  const customReady = split.errors.length === 0 && split.recipients.length > 0;
+  const destination = beneficiary === "burn" ? "0x…dEaD" : address;
   const routes = [
     { value: "burn", title: "Burn the fees", description: "Sent to 0x…dEaD when collected. Nobody receives them.", Icon: Flame },
     { value: "me", title: "Your wallet", description: address ? shortAddr(address) : "The wallet you connect to launch.", Icon: Wallet },
-    { value: "custom", title: "Another wallet", description: "Send fees to one recipient of your choice.", Icon: ArrowUpRight },
+    { value: "custom", title: "Wallets or a split", description: `Choose up to ${MAX_RECIPIENTS} beneficiaries, including a partial burn.`, Icon: ArrowUpRight },
   ] as const;
 
   return (
@@ -66,7 +67,7 @@ export default function LaunchFeeSettings({ feePips, beneficiary, address, custo
       {feePips > 0 ? (
         <fieldset className={`${styles.fieldset} ${styles.routing}`}>
           <legend>Where should the fees go?</legend>
-          <p className={styles.routeHelp}>The full trading fee goes to this destination. Openlaunch takes none.</p>
+          <p className={styles.routeHelp}>The full trading fee follows your allocation. Openlaunch takes none.</p>
           <div className={styles.routes}>
             {routes.map(({ value, title, description, Icon }) => (
               <label key={value} className={styles.route} data-selected={beneficiary === value}>
@@ -79,25 +80,10 @@ export default function LaunchFeeSettings({ feePips, beneficiary, address, custo
               </label>
             ))}
           </div>
-          {beneficiary === "custom" ? (
+          {custom ? (
             <div className={styles.custom}>
-              <label htmlFor={`${id}-address`}>Recipient address</label>
-              <input
-                id={`${id}-address`}
-                className={`${input} font-mono`}
-                value={customAddress}
-                onChange={(event) => onCustomAddressChange(event.target.value.trim())}
-                placeholder="0x…"
-                autoComplete="off"
-                autoCapitalize="off"
-                autoCorrect="off"
-                spellCheck={false}
-                aria-invalid={customInvalid}
-                aria-describedby={`${id}-address-help`}
-              />
-              <p id={`${id}-address-help`} className={customInvalid ? styles.error : styles.routeHelp}>
-                {customInvalid ? "Enter a valid 0x wallet address before launching." : "Check the address carefully. This recipient cannot be changed after launch."}
-              </p>
+              {children}
+              {split.errors.length > 0 ? <p className={styles.error}>{split.errors.join(" ")}</p> : null}
             </div>
           ) : null}
         </fieldset>
@@ -106,13 +92,20 @@ export default function LaunchFeeSettings({ feePips, beneficiary, address, custo
       <div className={styles.summary}>
         <div className={styles.summaryTitle}>
           <h3>{feePips === 0 ? "No fees to distribute" : "Your fee allocation"}</h3>
-          {feePips > 0 ? <span>100% to one destination</span> : null}
+          {feePips > 0 ? <span>{custom ? customReady ? `100% across ${split.recipients.length} ${split.recipients.length === 1 ? "destination" : "destinations"}` : "Allocation incomplete" : "100% to one destination"}</span> : null}
         </div>
         <dl className={styles.breakdown}>
-          <div>
-            <dt>{feePips === 0 ? "Trading fee" : recipient}</dt>
-            <dd>{feePips === 0 ? "0%" : "100% of fees"}</dd>
-          </div>
+          {feePips > 0 && custom && customReady ? split.recipients.map((recipient) => (
+            <div key={recipient.payout}>
+              <dt title={recipient.payout}>{isBurnAddress(recipient.payout) ? "Burn address" : shortAddr(recipient.payout)}</dt>
+              <dd>{bpsToPct(recipient.bps)}% of fees</dd>
+            </div>
+          )) : (
+            <div>
+              <dt>{feePips === 0 ? "Trading fee" : custom ? "Beneficiaries" : beneficiary === "burn" ? "Burn address" : "Your wallet"}</dt>
+              <dd>{feePips === 0 ? "0%" : custom ? "Complete the split above" : "100% of fees"}</dd>
+            </div>
+          )}
           <div>
             <dt>Openlaunch</dt>
             <dd className={styles.platform}>0%</dd>
@@ -120,8 +113,8 @@ export default function LaunchFeeSettings({ feePips, beneficiary, address, custo
         </dl>
         {feePips > 0 ? (
           <p className={styles.destination}>
-            {beneficiary === "burn" ? "Burned at collection" : beneficiary === "me" && !address ? "Connect your wallet before launch" : beneficiary === "custom" && !isAddress(customAddress.trim()) ? "Add a valid recipient address above" : "Claimable by"}
-            {destination && (beneficiary === "burn" || isAddress(destination)) ? <span title={destination}>{beneficiary === "burn" ? destination : shortAddr(destination)}</span> : null}
+            {custom ? customReady ? "Paid directly to each wallet at collection. Burn shares go to 0x…dEaD." : "Add valid addresses and shares totaling 100% before launch." : beneficiary === "burn" ? "Burned at collection" : !address ? "Connect your wallet before launch" : "Claimable by"}
+            {!custom && destination && (beneficiary === "burn" || isAddress(destination)) ? <span title={destination}>{beneficiary === "burn" ? destination : shortAddr(destination)}</span> : null}
           </p>
         ) : null}
         <p className={styles.example}>
@@ -132,7 +125,7 @@ export default function LaunchFeeSettings({ feePips, beneficiary, address, custo
 
       <p className={styles.permanent}>
         <LockKeyhole size={14} strokeWidth={1.8} aria-hidden="true" />
-        <span>Fixed at launch. The fee rate{feePips > 0 ? " and destination" : ""} cannot be changed later.</span>
+        <span>Fixed at launch. The fee rate{feePips > 0 ? " and allocation" : ""} cannot be changed later.</span>
       </p>
     </section>
   );
