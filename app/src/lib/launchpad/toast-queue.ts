@@ -8,7 +8,11 @@ export type ToastQueue = { active: ActiveToast | null; pending: QueuedToast[]; h
 
 export const TOAST_TTL_MS = 6_000;
 export const TOAST_EXIT_MS = 350;
-export const MAX_PENDING_ACTIVITY = 20;
+/**
+ * Activity cards waiting behind the active one. Cards show one at a time for TOAST_TTL_MS, so this bounds how stale
+ * a busy stream gets: 10 keeps everything on screen within about a minute of happening. The newest are kept.
+ */
+export const MAX_PENDING_ACTIVITY = 10;
 /** Polls run every 5s and pause while the tab is hidden; a longer silence between server times means activity was missed. */
 export const FEED_GAP_MS = 30_000;
 

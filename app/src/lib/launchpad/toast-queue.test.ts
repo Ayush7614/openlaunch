@@ -33,14 +33,14 @@ test("local confirmations survive a full activity queue and take priority in the
   assert.equal(state.active?.celebrate, undefined, "queued celebrations wait for their card");
   assert.equal(state.pending.length, MAX_PENDING_ACTIVITY + 2);
   assert.deepEqual(state.pending.slice(0, 2).map((toast) => toast.id), ["own launch", "own buy"]);
-  assert.equal(state.pending[2].id, "activity 40", "only the oldest pending activity is discarded");
+  assert.equal(state.pending[2].id, `activity ${60 - MAX_PENDING_ACTIVITY}`, "only the oldest pending activity is discarded");
   state = dismissToast(state, "active", 10_000);
   assert.equal(state.active?.id, "own launch");
   assert.equal(state.active?.celebrate, true);
   state = dismissToast(state, "own launch", 11_000);
   assert.equal(state.active?.id, "own buy");
   state = dismissToast(state, "own buy", 12_000);
-  assert.equal(state.active?.id, "activity 40");
+  assert.equal(state.active?.id, `activity ${60 - MAX_PENDING_ACTIVITY}`);
 });
 
 test("pending items get a full lifetime when promoted, then leave before the next appears", () => {
@@ -205,4 +205,16 @@ test("the layout's placeholder time (0) never suppresses the first real poll", (
   const fresh = createToastFeedTracker([], 0);
   const first = feedItem("first");
   assert.deepEqual(fresh([first], Date.UTC(2026, 8, 15)), [first]);
+});
+
+test("a busy stream stays under a minute old: the cap keeps the newest activity, oldest dropped", () => {
+  assert.equal(MAX_PENDING_ACTIVITY, 10);
+  assert.ok((MAX_PENDING_ACTIVITY + 1) * TOAST_TTL_MS <= 66_000, "the last queued card appears within ~a minute");
+  let state = createToastQueue();
+  for (let i = 1; i <= 30; i++) state = enqueueToast(state, item(`activity ${i}`), i);
+  assert.equal(state.active?.id, "activity 1");
+  assert.deepEqual(state.pending.map((toast) => toast.id), Array.from({ length: 10 }, (_, i) => `activity ${21 + i}`), "the 10 most recent wait, in arrival order");
+  state = enqueueToast(state, item("mine", "local"), 31);
+  assert.equal(state.pending[0].id, "mine", "an own confirmation still goes first and does not count against the cap");
+  assert.equal(state.pending.length, 11);
 });
