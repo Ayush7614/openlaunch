@@ -15,7 +15,7 @@ export type { ToastDetail } from "@/lib/launchpad/toast-queue";
 
 /**
  * Global transaction toasts. Reads the shared LiveProvider feed and pops one toast
- * per NEW launch / buy / sell when opted in (history is never replayed).
+ * per NEW launch / buy / sell unless muted in notification settings (history is never replayed).
  * Local events (your own launch / trade confirming) arrive via
  * `window.dispatchEvent(new CustomEvent("bb:toast", { detail }))` and also fire
  * a confetti burst when shown. One card at a time, 6s each; hover/focus pauses.
@@ -28,7 +28,7 @@ export function toast(detail: ToastDetail) {
 export default function TxToasts() {
   const { live, subscribe } = useLive();
   const [queue, setQueue] = useState(createToastQueue);
-  const [freshFeed] = useState(() => createToastFeedTracker(live.feed ?? []));
+  const [freshFeed] = useState(() => createToastFeedTracker(live.feed ?? [], live.at));
   const active = queue.active;
 
   const push = useCallback((t: ToastDetail, source: QueuedToast["source"]) => {
@@ -59,7 +59,8 @@ export default function TxToasts() {
       }
     });
     const unsubscribeFeed = subscribe((snap) => {
-      const fresh = freshFeed(snap.feed ?? []);
+      // A snapshot after a hidden-tab/offline gap comes back empty: missed activity is history, not news.
+      const fresh = freshFeed(snap.feed ?? [], snap.at);
       // Observe while muted, including a silent first successful snapshot after re-enabling.
       if (!getActivityNotifications()) return;
       if (baselineNextFeed) {

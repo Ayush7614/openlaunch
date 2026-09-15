@@ -9,6 +9,8 @@ export type ToastQueue = { active: ActiveToast | null; pending: QueuedToast[]; h
 export const TOAST_TTL_MS = 6_000;
 export const TOAST_EXIT_MS = 350;
 export const MAX_PENDING_ACTIVITY = 20;
+/** Polls run every 5s and pause while the tab is hidden; a longer silence between server times means activity was missed. */
+export const FEED_GAP_MS = 30_000;
 
 export function createToastQueue(): ToastQueue {
   return { active: null, pending: [], hover: false, focus: false };
@@ -76,10 +78,16 @@ function feedKey(item: FeedItem): string {
   return `${item.chain}:${item.kind}:${item.tx_hash}:${item.token}${item.kind === "swap" ? `:${item.quote_wei}` : ""}`;
 }
 
-/** Remember every arrival, including activity later dropped from the bounded queue. */
-export function createToastFeedTracker(initial: FeedItem[]) {
+/**
+ * Remember every arrival, including activity later dropped from the bounded queue.
+ * `at` is the snapshot's server time: the first snapshot after a gap (hidden tab, offline) is remembered but not
+ * returned, so a returning visitor is not walked through minutes of old activity one card at a time. Comparing server
+ * times with each other keeps client clock skew out of it; the layout's placeholder time (0) is not a baseline.
+ */
+export function createToastFeedTracker(initial: FeedItem[], initialAt?: number) {
   let seen = new Set(initial.map(feedKey));
-  return (incoming: FeedItem[]): FeedItem[] => {
+  let lastAt = typeof initialAt === "number" && initialAt > 0 ? initialAt : null;
+  return (incoming: FeedItem[], at?: number): FeedItem[] => {
     const fresh: FeedItem[] = [];
     for (const item of [...incoming].reverse()) {
       const key = feedKey(item);
@@ -88,6 +96,11 @@ export function createToastFeedTracker(initial: FeedItem[]) {
       fresh.push(item);
     }
     if (seen.size > 2_000) seen = new Set(incoming.map(feedKey));
+    if (typeof at === "number" && at > 0) {
+      const resumed = lastAt !== null && at - lastAt > FEED_GAP_MS;
+      lastAt = at;
+      if (resumed) return [];
+    }
     return fresh;
   };
 }

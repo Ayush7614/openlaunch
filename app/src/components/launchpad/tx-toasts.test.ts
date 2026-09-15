@@ -26,20 +26,20 @@ function elements(node: unknown): Element[] {
   return [element, ...element.children.flatMap(elements)];
 }
 
-function harness(initial: FeedItem[] = [], enabled = false) {
+function harness(initial: FeedItem[] = [], enabled = false, initialAt?: number) {
   let state = queueFunctions.createToastQueue();
   let now = 0;
   let hook = 0;
   let effects: { setup: () => (() => void) | void; deps: unknown[] }[] = [];
   let mounted: { cleanup: (() => void) | void; deps: unknown[] }[] = [];
   const events = new Set<(event: unknown) => void>();
-  const subscribers = new Set<(snapshot: { feed: FeedItem[] }) => void>();
+  const subscribers = new Set<(snapshot: { feed: FeedItem[]; at?: number }) => void>();
   const preferences = new Set<() => void>();
   let activityEnabled = enabled;
   const timers = new Map<number, { fn: () => void; delay: number }>();
   let timerId = 0;
-  const fresh = queueFunctions.createToastFeedTracker(initial);
-  const subscribe = (fn: (snapshot: { feed: FeedItem[] }) => void) => { subscribers.add(fn); return () => subscribers.delete(fn); };
+  const fresh = queueFunctions.createToastFeedTracker(initial, initialAt);
+  const subscribe = (fn: (snapshot: { feed: FeedItem[]; at?: number }) => void) => { subscribers.add(fn); return () => subscribers.delete(fn); };
   let push: unknown;
   const renderComponent = component("TxToasts", {
     ...queueFunctions,
@@ -72,7 +72,7 @@ function harness(initial: FeedItem[] = [], enabled = false) {
     state: () => state,
     now: (value: number) => { now = value; },
     local: (detail: queueFunctions.ToastDetail) => events.forEach((fn) => fn({ detail })),
-    feed: (feed: FeedItem[]) => subscribers.forEach((fn) => fn({ feed })),
+    feed: (feed: FeedItem[], at?: number) => subscribers.forEach((fn) => fn({ feed, at })),
     setActivity: (enabled: boolean) => { activityEnabled = enabled; preferences.forEach((fn) => fn()); },
     timers, events, subscribers, preferences,
     unmount: () => mounted.forEach(({ cleanup }) => cleanup?.()),
@@ -139,7 +139,7 @@ test("muted feed stays observed without replay, while own confirmations and noti
   h.unmount();
 });
 
-test("a stored opt-in accepts fresh activity on mount without replaying the initial snapshot", () => {
+test("activity enabled on mount (the default) accepts fresh activity without replaying the initial snapshot", () => {
   const history = launch("history");
   const h = harness([history], true);
   h.render();
@@ -265,4 +265,18 @@ test("queue count stays out of live announcements and lifetime track follows pau
   const exit = elements(card({ t: { ...active, leaving: true, remainingMs: 350 }, onClose: () => {} })).find((node) => node.props.className === "bb-toast-progress")!;
   assert.equal((exit.props.style as Record<string, unknown>).opacity, 0);
   assert.equal((exit.props.style as Record<string, unknown>).animationDuration, "6000ms");
+});
+
+test("returning to a tab after a gap does not queue the activity missed while it was hidden", () => {
+  const history = launch("history");
+  const h = harness([history], true, 100_000);
+  h.render();
+  h.feed([history], 105_000);
+  const missed = Array.from({ length: 24 }, (_, i) => launch(`missed-${i}`));
+  h.feed([...missed, history], 105_000 + 10 * 60_000);
+  assert.equal(h.state().active, null, "no stale 'just launched' card");
+  assert.equal(h.state().pending.length, 0);
+  h.feed([launch("live"), ...missed], 105_000 + 10 * 60_000 + 5_000);
+  assert.equal(h.state().active?.title, "live just launched on Base");
+  h.unmount();
 });

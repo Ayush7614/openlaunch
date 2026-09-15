@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { FeedItem } from "./queries";
-import { createToastFeedTracker, createToastQueue, dismissToast, enqueueToast, expireToast, MAX_PENDING_ACTIVITY, pauseToast, removeActivityToasts, toastDelay, TOAST_EXIT_MS, TOAST_TTL_MS, type QueuedToast } from "./toast-queue.ts";
+import { createToastFeedTracker, createToastQueue, FEED_GAP_MS, dismissToast, enqueueToast, expireToast, MAX_PENDING_ACTIVITY, pauseToast, removeActivityToasts, toastDelay, TOAST_EXIT_MS, TOAST_TTL_MS, type QueuedToast } from "./toast-queue.ts";
 
 const item = (id: string, source: QueuedToast["source"] = "activity"): QueuedToast => ({ id, source, kind: "buy", title: id });
 const feedItem = (id: string): FeedItem => ({ kind: "launch", chain: "base", at: "2026-09-01T00:00:00Z", tx_hash: id, token: "token", name: id, symbol: "TEST", launcher: "wallet", lp_fee: 0, quote_key: "eth", image_url: null });
@@ -176,4 +176,33 @@ test("activity dropped during a burst is remembered and cannot replay on the nex
   assert.equal(state.pending.length, MAX_PENDING_ACTIVITY);
   assert.deepEqual(fresh(incoming), []);
   assert.deepEqual(fresh([incoming[0], incoming[0]]), []);
+});
+
+test("a poll after a hidden-tab or offline gap is a silent baseline, not a replay of everything missed", () => {
+  const history = feedItem("history");
+  const fresh = createToastFeedTracker([history], 1_000_000);
+  const missed = Array.from({ length: 24 }, (_, i) => feedItem(`missed-${i}`));
+  // Polling pauses while hidden; the first snapshot back arrives long after the last one.
+  assert.deepEqual(fresh([...missed, history], 1_000_000 + FEED_GAP_MS + 1), [], "nothing missed during the gap is queued");
+  assert.deepEqual(fresh([...missed, history], 1_000_000 + FEED_GAP_MS + 5_001), [], "and it stays remembered afterwards");
+  const next = feedItem("next");
+  assert.deepEqual(fresh([next, ...missed], 1_000_000 + FEED_GAP_MS + 10_001), [next], "live activity resumes on the following poll");
+});
+
+test("regular polls, a gap exactly at the limit, and snapshots without a server time still deliver activity", () => {
+  const fresh = createToastFeedTracker([], 5_000);
+  const a = feedItem("a");
+  const b = feedItem("b");
+  const c = feedItem("c");
+  const d = feedItem("d");
+  assert.deepEqual(fresh([a], 10_000), [a]);
+  assert.deepEqual(fresh([b, a], 10_000 + FEED_GAP_MS), [b], "exactly the limit is not a gap");
+  assert.deepEqual(fresh([c, b, a]), [c], "no server time: no gap detection");
+  assert.deepEqual(fresh([d, c, b, a], 10_000 + FEED_GAP_MS + 4_000), [d]);
+});
+
+test("the layout's placeholder time (0) never suppresses the first real poll", () => {
+  const fresh = createToastFeedTracker([], 0);
+  const first = feedItem("first");
+  assert.deepEqual(fresh([first], Date.UTC(2026, 8, 15)), [first]);
 });
