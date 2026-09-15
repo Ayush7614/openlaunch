@@ -19,8 +19,8 @@ function flatten(node: unknown): Element[] {
 
 // Executes the real component handlers with inert JSX/hooks. Browser checks cover
 // Base UI focus management, positioning, touch and keyboard behavior.
-function render(enabled: boolean, block = false) {
-  let saved: boolean | undefined;
+function render(enabled: boolean, block = false, saved = true) {
+  let chosen: boolean | undefined;
   let open = true;
   const component = runInNewContext(outputText, {
     React: { createElement: (type: string, props: Element["props"], ...children: unknown[]) => ({ type, props: props ?? {}, children }), Fragment: "Fragment" },
@@ -28,11 +28,12 @@ function render(enabled: boolean, block = false) {
     styles: new Proxy({}, { get: (_target, key) => key }),
     Bell: "Bell", Check: "Check", ShieldCheck: "ShieldCheck", X: "X",
     useActivityNotifications: () => enabled,
-    setActivityNotifications: (value: boolean) => { saved = value; },
+    setActivityNotifications: (value: boolean) => { chosen = value; },
+    activityPreferenceSaved: () => saved,
     useState: () => [open, (value: boolean) => { open = value; }],
     useRef: () => ({ current: null }), useId: () => "notifications",
   });
-  return { nodes: flatten(component({ block })), saved: () => saved, open: () => open };
+  return { nodes: flatten(component({ block })), saved: () => chosen, open: () => open };
 }
 
 test("notification preference is one labelled switch wired to the persistent store", () => {
@@ -75,4 +76,12 @@ test("notification controls are available on desktop/mobile with reduced-motion 
   assert.match(source, /Your transactions/);
   assert.match(source, /Always on/);
   assert.doesNotMatch(source, /fetch\(|signMessage|sendTransaction|Notification.requestPermission/);
+});
+
+test("the settings footer only promises persistence when this browser actually stores it", () => {
+  const text = (nodes: Element[]) => nodes.filter((node) => node.props.className === "footer").flatMap((node) => node.children).join("");
+  assert.match(text(render(true, false, true).nodes), /^Saved in this browser\. The activity feed stays live\.$/);
+  const blocked = text(render(true, false, false).nodes);
+  assert.doesNotMatch(blocked, /Saved in this browser/);
+  assert.match(blocked, /blocking saved settings, so this choice lasts until you leave the page/);
 });

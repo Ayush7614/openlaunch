@@ -46,6 +46,11 @@ export function subscribeActivityNotifications(listener: () => void): () => void
   };
 }
 
+/** False once this browser has refused storage: the choice then lasts only for the current page. */
+export function activityPreferenceSaved(): boolean {
+  return !memoryOnly;
+}
+
 export function setActivityNotifications(enabled: boolean): void {
   if (typeof window === "undefined") return;
   inMemoryEnabled = enabled;

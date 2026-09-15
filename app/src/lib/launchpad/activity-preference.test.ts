@@ -152,3 +152,18 @@ test("only the exact stored value \"0\" mutes activity", () => {
     assert.equal(page(new Map([["ol:activity-notifications", stored]])).api.getActivityNotifications(), expected, JSON.stringify(stored));
   }
 });
+
+test("activityPreferenceSaved reports whether the last choice reached storage", () => {
+  const p = page();
+  assert.equal(p.api.activityPreferenceSaved(), true);
+  p.api.setActivityNotifications(false);
+  assert.equal(p.api.activityPreferenceSaved(), true);
+  p.blockWrite();
+  p.api.setActivityNotifications(true);
+  assert.equal(p.api.activityPreferenceSaved(), false, "a refused write lasts for this page only");
+
+  const unreadable = page();
+  unreadable.blockRead();
+  unreadable.api.getActivityNotifications();
+  assert.equal(unreadable.api.activityPreferenceSaved(), false);
+});

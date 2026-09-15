@@ -3,7 +3,7 @@
 import { useId, useRef, useState } from "react";
 import { Popover } from "@base-ui/react/popover";
 import { Bell, Check, ShieldCheck, X } from "lucide-react";
-import { setActivityNotifications, useActivityNotifications } from "@/lib/launchpad/activity-preference";
+import { activityPreferenceSaved, setActivityNotifications, useActivityNotifications } from "@/lib/launchpad/activity-preference";
 import styles from "./NotificationSettings.module.css";
 
 /** One preference for ambient activity. Your own transaction feedback cannot be muted. */
@@ -63,7 +63,7 @@ export default function NotificationSettings({ block = false }: { block?: boolea
               <ShieldCheck size={18} strokeWidth={1.7} aria-hidden />
               <div><div className={styles.personalHeading}><span className={styles.label}>Your transactions</span><span className={styles.always}>Always on</span></div><p className={styles.help}>Confirmations and important notices still appear.</p></div>
             </div>
-            <p className={styles.footer}>Saved in this browser. The activity feed stays live.</p>
+            <p className={styles.footer}>{activityPreferenceSaved() ? "Saved in this browser." : "This browser is blocking saved settings, so this choice lasts until you leave the page."} The activity feed stays live.</p>
           </Popover.Popup>
         </Popover.Positioner>
       </Popover.Portal>
