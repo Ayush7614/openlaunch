@@ -218,3 +218,14 @@ test("a busy stream stays under a minute old: the cap keeps the newest activity,
   assert.equal(state.pending[0].id, "mine", "an own confirmation still goes first and does not count against the cap");
   assert.equal(state.pending.length, 11);
 });
+
+test("an empty snapshot after a gap does not complete the baseline; the next populated one does", () => {
+  const history = feedItem("history");
+  const fresh = createToastFeedTracker([history], 1_000_000);
+  const resumedAt = 1_000_000 + FEED_GAP_MS + 1;
+  assert.deepEqual(fresh([], resumedAt), [], "an empty feed (e.g. a machine without a database) records nothing");
+  const missed = Array.from({ length: 5 }, (_, i) => feedItem(`missed-${i}`));
+  assert.deepEqual(fresh([...missed, history], resumedAt + 5_000), [], "the first populated snapshot is still the baseline");
+  const next = feedItem("next");
+  assert.deepEqual(fresh([next, ...missed, history], resumedAt + 10_000), [next]);
+});

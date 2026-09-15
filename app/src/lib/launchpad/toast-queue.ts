@@ -102,6 +102,8 @@ export function createToastFeedTracker(initial: FeedItem[], initialAt?: number) 
     if (seen.size > 2_000) seen = new Set(incoming.map(feedKey));
     if (typeof at === "number" && at > 0) {
       const resumed = lastAt !== null && at - lastAt > FEED_GAP_MS;
+      // An empty snapshot records nothing, so it cannot stand in for the baseline: keep waiting for a populated one.
+      if (resumed && incoming.length === 0) return [];
       lastAt = at;
       if (resumed) return [];
     }
