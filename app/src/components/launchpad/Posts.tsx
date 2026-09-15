@@ -10,7 +10,7 @@ import { useLive } from "./LiveProvider";
 import { toast } from "./TxToasts";
 import { btn } from "@/components/ui";
 import { buildModMessage, buildPostMessage, buildReportMessage, POST_MAX, REPORT_REASONS, validateBody, type ReportReason } from "@/lib/launchpad/posts";
-import { COMMENTS_PAGE, clearDraft, groupReplies, loadCommentDraft, nextPostsLoadState, resolveReplyTarget, saveDraft, shouldIgnoreLoad, visibleTopIds } from "@/lib/launchpad/post-threads";
+import { COMMENTS_PAGE, clearDraft, groupReplies, initialPostsLoadState, loadCommentDraft, nextPostsLoadState, resolveReplyTarget, saveDraft, shouldIgnoreLoad, visibleTopIds } from "@/lib/launchpad/post-threads";
 import type { PostRow } from "@/lib/launchpad/postsServer";
 import { ago, nowMs } from "@/lib/launchpad/time";
 import { CHAINS, CHAIN_SHORT, shortAddr, type ChainKey } from "@/lib/chainPublic";
@@ -57,11 +57,9 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
   // A restored replyTo cannot be validated until then: posts starts empty, so
   // an empty list must not read as "parent missing" before the fetch, nor as
   // "parent exists" for signing. Submit of a restored reply blocks meanwhile.
-  const [postsLoaded, setPostsLoaded] = useState(false);
-  // Set when the initial comments fetch fails (503 / network rejection / bad
-  // payload). postsLoaded stays false so a restored reply keeps pending and
-  // the draft is never silently turned top-level; the composer shows Retry.
-  const [loadError, setLoadError] = useState<string | null>(null);
+  // loadError arms the Retry button; postsLoaded stays false on failure so a
+  // restored reply keeps pending and the draft is never silently top-level.
+  const [{ postsLoaded, loadError }, setLoadState] = useState(initialPostsLoadState);
   // Draft restores async after hydration so server and client render the same empty composer first.
   // The loaded value is always assigned (even when empty) so text typed for one
   // token can never leak into — and be submitted from — another token's composer.
@@ -74,8 +72,7 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
       setReplyTo(d.parentId);
       setShownCount(COMMENTS_PAGE);
       setPosts([]);
-      setPostsLoaded(false);
-      setLoadError(null);
+      setLoadState(initialPostsLoadState);
       setErr(null);
     }, 0);
     return () => clearTimeout(t);
@@ -100,24 +97,23 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
       if (!res.ok) {
         // Failure, not proof of anything: keep postsLoaded false so a restored
         // reply stays pending (submit blocks) and the draft keeps its destination.
-        setLoadError(nextPostsLoadState({ postsLoaded: false, loadError: null }, { kind: "http-error", status: res.status }).loadError);
+        setLoadState((prev) => nextPostsLoadState(prev, { kind: "http-error", status: res.status }));
         return;
       }
       const d = (await res.json()) as { posts: PostRow[]; muted: boolean };
       if (!Array.isArray(d.posts)) {
         if (ignored()) return;
-        setLoadError(nextPostsLoadState({ postsLoaded: false, loadError: null }, { kind: "invalid" }).loadError);
+        setLoadState((prev) => nextPostsLoadState(prev, { kind: "invalid" }));
         return;
       }
       if (ignored()) return;
       setPosts(d.posts);
       setMuted(d.muted);
       setNow(nowMs());
-      setPostsLoaded(true);
-      setLoadError(null);
+      setLoadState((prev) => nextPostsLoadState(prev, { kind: "ok" }));
     } catch {
       if (ignored()) return;
-      setLoadError(nextPostsLoadState({ postsLoaded: false, loadError: null }, { kind: "network-error" }).loadError);
+      setLoadState((prev) => nextPostsLoadState(prev, { kind: "network-error" }));
     }
   }, [chain, token]);
 
@@ -149,7 +145,7 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
   // an unvalidated parent. After load the truncated posts window (latest 100) is
   // not authoritative — a missing id there does not mean the parent is gone, so
   // we preserve the target and let the server decide (no silent top-level fallback).
-  const { target: effectiveReplyTo, pending: validationPending, missing: replyMissing } = resolveReplyTarget(replyTo, posts, postsLoaded);
+  const { target: effectiveReplyTo, pending: validationPending } = resolveReplyTarget(replyTo, postsLoaded);
 
   async function submit() {
     if (!address) return;
@@ -159,7 +155,7 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
       return;
     }
     // Re-resolve here: posts may have changed since the last render.
-    const resolved = resolveReplyTarget(replyTo, posts, postsLoaded);
+    const resolved = resolveReplyTarget(replyTo, postsLoaded);
     if (resolved.pending) {
       setErr("Loading comments — please try again in a moment.");
       return;
@@ -263,7 +259,7 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
                 {loadError ? (
                   <p className="text-[11px] text-down-ink" role="alert">
                     {loadError}{" "}
-                    <button type="button" className="underline hover:text-ink" onClick={() => { setLoadError(null); void load(); }}>
+                    <button type="button" className="underline hover:text-ink" onClick={() => { setLoadState((prev) => ({ ...prev, loadError: null })); void load(); }}>
                       Try again
                     </button>
                   </p>
@@ -275,10 +271,6 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
                 <button type="button" className="underline hover:text-ink" onClick={() => { setReplyTo(null); saveDraft(chain, token, body, null); }}>
                   cancel
                 </button>
-              </p>
-            ) : replyMissing ? (
-              <p className="text-[11px] text-muted" role="status">
-                The comment you were replying to is gone — posting as a top-level comment.
               </p>
             ) : null}
             <textarea
@@ -294,11 +286,14 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
               className="w-full rounded-xl bg-card border border-line-strong focus:border-brand focus:ring-4 focus:ring-brand/10 outline-none px-3 py-2 text-sm text-ink placeholder:text-faint min-h-16 resize-y"
             />
             <div className="flex items-center justify-between gap-3">
-              <span id={`comment-count-${chain}`} aria-live="polite" className="text-[11px] text-muted font-mono tnum">{POST_MAX - body.length}</span>
+              <span id={`comment-count-${chain}`} className="text-[11px] text-muted font-mono tnum">{POST_MAX - body.length}</span>
               <button type="button" onClick={() => void submit()} disabled={busy || !body.trim() || validationPending} className={btn.primarySm}>
                 {busy ? "Sign in wallet…" : validationPending ? "Checking…" : effectiveReplyTo !== null ? "Reply" : "Post"}
               </button>
             </div>
+            {POST_MAX - body.length <= 50 ? (
+              <p className="sr-only" role="status">{POST_MAX - body.length} characters remaining</p>
+            ) : null}
             {err ? <p className="text-xs text-down-ink" role="alert">{err}</p> : null}
           </div>
         )}
@@ -310,7 +305,7 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
           const thread = repliesById.get(p.id) ?? [];
           return (
           <li key={p.id} className="px-4 py-3">
-            <PostItem p={p} now={now} canReply={isConnected && !muted} onReply={() => { setReplyTo(p.id); saveDraft(chain, token, body, p.id); }} onReport={address && p.wallet !== address.toLowerCase() ? (r) => void report(p, r) : undefined} />
+            <PostItem p={p} now={now} canReply={isConnected && !muted} onReply={() => { setReplyTo(p.id); if (body) saveDraft(chain, token, body, p.id); }} onReport={address && p.wallet !== address.toLowerCase() ? (r) => void report(p, r) : undefined} />
             {thread.length ? (
               <ul className="mt-2 ml-6 pl-3 border-l border-line space-y-2">
                 {thread.map((r) => (
@@ -329,10 +324,10 @@ export default function TokenComments({ chain, token, symbol, launcher, embedded
           <button
             type="button"
             onClick={() => setShownCount((n) => n + COMMENTS_PAGE)}
-            aria-label={`Show more comments, ${remaining} remaining`}
+            aria-label={`Show more comments, ${remaining} remaining, showing ${visibleTop.length} of ${top.length}`}
             className="min-h-10 rounded-xl border border-line-strong px-4 text-sm font-medium text-ink hover:bg-card"
           >
-            Show more comments ({visibleTop.length} of {top.length})
+            Show more
           </button>
           <p className="mt-1 text-[11px] text-muted" role="status">Showing {visibleTop.length} of {top.length} comments</p>
         </div>
