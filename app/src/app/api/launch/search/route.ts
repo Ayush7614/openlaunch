@@ -14,7 +14,8 @@ export async function GET(req: Request) {
     const usd = await ethUsd();
     const launches = await searchLaunches(q, { chain: isChainKey(c) ? c : null, limit: 20, ethUsd: usd });
     return NextResponse.json({ q, launches }, { headers: { "cache-control": "no-store" } });
-  } catch {
+  } catch (err) {
+    console.error("[launch] search failed:", err instanceof Error ? err.message : err);
     return NextResponse.json({ error: "could not search" }, { status: 502 });
   }
 }

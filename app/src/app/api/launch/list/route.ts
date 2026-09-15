@@ -22,7 +22,8 @@ export async function GET(req: Request) {
     const usd = await ethUsd();
     const page = await listLaunchesPage({ sort, window, chain, filter, limit, offset, ethUsd: usd });
     return NextResponse.json({ sort, window, chain, filter, limit, offset, has_more: page.hasMore, ethUsd: usd, launches: page.items }, { headers: { "cache-control": "no-store" } });
-  } catch {
+  } catch (err) {
+    console.error("[launch] list failed:", err instanceof Error ? err.message : err);
     return NextResponse.json({ error: "could not load list" }, { status: 502 });
   }
 }

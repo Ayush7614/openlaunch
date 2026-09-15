@@ -35,7 +35,8 @@ export async function GET(req: Request) {
   ]);
   const trending = fetchedTrending ?? trendingFrom(page?.items ?? []);
     return NextResponse.json({ at: Date.now(), feed, totals, ethUsd: usd, sort, window, chain, filter, limit, has_more: page?.hasMore ?? null, launches: page?.items ?? null, posts, trending }, { headers: { "cache-control": "no-store" } });
-  } catch {
+  } catch (err) {
+    console.error("[launch] live failed:", err instanceof Error ? err.message : err);
     return NextResponse.json({ error: "could not load live snapshot" }, { status: 502 });
   }
 }

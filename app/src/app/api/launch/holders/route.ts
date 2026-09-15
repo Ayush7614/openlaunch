@@ -16,7 +16,8 @@ export async function GET(req: Request) {
     const panel = await memo(`holders:${chain}:${token.toLowerCase()}`, 5_000, () => getHolderPanel(chain, token));
     if (!panel) return NextResponse.json({ error: "not found" }, { status: 404 });
     return NextResponse.json(panel, { headers: { "cache-control": "no-store" } });
-  } catch {
+  } catch (err) {
+    console.error("[launch] holders failed:", err instanceof Error ? err.message : err);
     return NextResponse.json({ error: "could not load holders" }, { status: 502 });
   }
 }
