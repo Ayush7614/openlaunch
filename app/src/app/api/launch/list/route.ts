@@ -18,7 +18,11 @@ export async function GET(req: Request) {
   const filter = isFilter(f) ? f : null;
   const limit = clampLimit(u.searchParams.get("limit"), 50);
   const offset = clampOffset(u.searchParams.get("offset"));
-  const usd = await ethUsd();
-  const page = await listLaunchesPage({ sort, window, chain, filter, limit, offset, ethUsd: usd });
-  return NextResponse.json({ sort, window, chain, filter, limit, offset, has_more: page.hasMore, ethUsd: usd, launches: page.items }, { headers: { "cache-control": "no-store" } });
+  try {
+    const usd = await ethUsd();
+    const page = await listLaunchesPage({ sort, window, chain, filter, limit, offset, ethUsd: usd });
+    return NextResponse.json({ sort, window, chain, filter, limit, offset, has_more: page.hasMore, ethUsd: usd, launches: page.items }, { headers: { "cache-control": "no-store" } });
+  } catch {
+    return NextResponse.json({ error: "could not load list" }, { status: 502 });
+  }
 }
