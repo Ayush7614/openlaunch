@@ -46,6 +46,8 @@ type Phase =
   | { k: "done"; hash: Hex; token: string }
   | { k: "error"; message: string };
 
+// A chain without contracts reads as upcoming to visitors; in development the reason is what matters.
+const UNCONFIGURED_CHAIN_COPY = process.env.NODE_ENV === "production" ? "Coming soon." : "Not configured here. Contract settings are missing in this environment.";
 const FIRST_BUY_SLIPPAGE_BPS = 300; // Other buyers can trade between the launch and this separate buy.
 const PERMIT_EXPIRY_S = 30 * 24 * 3600;
 // Native ETH kept back from a first buy: the launch transaction is sent first and pays its own gas, then the buy (and, for
@@ -428,7 +430,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
                   aria-pressed={active}
                 >
                   <div className={`font-semibold text-sm ${active ? "text-brand" : "text-ink"}`}>{CHAIN_LABELS[k]}</div>
-                  <div className="text-xs text-body mt-0.5 leading-snug">{!ok ? "Not configured here. Contract settings are missing in this environment." : k === "base" ? "Priced in ETH, GITLAWB or a Coinbase tokenized stock. Gas ≈ cents." : "Priced in USDG (dollars), ETH, GITLAWB or a Robinhood Stock Token. Gas ≈ cents."}</div>
+                  <div className="text-xs text-body mt-0.5 leading-snug">{!ok ? UNCONFIGURED_CHAIN_COPY : k === "base" ? "Priced in ETH, GITLAWB or a Coinbase tokenized stock. Gas ≈ cents." : "Priced in USDG (dollars), ETH, GITLAWB or a Robinhood Stock Token. Gas ≈ cents."}</div>
                 </button>
               );
             })}

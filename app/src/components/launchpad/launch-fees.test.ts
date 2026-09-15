@@ -137,6 +137,21 @@ test("fee redesign preserves split validation, editor controls and the exact lau
   assert.deepEqual(recipients(30_000, "custom"), split.recipients);
   assert.deepEqual(recipients(30_000, "custom", buildRecipients([{ payout: address, pct: "90" }])), [], "An incomplete split must not reach the factory payload");
   assert.match(formSource, /lpFee: feePips,/);
-  assert.doesNotMatch(formSource, /Coming soon/);
-  assert.match(formSource, /Not configured here\. Contract settings are missing in this environment\./);
+});
+
+test("an unconfigured chain says Coming soon in production and explains the missing contracts in development", () => {
+  const formAst = ts.createSourceFile("LaunchForm.tsx", formSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let declaration: ts.VariableDeclaration | undefined;
+  function visit(node: ts.Node) {
+    if (ts.isVariableDeclaration(node) && node.name.getText(formAst) === "UNCONFIGURED_CHAIN_COPY") declaration = node;
+    ts.forEachChild(node, visit);
+  }
+  visit(formAst);
+  assert.ok(declaration?.initializer);
+  const { outputText } = ts.transpileModule(`(${declaration.initializer.getText(formAst)})`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } });
+  const copy = (NODE_ENV: string) => runInNewContext(outputText, { process: { env: { NODE_ENV } } });
+  assert.equal(copy("production"), "Coming soon.");
+  assert.equal(copy("development"), "Not configured here. Contract settings are missing in this environment.");
+  assert.equal(copy("test"), "Not configured here. Contract settings are missing in this environment.");
+  assert.match(formSource, /\{!ok \? UNCONFIGURED_CHAIN_COPY : /, "the chain button renders this copy for an unconfigured chain");
 });
