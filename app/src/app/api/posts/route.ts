@@ -15,7 +15,8 @@ export async function GET(req: Request) {
     const { offset } = parseFeedPaging({ offset: u.searchParams.get("offset") });
     try {
       return NextResponse.json({ posts: await memo(feedPostsKey(offset), 2_000, () => listFeed(FEED_POSTS_LIMIT, offset)) }, { headers: { "cache-control": "no-store" } });
-    } catch {
+    } catch (err) {
+      console.error("[posts] feed failed:", err instanceof Error ? err.message : err);
       return NextResponse.json({ error: "could not load feed" }, { status: 502 });
     }
   }
@@ -25,7 +26,8 @@ export async function GET(req: Request) {
   const { limit, beforeId } = parseTokenPostsPaging({ limit: u.searchParams.get("limit"), before: u.searchParams.get("before") });
   try {
     return NextResponse.json(await memo(postsCursorKey(chain, token, limit, beforeId), 2_000, () => listTokenPosts(chain, token, limit, beforeId)), { headers: { "cache-control": "no-store" } });
-  } catch {
+  } catch (err) {
+    console.error("[posts] token posts failed:", err instanceof Error ? err.message : err);
     return NextResponse.json({ error: "could not load comments" }, { status: 502 });
   }
 }

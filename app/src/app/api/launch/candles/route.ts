@@ -51,7 +51,8 @@ export async function GET(req: Request) {
       { interval, from, asOf: snapshot.asOf, baseline, launch: { t: launchT, price: launchPrice }, quote: { symbol: q.symbol, decimals: q.decimals, usd: l.quote_usd }, supply: Number(BigInt(l.supply)) / 1e18, candles: snapshot.candles, mine },
       { headers: { "cache-control": "no-store" } },
     );
-  } catch {
+  } catch (err) {
+    console.error("[launch] candles failed:", err instanceof Error ? err.message : err);
     return NextResponse.json({ error: "could not load candles" }, { status: 502 });
   }
 }

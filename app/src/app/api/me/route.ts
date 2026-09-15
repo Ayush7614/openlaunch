@@ -17,7 +17,8 @@ export async function GET(req: Request) {
       return { wallet: w, ethUsd: usd, launches, tokens, trades };
     });
     return NextResponse.json(data, { headers: { "cache-control": "no-store" } });
-  } catch {
+  } catch (err) {
+    console.error("[me] wallet failed:", err instanceof Error ? err.message : err);
     return NextResponse.json({ error: "could not load wallet" }, { status: 502 });
   }
 }
