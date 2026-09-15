@@ -26,3 +26,18 @@ export function sanitizeDecimalInput(raw: string): string {
   }
   return out;
 }
+
+/**
+ * Custom market-cap field state transition (pure; unit-tested).
+ *
+ * The launch form falls back to the selected preset whenever the custom field
+ * is empty (`customMcap.trim() ? Number(customMcap) : pickedPreset`). Without
+ * this, typing a value that sanitizes to empty (e.g. "1e-7" with a preset
+ * active) leaves the old preset selected: the field shows empty while the
+ * launch proceeds at the preset cap. Returns the sanitized value plus whether
+ * the caller must clear the preset pick.
+ */
+export function resolveCustomMcapInput(raw: string): { value: string; clearPick: boolean } {
+  const value = sanitizeDecimalInput(raw);
+  return { value, clearPick: raw.trim() !== "" && value === "" };
+}

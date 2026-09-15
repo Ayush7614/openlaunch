@@ -17,7 +17,7 @@ import { DEAD, DEFAULT_SUPPLY, FEE_PRESETS, GAS_RESERVE_WEI, MAX_RECIPIENTS, STO
 import { bpsToPct, buildRecipients, describeShares, emptyRow, isBurnAddress, type Recipient, type RecipientRow } from "@/lib/launchpad/recipients";
 import { capChipLabel, capDisplay, capEntry, capPick, capPresets, capToQuote } from "@/lib/launchpad/market-cap";
 import { uppercaseInPlace } from "@/lib/launchpad/symbol-input";
-import { sanitizeDecimalInput } from "@/lib/launchpad/decimal-input";
+import { sanitizeDecimalInput, resolveCustomMcapInput } from "@/lib/launchpad/decimal-input";
 import { fdvForStartTick, fmtCompact, fmtQuoteUnits, fmtUsd, initialBuyPreview, minOut, startTickForFdv, tickToTokensPerQuote, units } from "@/lib/launchpad/math";
 import { BUY_PRESETS, defaultFirstBuy, gasReserveInQuote, suggestFirstBuy } from "@/lib/launchpad/first-buy";
 import { getFirstBuyDeclined, getFirstBuyDeclinedServer, setFirstBuyDeclined, subscribeFirstBuyDeclined } from "@/lib/launchpad/first-buy-session";
@@ -683,7 +683,11 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
               <input
                 className={`${input} h-11 w-36 font-mono pr-12`}
                 value={customMcap}
-                onChange={(e) => setCustomMcap(sanitizeDecimalInput(e.target.value))}
+                onChange={(e) => {
+                  const next = resolveCustomMcapInput(e.target.value);
+                  if (next.clearPick) setMcapPick(null);
+                  setCustomMcap(next.value);
+                }}
                 placeholder="custom"
                 inputMode="decimal"
                 aria-label={`custom starting market cap in ${entry.unit === "usd" ? "USD" : quote.symbol}`}

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { sanitizeDecimalInput } from "./decimal-input.ts";
+import { resolveCustomMcapInput, sanitizeDecimalInput } from "./decimal-input.ts";
 
 test("plain decimals pass through", () => {
   assert.equal(sanitizeDecimalInput(""), "");
@@ -25,4 +25,11 @@ test("grouping, currency and whitespace are stripped; only the first dot survive
   assert.equal(sanitizeDecimalInput("1.2.3"), "1.23", "extra dots are dropped, digits kept");
   assert.equal(sanitizeDecimalInput("abc1.5"), "1.5");
   assert.equal(sanitizeDecimalInput("12 USD"), "12");
+});
+
+test("resolveCustomMcapInput clears the preset pick when the entry sanitizes to empty", () => {
+  assert.deepEqual(resolveCustomMcapInput("1e-7"), { value: "", clearPick: true }, "rejected entry must not fall back to the old preset cap");
+  assert.deepEqual(resolveCustomMcapInput("25000"), { value: "25000", clearPick: false });
+  assert.deepEqual(resolveCustomMcapInput(""), { value: "", clearPick: false }, "clearing the field is not a rejection");
+  assert.deepEqual(resolveCustomMcapInput("   "), { value: "", clearPick: false });
 });
