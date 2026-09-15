@@ -33,3 +33,18 @@ test("shapeCard never renders NaN/Infinity market caps", () => {
   assert.equal(shapeCard(input({ fdv_usd: Infinity }), now).mcap, "$—");
   assert.equal(shapeCard(input({ fdv_usd: null, fdv_quote: Number.NaN, quote_symbol: "ETH" }), now).mcap, "— ETH");
 });
+
+test("shapeCard renders a neutral dash for non-finite change, not NaN%/+—%", () => {
+  const now = Date.parse("2026-09-06T12:00:00Z");
+  assert.deepEqual(
+    { change: shapeCard(input({ change_from_launch: Number.NaN }), now).change, up: shapeCard(input({ change_from_launch: Number.NaN }), now).up },
+    { change: "—", up: null },
+  );
+  assert.deepEqual(
+    { change: shapeCard(input({ change_from_launch: Infinity }), now).change, up: shapeCard(input({ change_from_launch: Infinity }), now).up },
+    { change: "—", up: null },
+  );
+  const finite = shapeCard(input({ change_from_launch: 0.234 }), now);
+  assert.equal(finite.change, "+23%");
+  assert.equal(finite.up, true);
+});

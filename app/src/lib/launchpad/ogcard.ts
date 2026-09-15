@@ -1,6 +1,6 @@
 /** Pure shaping for the per-token share card (node --test loads this). */
 export type CardInput = { name: string; symbol: string; chain: "base" | "robinhood"; fdv_usd: number | null; fdv_quote: number; quote_key: string; quote_symbol: string; change_from_launch: number; lp_fee: number; recipients: { payout: string; bps: number }[]; block_time: string };
-export type Card = { title: string; symbol: string; chainLabel: string; mcap: string; change: string; up: boolean; fee: string; age: string; quote: { symbol: string; ticker: string; kind: "stock" | "gitlawb" } | null };
+export type Card = { title: string; symbol: string; chainLabel: string; mcap: string; change: string; up: boolean | null; fee: string; age: string; quote: { symbol: string; ticker: string; kind: "stock" | "gitlawb" } | null };
 
 const DEAD = "0x000000000000000000000000000000000000dead";
 
@@ -32,13 +32,14 @@ export function ageLabel(iso: string, now: number): string {
 
 export function shapeCard(l: CardInput, now: number): Card {
   const pct = l.change_from_launch * 100;
+  const finitePct = Number.isFinite(pct);
   return {
     title: l.name.slice(0, 28),
     symbol: l.symbol.slice(0, 12),
     chainLabel: l.chain === "base" ? "Base" : "Robinhood Chain",
     mcap: l.fdv_usd !== null ? `$${compact(l.fdv_usd)}` : `${compact(l.fdv_quote)} ${l.quote_symbol}`,
-    change: `${pct >= 0 ? "+" : ""}${Math.abs(pct) >= 1000 ? compact(pct) : pct.toFixed(Math.abs(pct) >= 10 ? 0 : 1)}%`,
-    up: pct >= 0,
+    change: finitePct ? `${pct >= 0 ? "+" : ""}${Math.abs(pct) >= 1000 ? compact(pct) : pct.toFixed(Math.abs(pct) >= 10 ? 0 : 1)}%` : "—",
+    up: finitePct ? pct >= 0 : null,
     fee: feeLabel(l.lp_fee, l.recipients),
     age: ageLabel(l.block_time, now),
     quote: quotePillOf(l.quote_key, l.quote_symbol),
