@@ -5,6 +5,7 @@ export type Card = { title: string; symbol: string; chainLabel: string; mcap: st
 const DEAD = "0x000000000000000000000000000000000000dead";
 
 function compact(n: number): string {
+  if (!Number.isFinite(n)) return "—";
   const a = Math.abs(n);
   if (a >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
   if (a >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
@@ -20,8 +21,11 @@ export function feeLabel(lpFee: number, recipients: { payout: string; bps: numbe
 }
 
 export function ageLabel(iso: string, now: number): string {
-  const s = Math.max(0, Math.floor((now - new Date(iso).getTime()) / 1000));
-  if (s < 3600) return `${Math.max(1, Math.floor(s / 60))}m old`;
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t) || !Number.isFinite(now)) return "—";
+  const s = Math.max(0, Math.floor((now - t) / 1000));
+  if (s < 60) return `${s}s old`;
+  if (s < 3600) return `${Math.floor(s / 60)}m old`;
   if (s < 86400) return `${Math.floor(s / 3600)}h old`;
   return `${Math.floor(s / 86400)}d old`;
 }
