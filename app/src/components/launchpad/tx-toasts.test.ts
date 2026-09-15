@@ -280,3 +280,33 @@ test("returning to a tab after a gap does not queue the activity missed while it
   assert.equal(h.state().active?.title, "live just launched on Base");
   h.unmount();
 });
+
+test("a timer that fires early re-arms for the remainder instead of freezing the queue", () => {
+  const h = harness();
+  h.render();
+  h.local({ kind: "buy", title: "Your buy" });
+  h.local({ kind: "sell", title: "Your sell" });
+  h.render();
+  assert.equal(h.timers.size, 1);
+  const [[firstId, first]] = [...h.timers.entries()];
+  assert.equal(first.delay, queueFunctions.TOAST_TTL_MS);
+  h.timers.delete(firstId);
+  h.now(queueFunctions.TOAST_TTL_MS - 1); // fires 1ms early by Date.now()
+  first.fn();
+  assert.equal(h.state().active?.title, "Your buy");
+  assert.equal(h.state().active?.leaving, false);
+  assert.equal(h.timers.size, 1, "a follow-up timer is armed, so the card cannot stick");
+  const [[secondId, second]] = [...h.timers.entries()];
+  assert.equal(second.delay, 1);
+  h.timers.delete(secondId);
+  h.now(queueFunctions.TOAST_TTL_MS);
+  second.fn();
+  assert.equal(h.state().active?.leaving, true, "the card starts leaving on time");
+  h.render();
+  const [[exitId, exit]] = [...h.timers.entries()];
+  h.timers.delete(exitId);
+  h.now(queueFunctions.TOAST_TTL_MS + queueFunctions.TOAST_EXIT_MS);
+  exit.fn();
+  assert.equal(h.state().active?.title, "Your sell", "and the queue moves on");
+  h.unmount();
+});

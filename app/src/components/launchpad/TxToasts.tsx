@@ -86,10 +86,22 @@ export default function TxToasts() {
     if (!active) return;
     const delay = toastDelay(active, Date.now());
     if (delay === null) return;
-    const timer = setTimeout(() => {
-      const now = Date.now();
-      setQueue((cur) => expireToast(cur, active.id, now));
-    }, delay);
+    let timer: ReturnType<typeof setTimeout>;
+    const schedule = (wait: number) => {
+      timer = setTimeout(() => {
+        const now = Date.now();
+        const remaining = toastDelay(active, now);
+        if (remaining === null) return;
+        // A timer can fire a moment early against Date.now(): expireToast would change nothing and nothing would re-arm,
+        // leaving this card (and everything queued behind it) on screen until dismissed. Wait out the remainder instead.
+        if (remaining > 0) {
+          schedule(remaining);
+          return;
+        }
+        setQueue((cur) => expireToast(cur, active.id, now));
+      }, wait);
+    };
+    schedule(delay);
     return () => clearTimeout(timer);
   }, [active]);
 
