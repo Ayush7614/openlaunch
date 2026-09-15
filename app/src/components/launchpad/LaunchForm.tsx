@@ -16,6 +16,7 @@ import { ERC20_MIN_ABI, ERC20_TRANSFER_EVENT, LAUNCH_FACTORY_ABI, PERMIT2_ABI, U
 import { DEAD, DEFAULT_SUPPLY, FEE_PRESETS, MAX_RECIPIENTS, TICK_SPACING, launchpad, quoteUsdOf, type Quote } from "@/lib/launchpad/config";
 import { bpsToPct, buildRecipients, describeShares, emptyRow, isBurnAddress, type Recipient, type RecipientRow } from "@/lib/launchpad/recipients";
 import { capChipLabel, capDisplay, capEntry, capPick, capPresets, capToQuote } from "@/lib/launchpad/market-cap";
+import { uppercaseInPlace } from "@/lib/launchpad/symbol-input";
 import { fdvForStartTick, fmtCompact, fmtQuoteUnits, fmtUsd, initialBuyPreview, minOut, startTickForFdv, tickToTokensPerQuote, units } from "@/lib/launchpad/math";
 import { BUY_PRESETS, defaultFirstBuy, suggestFirstBuy } from "@/lib/launchpad/first-buy";
 import { getFirstBuyDeclined, getFirstBuyDeclinedServer, setFirstBuyDeclined, subscribeFirstBuyDeclined } from "@/lib/launchpad/first-buy-session";
@@ -573,7 +574,11 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = "
                 id="symbol"
                 className={`${input} font-mono`}
                 value={symbol}
-                onChange={(e) => setSymbol(e.target.value)}
+                onChange={(e) => {
+                  // Rewriting an in-progress IME composition breaks the candidate window: keep it verbatim until it ends.
+                  setSymbol((e.nativeEvent as InputEvent).isComposing ? e.target.value : uppercaseInPlace(e.target));
+                }}
+                onCompositionEnd={(e) => setSymbol(uppercaseInPlace(e.currentTarget))}
                 onKeyDown={(e) => {
                   // Some IMEs end composition before the confirming Enter keydown.
                   if (e.key === "Enter" && (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229)) e.preventDefault();

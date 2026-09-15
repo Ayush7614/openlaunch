@@ -4,6 +4,7 @@ import test from "node:test";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { validateMeta } from "../../lib/launchpad/metaShared.ts";
+import { uppercaseInPlace } from "../../lib/launchpad/symbol-input.ts";
 
 const source = readFileSync(new URL("./LaunchForm.tsx", import.meta.url), "utf8");
 const ast = ts.createSourceFile("LaunchForm.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -31,7 +32,7 @@ function handler(name: string, globals: Record<string, unknown> = {}) {
   return runInNewContext(outputText, globals) as (event: unknown) => void;
 }
 
-test("Symbol preserves typed, pasted and in-progress IME text verbatim", () => {
+test("Symbol leaves in-progress IME composition text verbatim", () => {
   let stored = "";
   const change = handler("onChange", { setSymbol: (value: string) => { stored = value; } });
   for (const value of ["s", "sk", "sky", "zhong", "中文", "にほん", "日本", "தமிழ்", "ß", "é", "e\u0301", " ab12 ", "ABCDEFGHIJK", ""]) {
@@ -40,6 +41,79 @@ test("Symbol preserves typed, pasted and in-progress IME text verbatim", () => {
   }
   assert.doesNotMatch(attribute("className")!.getText(ast), /\buppercase\b/, "CSS must not change the composition display either");
   assert.equal(attribute("maxLength"), undefined, "Validate the finished value instead of truncating an IME composition or paste");
+});
+
+/** A stand-in <input>: value writes and caret moves are recorded like the DOM would apply them. */
+function field(value: string, caret = value.length) {
+  const el = {
+    value,
+    selectionStart: caret as number | null,
+    selectionEnd: caret as number | null,
+    setSelectionRange(start: number, end: number) { el.selectionStart = start; el.selectionEnd = end; },
+  };
+  return el;
+}
+
+test("Symbol uppercases typed and pasted text in the field itself, keeping the caret", () => {
+  let stored = "";
+  const change = handler("onChange", { setSymbol: (value: string) => { stored = value; }, uppercaseInPlace });
+  for (const [value, expected] of [["s", "S"], ["sky9", "SKY9"], [" ab12 ", " AB12 "], ["SKY", "SKY"], ["", ""]] as const) {
+    const el = field(value);
+    change({ target: el, nativeEvent: { isComposing: false } });
+    assert.equal(stored, expected);
+    assert.equal(el.value, expected, "the DOM value matches state, so React never rewrites it and never moves the caret");
+  }
+  const mid = field("SkY", 2);
+  change({ target: mid, nativeEvent: { isComposing: false } });
+  assert.equal(stored, "SKY");
+  assert.deepEqual([mid.selectionStart, mid.selectionEnd], [2, 2], "editing mid-word keeps the caret synchronously");
+});
+
+test("Symbol composition works in both browser event orders and the committed value is uppercase", () => {
+  let stored = "";
+  const bindings = { setSymbol: (value: string) => { stored = value; }, uppercaseInPlace };
+  const change = handler("onChange", bindings);
+  const end = handler("onCompositionEnd", bindings);
+
+  // Chrome/Firefox: composing input events, compositionend, then a final non-composing input.
+  const chrome = field("sk");
+  change({ target: chrome, nativeEvent: { isComposing: true } });
+  assert.equal(stored, "sk", "composition text is left alone");
+  assert.equal(chrome.value, "sk", "the field is not touched mid-composition");
+  chrome.value = "sky";
+  end({ currentTarget: chrome });
+  change({ target: chrome, nativeEvent: { isComposing: false } });
+  assert.equal(stored, "SKY");
+
+  // Safari: the last input event still reports isComposing, compositionend follows.
+  const safari = field("abc");
+  change({ target: safari, nativeEvent: { isComposing: true } });
+  assert.equal(stored, "abc");
+  end({ currentTarget: safari });
+  assert.equal(stored, "ABC");
+  assert.equal(safari.value, "ABC");
+
+  // Committed mid-word: caret stays after the committed text.
+  const midWord = field("SxKY", 2);
+  end({ currentTarget: midWord });
+  assert.equal(stored, "SXKY");
+  assert.deepEqual([midWord.selectionStart, midWord.selectionEnd], [2, 2]);
+  end({ currentTarget: field("中文") });
+  assert.equal(stored, "中文");
+});
+
+test("typed lowercase symbols pass the launch validation as uppercase", () => {
+  let stored = "";
+  const change = handler("onChange", { setSymbol: (value: string) => { stored = value; }, uppercaseInPlace });
+  const base = { chain: "base" as const, launcher: "0x00000000000000000000000000000000000c0ffe", salt: `0x${"a".repeat(64)}`, name: "Sky" };
+  for (const typed of ["sky", "Sky9", "abcdefghij"]) {
+    change({ target: field(typed), nativeEvent: { isComposing: false } });
+    assert.equal(stored, typed.toUpperCase());
+    const result = validateMeta({ ...base, symbol: stored });
+    assert.ok(result.ok, typed);
+    assert.equal(result.value.symbol, typed.toUpperCase());
+  }
+  assert.match(source, /import \{ uppercaseInPlace \} from "@\/lib\/launchpad\/symbol-input"/, "the handlers under test use the real helper");
 });
 
 test("Enter confirms composition without implicitly submitting the launch form", () => {
