@@ -11,6 +11,7 @@ import Mark, { Wordmark } from "./launchpad/Mark";
 import { BRAND_X } from "@/lib/brand";
 import ConnectButton from "./ConnectButton";
 import ThemeToggle from "./ThemeToggle";
+import NotificationSettings from "./NotificationSettings";
 import LivePulse from "./launchpad/LivePulse";
 
 const NAV = [
@@ -98,6 +99,7 @@ function Desktop({ visible = false, pulse, isActive, quietCta }: { visible?: boo
       <NavLinks isActive={isActive} compact={visible} />
 
       <div className="relative z-20 ml-auto flex items-center gap-2">
+        <NotificationSettings />
         <ThemeToggle />
         <ConnectButton />
         {/* while the hero's CTA is on screen it owns the one filled blue; this one fills in once that has scrolled away */}
@@ -259,6 +261,7 @@ function Mobile({ visible = false, pulse, isActive }: { visible?: boolean; pulse
           <LivePulse initial={pulse} block />
           <div className="my-1 border-t border-line" aria-hidden />
           <XLink block />
+          <NotificationSettings block />
           <ThemeToggle block />
           <ConnectButton block onNavigate={() => setOpen(false)} />
           <LaunchCta block onNavigate={() => setOpen(false)} />
