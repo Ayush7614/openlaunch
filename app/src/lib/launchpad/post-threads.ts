@@ -43,7 +43,7 @@ function cleanParentId(v: unknown): number | null {
   return typeof v === "number" && Number.isInteger(v) && v > 0 ? v : null;
 }
 
-/** Load the full draft (body + reply target). Understands the new JSON shape and legacy plain-text drafts. */
+/** Load the full draft (body + reply target). Only the JSON shape is read; anything else is treated as no draft. */
 export function loadCommentDraft(chain: string, token: string): CommentDraft {
   try {
     if (typeof localStorage === "undefined") return { body: "", parentId: null };
@@ -52,27 +52,29 @@ export function loadCommentDraft(chain: string, token: string): CommentDraft {
     try {
       const parsed = JSON.parse(raw) as { body?: unknown; parentId?: unknown };
       if (parsed && typeof parsed === "object" && typeof parsed.body === "string") {
+        if (!parsed.body) return { body: "", parentId: null };
         return { body: parsed.body, parentId: cleanParentId(parsed.parentId) };
       }
     } catch {
-      /* legacy plain-text draft falls through */
+      /* not a draft we wrote: ignore */
     }
-    return { body: raw, parentId: null };
+    return { body: "", parentId: null };
   } catch {
     return { body: "", parentId: null };
   }
 }
 
-export function loadDraft(chain: string, token: string): string {
-  return loadCommentDraft(chain, token).body;
-}
-
 export function saveDraft(chain: string, token: string, body: string, parentId: number | null = null): void {
   try {
     if (typeof localStorage === "undefined") return;
+    // An empty body stores nothing: clicking Reply alone must not leave a
+    // "Replying to #x" draft behind after a reload.
+    if (!body) {
+      localStorage.removeItem(draftKey(chain, token));
+      return;
+    }
     const pid = cleanParentId(parentId);
-    if (!body && pid === null) localStorage.removeItem(draftKey(chain, token));
-    else localStorage.setItem(draftKey(chain, token), JSON.stringify({ body: body.slice(0, 2000), parentId: pid }));
+    localStorage.setItem(draftKey(chain, token), JSON.stringify({ body: body.slice(0, 2000), parentId: pid }));
   } catch {
     /* storage blocked: the in-memory textarea state is what survives */
   }
@@ -88,7 +90,7 @@ export function clearDraft(chain: string, token: string): void {
 }
 
 /**
- * Resolve a restored reply target against the loaded posts (PR #31).
+ * Resolve a restored reply target against the loaded posts.
  *
  * Draft restoration and the initial posts fetch race: posts starts empty, so
  * an empty list must not read as "parent missing" before the fetch, nor as
@@ -103,19 +105,18 @@ export function clearDraft(chain: string, token: string): void {
  */
 export function resolveReplyTarget(
   replyTo: number | null,
-  posts: readonly { id: number }[],
   postsLoaded: boolean,
-): { target: number | null; pending: boolean; missing: boolean } {
-  if (replyTo === null) return { target: null, pending: false, missing: false };
-  if (!postsLoaded) return { target: replyTo, pending: true, missing: false };
+): { target: number | null; pending: boolean } {
+  if (replyTo === null) return { target: null, pending: false };
+  if (!postsLoaded) return { target: replyTo, pending: true };
   // Window is truncated: missing from the latest 100 does not mean deleted.
   // Preserve the target; server will return 404 if truly gone and the UI will
   // surface that error instead of silently changing the destination.
-  return { target: replyTo, pending: false, missing: false };
+  return { target: replyTo, pending: false };
 }
 
 /**
- * Stale-load guard for TokenComments (PR #31).
+ * Stale-load guard for TokenComments.
  *
  * A fetch for token A resolving after the switch to token B must not touch
  * B's posts or postsLoaded. The component bumps a generation counter on every
@@ -141,7 +142,7 @@ export type PostsLoadOutcome =
   | { kind: "ignored" };
 
 /**
- * Reducer for the initial comments fetch (PR #31).
+ * Reducer for the initial comments fetch.
  *
  * Failure paths preserve the draft and its reply destination: postsLoaded
  * stays false (restored reply keeps pending, submit keeps blocking) and a
