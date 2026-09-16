@@ -48,6 +48,12 @@ test("bridge dialog has accessible focus, mobile layout and reduced motion", () 
   assert.match(css, /:focus-visible/);
 });
 
+test("bridge alerts wrap long provider reasons without discarding actionable errors", () => {
+  assert.match(css, /\.error \{[^}]*min-width: 0[^}]*overflow-wrap: anywhere/);
+  assert.match(css, /\.error > span \{[^}]*min-width: 0/);
+  assert.match(read("./useBridge.ts"), /const messageOf = bridgeErrorMessage;/);
+});
+
 test("both quote and transfer recipients expose the full address without hover", () => {
   assert.match(panel, /<details className=\{styles.recipient\}>[\s\S]*<summary>[\s\S]*<code className=\{styles.fullAddress\}>\{address\}<\/code>/);
   assert.match(panel, /<Recipient address=\{b.address\} \/>/);

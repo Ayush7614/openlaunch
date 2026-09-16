@@ -23,3 +23,20 @@ test("upstream replies clients cannot use become retryable statuses", () => {
   // non-200 statuses are passed through untouched
   for (const status of [400, 403, 429, 500, 503]) assert.equal(upstreamStatus("{}", false, 1, status), status);
 });
+
+test("reply IDs and envelopes must match the forwarded requests", () => {
+  assert.equal(upstreamStatus(JSON.stringify([ok(2), ok(1)]), true, 2, 200, [1, 2]), 200);
+  assert.equal(upstreamStatus(JSON.stringify([ok(1), ok(1)]), true, 2, 200, [1, 2]), 502);
+  assert.equal(upstreamStatus(JSON.stringify([ok(1), ok(3)]), true, 2, 200, [1, 2]), 502);
+  assert.equal(upstreamStatus(JSON.stringify(ok(2)), false, 1, 200, [1]), 502);
+  assert.equal(upstreamStatus(JSON.stringify([{ ...ok(1), id: "1" }]), true, 1, 200, [1]), 502);
+  for (const value of [
+    { jsonrpc: "2.0", id: 1 },
+    { ...ok(1), error: { code: -32603, message: "contradictory" } },
+    { jsonrpc: "2.0", id: 1, error: { code: "bad", message: "malformed" } },
+    { id: 1, result: "0x1" },
+  ]) assert.equal(upstreamStatus(JSON.stringify([value]), true, 1, 200, [1]), 502);
+  // Valid null results (e.g. an unmined receipt) and execution errors survive.
+  assert.equal(upstreamStatus(JSON.stringify([{ ...ok(1), result: null }]), true, 1, 200, [1]), 200);
+  assert.equal(upstreamStatus(JSON.stringify([err(1, 3, "execution reverted")]), true, 1, 200, [1]), 200);
+});

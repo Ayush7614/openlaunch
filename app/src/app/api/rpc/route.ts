@@ -80,6 +80,7 @@ export async function POST(req: Request) {
   }
   const batch = Array.isArray(body);
   const list: Req[] = Array.isArray(body) ? body : [body];
+  if (list.length === 0) return NextResponse.json({ error: "empty batch" }, { status: 400 });
   if (list.length > 20) return NextResponse.json({ error: "batch too large" }, { status: 400 });
   // A method outside the allowlist gets a JSON-RPC "method not found" in its
   // slot, never an HTTP error for the whole batch: viem then falls back (it
@@ -108,12 +109,20 @@ export async function POST(req: Request) {
     }
     // Rate limiting and malformed bodies become 429/502 so viem retries with backoff
     // instead of surfacing "unknown RPC error" or throwing inside its batch scheduler.
-    status = upstreamStatus(text, batch, forward.length, status);
-    if (status !== 200 || denied.size === 0) return new NextResponse(text, { status, headers: { "content-type": "application/json", "cache-control": "no-store", ...(status === 429 ? { "retry-after": "1" } : {}) } });
+    status = upstreamStatus(text, batch, forward.length, status, forward.map((r) => r.id));
+    if (status !== 200) {
+      // viem accepts a JSON-RPC error envelope even on HTTP 429/502. Returning
+      // an upstream single error object for a batch would still crash its
+      // scheduler. A non-RPC body forces the transport's HTTP retry path.
+      return NextResponse.json({ error: status === 429 ? "The network is busy. Try again in a moment." : "The network returned an unavailable or invalid RPC response. Try again." }, {
+        status, headers: { "cache-control": "no-store", ...(status === 429 ? { "retry-after": "1" } : {}) },
+      });
+    }
+    if (denied.size === 0) return new NextResponse(text, { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
     const upstreamItems = JSON.parse(text) as unknown[]; // upstreamStatus verified an array of forward.length
     let next = 0;
     return reply(list.map((_, i) => denied.get(i) ?? upstreamItems[next++]));
-  } catch (err) {
-    return NextResponse.json({ error: err instanceof Error ? err.message : "upstream failed" }, { status: 502 });
+  } catch {
+    return NextResponse.json({ error: "The network RPC is temporarily unavailable. Try again." }, { status: 502, headers: { "cache-control": "no-store" } });
   }
 }
