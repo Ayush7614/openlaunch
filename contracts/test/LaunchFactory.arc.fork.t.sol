@@ -18,10 +18,20 @@ import {LaunchLocker, IERC721Owner} from "src/LaunchLocker.sol";
 import {LaunchToken} from "src/LaunchToken.sol";
 
 interface IERC20Meta {
+    function blacklist(address) external;
+    function blacklister() external view returns (address);
+    function isBlacklisted(address) external view returns (bool);
     function decimals() external view returns (uint8);
     function symbol() external view returns (string memory);
     function balanceOf(address) external view returns (uint256);
     function approve(address, uint256) external returns (bool);
+}
+
+interface IERC721Full {
+    function ownerOf(uint256) external view returns (address);
+    function getApproved(uint256) external view returns (address);
+    function transferFrom(address, address, uint256) external;
+    function approve(address, uint256) external;
 }
 
 interface IUniversalRouter {
@@ -226,6 +236,154 @@ contract LaunchFactoryArcFork is Test {
         vm.stopPrank();
         assertGt(LaunchToken(token).balanceOf(buyer), 0, "router swap delivered tokens");
         assertEq(IERC20Meta(USDC).balanceOf(buyer), 950e6, "router pulled exactly amountIn through Permit2");
+    }
+
+    // ── rug attempts against Arc's PositionManager (a different build from Base's and Robinhood's) ─────────────────
+    // Same assertions as LaunchLockerRugFork / LaunchLockerRugRobinhood, against the locker this suite deployed on the fork.
+
+    function _tryDecrease(address who, uint256 tokenId, address token) internal {
+        uint128 liq = posm.getPositionLiquidity(tokenId);
+        bytes memory actions = abi.encodePacked(uint8(Actions.DECREASE_LIQUIDITY), uint8(Actions.TAKE_PAIR));
+        bytes[] memory params = new bytes[](2);
+        params[0] = abi.encode(tokenId, liq, uint128(0), uint128(0), bytes(""));
+        params[1] = abi.encode(Currency.wrap(USDC), Currency.wrap(token), who);
+        bytes memory data = abi.encode(actions, params);
+        uint256 deadline = block.timestamp + 1;
+        vm.prank(who);
+        vm.expectRevert();
+        posm.modifyLiquidities(data, deadline);
+    }
+
+    function test_fork_arc_lockerOwnsThePositionAndNobodyCanMoveOrShrinkIt() public {
+        vm.skip(!forked);
+        (address token, uint256 tokenId) = factory.launch(_params());
+        IERC721Full nft = IERC721Full(POSM);
+        assertEq(nft.ownerOf(tokenId), address(locker), "position minted to the locker");
+        assertEq(nft.getApproved(tokenId), address(0), "no operator approved");
+        assertEq(locker.factory(), address(factory));
+        address deployer = address(this);
+        address stranger = makeAddr("launchpad-arc-stranger");
+        vm.prank(deployer);
+        vm.expectRevert();
+        nft.transferFrom(address(locker), deployer, tokenId);
+        vm.prank(stranger);
+        vm.expectRevert();
+        nft.transferFrom(address(locker), stranger, tokenId);
+        vm.prank(stranger);
+        vm.expectRevert();
+        nft.approve(stranger, tokenId);
+        _tryDecrease(deployer, tokenId, token);
+        _tryDecrease(stranger, tokenId, token);
+        // (the locker itself, as the NFT owner, could decrease: the guarantee is that no code path in it does — see test_fork_arc_noAdminSurface and src/LaunchLocker.sol)
+        // collect never touches liquidity
+        uint128 before = posm.getPositionLiquidity(tokenId);
+        locker.collect(tokenId);
+        assertEq(posm.getPositionLiquidity(tokenId), before, "liquidity untouched by collect");
+        assertEq(nft.ownerOf(tokenId), address(locker));
+    }
+
+    function test_fork_arc_noAdminSurface() public {
+        vm.skip(!forked);
+        (address token,) = factory.launch(_params());
+        (bool ok,) = address(locker).call(abi.encodeWithSignature("owner()"));
+        assertFalse(ok, "locker has no owner");
+        (ok,) = address(factory).call(abi.encodeWithSignature("owner()"));
+        assertFalse(ok, "factory has no owner");
+        (ok,) = token.call(abi.encodeWithSignature("mint(address,uint256)", address(this), 1));
+        assertFalse(ok, "token cannot mint");
+        (ok,) = token.call(abi.encodeWithSignature("pause()"));
+        assertFalse(ok, "token cannot pause");
+    }
+
+    // ── the two-ledger hazard: native and ERC-20 USDC are one balance, the locker accounts them separately ─────────
+    /// Circle's blocklist makes a USDC push fail → the share is CREDITED and stays in the locker as ERC-20 USDC. That same
+    /// balance is the locker's NATIVE balance, so a native-quoted pool's collect would read it as unreserved surplus.
+    function _creditedUsdcViaBlocklistedRecipient() internal virtual returns (uint256 credited) {
+        address blocked = makeAddr("launchpad-arc-blocked");
+        vm.prank(IERC20Meta(USDC).blacklister());
+        IERC20Meta(USDC).blacklist(blocked);
+        assertTrue(IERC20Meta(USDC).isBlacklisted(blocked));
+        LaunchFactory.LaunchParams memory p = _params();
+        LaunchLocker.Recipient[] memory r = new LaunchLocker.Recipient[](1);
+        r[0] = LaunchLocker.Recipient(blocked, 10_000);
+        p.recipients = r;
+        p.symbol = "ARCX";
+        (bytes32 salt,) =
+            factory.findSalt(address(this), keccak256("arc-blocked"), p.name, p.symbol, 0, p.metadataURI, USDC, 64);
+        p.salt = salt;
+        (address token, uint256 tokenId) = factory.launch(p);
+        PoolKey memory key = factory.poolKeyOf(token);
+        vm.startPrank(buyer);
+        IERC20Meta(USDC).approve(address(swapRouter), 100e6);
+        swapRouter.swap(
+            key,
+            SwapParams({
+                zeroForOne: true, amountSpecified: -int256(100e6), sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+            }),
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            ""
+        );
+        vm.stopPrank();
+        (credited,) = locker.collect(tokenId);
+        assertGt(credited, 0);
+        assertEq(locker.claimable(blocked, USDC), credited, "the blocked share was credited, not paid");
+        assertEq(locker.reserved(USDC), credited);
+        assertEq(IERC20Meta(USDC).balanceOf(address(locker)), credited, "and it sits in the locker as ERC-20 USDC");
+        assertEq(address(locker).balance, credited * 1e12, "which IS the locker's native balance");
+    }
+
+    function test_fork_arc_nativeQuotedPoolCannotSweepCreditedUsdc() public {
+        vm.skip(!forked);
+        uint256 credited = _creditedUsdcViaBlocklistedRecipient();
+        // a native-quoted pool paying the attacker: on Arc the factory must refuse it (LaunchFactory.NativeQuoteUnsupported)
+        address attacker = makeAddr("launchpad-arc-attacker");
+        LaunchFactory.LaunchParams memory p = _params();
+        LaunchLocker.Recipient[] memory r = new LaunchLocker.Recipient[](1);
+        r[0] = LaunchLocker.Recipient(attacker, 10_000);
+        p.recipients = r;
+        p.quote = address(0);
+        p.symbol = "ARCN";
+        p.startTick = 184_200;
+        p.salt = keccak256("arc-native");
+        vm.expectRevert(LaunchFactory.NativeQuoteUnsupported.selector);
+        factory.launch(p);
+        // the credited USDC is still exactly where the ledger says it is
+        assertEq(IERC20Meta(USDC).balanceOf(address(locker)), credited);
+        assertEq(locker.reserved(USDC), credited);
+        assertEq(attacker.balance, 0, "nothing was swept");
+    }
+
+    /// Why the guard exists, demonstrated: with the chain id cheated to anything but Arc the factory accepts a native
+    /// quote, and that pool's first collect pays the attacker the credited USDC of the other launch on top of its own fee,
+    /// leaving a reserved amount the locker no longer holds (every USDC collect below it would then underflow).
+    function test_fork_arc_withoutTheGuardCreditedUsdcWouldBeSwept() public {
+        vm.skip(!forked);
+        uint256 credited = _creditedUsdcViaBlocklistedRecipient();
+        address attacker = makeAddr("launchpad-arc-attacker");
+        LaunchFactory.LaunchParams memory p = _params();
+        LaunchLocker.Recipient[] memory r = new LaunchLocker.Recipient[](1);
+        r[0] = LaunchLocker.Recipient(attacker, 10_000);
+        p.recipients = r;
+        p.quote = address(0);
+        p.symbol = "ARCN";
+        p.startTick = 184_200;
+        p.salt = keccak256("arc-native");
+        vm.chainId(1); // disable the Arc-only guard for this launch; the chain's USDC semantics are unchanged
+        (address token, uint256 tokenId) = factory.launch(p);
+        vm.chainId(5042);
+        PoolKey memory key = factory.poolKeyOf(token);
+        vm.prank(buyer);
+        swapRouter.swap{value: 1 ether}(
+            key,
+            SwapParams({zeroForOne: true, amountSpecified: -1 ether, sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1}),
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            ""
+        );
+        (uint256 paid,) = locker.collect(tokenId);
+        assertApproxEqRel(paid - credited * 1e12, 0.01 ether, 1e15, "own 1% fee on 1 USDC of volume");
+        assertGt(paid, credited * 1e12, "plus the whole credited USDC of the other launch, swept as native");
+        assertEq(IERC20Meta(USDC).balanceOf(address(locker)), 0, "the locker's USDC is gone");
+        assertEq(locker.reserved(USDC), credited, "but still reserved: every smaller USDC collect now underflows");
     }
 
     function _v4SwapInput(bytes memory swapParams, PoolKey memory key, uint128 amountIn)

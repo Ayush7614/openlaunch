@@ -66,7 +66,8 @@ const QUOTES_BY_CHAIN: Record<ChainKey, Quote[]> = { base: [ETH, GITLAWB], robin
  * What address(0) means on each chain. The factory is permissionless and documents address(0) as the native asset,
  * so a pool quoted in it can exist on any chain whether or not the form offers it; the indexer lists it and it must
  * price as that chain's native asset. On Arc that is USDC at 18 decimals and a fixed dollar, never ETH: priced at
- * ETH, a $10k launch would rank as a multi-million-dollar one.
+ * ETH, a $10k launch would rank as a multi-million-dollar one. (The Arc factory refuses native quotes outright, see
+ * contracts/docs/LAUNCHPAD.md; the pricing rule stays so any such row could never be mispriced.)
  */
 const USDC_ARC_NATIVE: Quote = { key: "usdc", address: NATIVE, symbol: "USDC", decimals: 18, usd: 1 };
 export const NATIVE_QUOTES: Record<ChainKey, Quote> = { base: ETH, robinhood: ETH, arc: USDC_ARC_NATIVE };

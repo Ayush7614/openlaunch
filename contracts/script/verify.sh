@@ -9,8 +9,9 @@ cd "$(dirname "$0")/.."
 [ -f .env ] && set -a && . ./.env && set +a
 KEY="${ETHERSCAN_API_KEY:-${BASESCAN_API_KEY:-}}"
 
-FACTORY=0x815542E8b392389A1389E22E588E4B62A67Ade72
-LOCKER=0xcd1680D26922fcd9CabFbb8a56bA40C333fD842a
+# The addresses are the same on every chain (deployer nonce 0); override for a deployment that landed elsewhere.
+FACTORY=${FACTORY:-0x815542E8b392389A1389E22E588E4B62A67Ade72}
+LOCKER=${LOCKER:-0xcd1680D26922fcd9CabFbb8a56bA40C333fD842a}
 PERMIT2=0x000000000022D473030F116dDEE9F6B43aC78BA3
 # Uniswap v4 per chain (must match script/DeployLaunchFactory.s.sol)
 BASE_PM=0x498581fF718922c3f8e6A244956aF099B2652b2b

@@ -45,6 +45,17 @@ contract DeployLaunchFactory is Script {
         address posm = vm.envOr("POSITION_MANAGER", posmDefault);
         require(pm != address(0) && posm != address(0), "unknown chain: set POOL_MANAGER + POSITION_MANAGER");
         require(pm.code.length > 0 && posm.code.length > 0 && PERMIT2.code.length > 0, "v4 not deployed here");
+        // Base and Robinhood Chain got the factory from the deployer's first transaction (nonce 0; the locker is created by the
+        // factory's constructor), which is what makes the addresses identical across chains. Refuse to deploy from any other
+        // nonce unless explicitly allowed, so a stray transaction cannot silently put a new chain on different addresses.
+        address deployer = vm.addr(pk);
+        uint64 nonce = vm.getNonce(deployer);
+        console.log("Deployer:       ", deployer);
+        console.log("Deployer nonce: ", nonce);
+        require(
+            nonce == 0 || vm.envOr("ALLOW_NONZERO_NONCE", false),
+            "deployer nonce is not 0: addresses would differ from Base/Robinhood (ALLOW_NONZERO_NONCE=true to override)"
+        );
 
         vm.startBroadcast(pk);
         factory = new LaunchFactory(IPoolManager(pm), IPositionManager(posm), IAllowanceTransfer(PERMIT2));

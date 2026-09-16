@@ -103,6 +103,12 @@ contract LaunchFactory {
     error SaltUsed();
     error QuoteOrdering();
     error NoSaltFound();
+    error NativeQuoteUnsupported();
+
+    /// Arc (5042): the native asset is USDC, and the same balance is also the ERC-20 at 0x3600…0000. The locker keeps one
+    /// ledger per currency, so a native-quoted position there would let a credited ERC-20 share (a blocklisted payout)
+    /// be read as native surplus by another launch's collect. Native quotes are refused on Arc; USDC pools use the ERC-20.
+    uint256 internal constant ARC_CHAIN_ID = 5042;
 
     constructor(IPoolManager poolManager_, IPositionManager positionManager_, IAllowanceTransfer permit2_) {
         poolManager = poolManager_;
@@ -116,6 +122,7 @@ contract LaunchFactory {
         uint256 supply = p.supply == 0 ? DEFAULT_SUPPLY : p.supply;
         if (supply > type(uint128).max) revert BadSupply();
         if (p.lpFee > MAX_LP_FEE) revert BadFee();
+        if (p.quote == address(0) && block.chainid == ARC_CHAIN_ID) revert NativeQuoteUnsupported();
 
         int24 tickLower = TickMath.minUsableTick(TICK_SPACING);
         if (
