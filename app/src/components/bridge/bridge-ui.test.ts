@@ -140,3 +140,17 @@ test("stuck records have a bounded discard path, and the hook avoids APIs missin
   assert.match(hook, /replacementSourceHash\(current, status, receipt\.status === "fulfilled" && receipt\.value === null\)/);
   assert.match(hook, /const messageOf = bridgeErrorMessage;/);
 });
+
+test("pending approvals explain missing/queued transactions and accept a verified replacement without a new wallet call", () => {
+  const hook = read("./useBridge.ts");
+  assert.match(panel, /health\?\.title/);
+  assert.match(panel, /needsAttention \? <CircleAlert/);
+  assert.match(panel, /Sped up your approval in the wallet/);
+  assert.doesNotMatch(panel, /has no record of this approval/);
+  assert.match(panel, /discarding this record does not cancel it or fix a queued nonce/);
+  assert.match(hook, /recoverApprovalFromEvidence\(current/);
+  assert.match(hook, /!canApplyApprovalPoll\(current, observed\)/);
+  assert.match(hook, /const health = receipt \? null : await readPendingApprovalHealth/);
+  assert.match(hook, /value: APPROVAL_HEALTH_UNAVAILABLE/);
+  assert.equal((hook.match(/await assertBridgeWalletQueueClear\(/g) ?? []).length, 2);
+});

@@ -9,12 +9,13 @@ import { formatUnits, parseEther, parseUnits, zeroAddress } from "viem";
 import { changeBridgeRoute, parseBridgeAmount, type BridgeRouteChange, type BridgeRouteInputs } from "@/lib/bridge/client";
 import { bridgeCurrency, defaultBridgeAsset, type BridgeQuote } from "@/lib/bridge/types";
 import type { TrackedApproval } from "@/lib/bridge/approval";
+import { describePendingApproval } from "@/lib/bridge/approval-health";
 import styles from "@/components/bridge/BridgeDialog.module.css";
 
 const wallet = "0x03508bB71268BBA25ECaCC8F620e01866650532c" as const;
 const requestId = `0x${"1".repeat(64)}` as const;
-type Scene = "idle" | "disconnected" | "quote" | "expired" | "error" | "pending" | "success" | "uncertain" | "refund" | "approval_pending" | "approval_uncertain" | "approval_confirmed";
-const scenes: Scene[] = ["disconnected", "quote", "expired", "error", "pending", "success", "uncertain", "refund", "approval_pending", "approval_uncertain", "approval_confirmed"];
+type Scene = "idle" | "disconnected" | "quote" | "expired" | "error" | "pending" | "success" | "uncertain" | "refund" | "approval_pending" | "approval_uncertain" | "approval_confirmed" | "approval_queued" | "approval_missing" | "approval_fee";
+const scenes: Scene[] = ["disconnected", "quote", "expired", "error", "pending", "success", "uncertain", "refund", "approval_pending", "approval_uncertain", "approval_confirmed", "approval_queued", "approval_missing", "approval_fee"];
 
 export default function BridgeReview() {
   const [open, setOpen] = useState(false);
@@ -42,7 +43,7 @@ export default function BridgeReview() {
     transaction: { to: wallet, data: "0x", value: "0", chainId: origin }, // deliberately non-executable fixture
     ...(erc20Input ? { approval: { token: inputCurrency.address, spender: "0x4cd00e387622c35bddb9b4c962c136462338bc31" as const, amount: inputAmount.toString() } } : {}),
   };
-  const approval: TrackedApproval | null = erc20Input && (origin === 5042 || origin === 8453) && (scene.startsWith("approval_") || approved) ? { version: 1, chainId: origin, address: wallet, token: inputCurrency.address, spender: "0x4cd00e387622c35bddb9b4c962c136462338bc31", amount: inputAmount.toString(), createdAt: clock, status: scene === "approval_uncertain" ? "uncertain" : scene === "approval_pending" ? "pending" : "confirmed", ...(scene === "approval_uncertain" ? {} : { approvalHash: requestId }) } : null;
+  const approval: TrackedApproval | null = erc20Input && (origin === 5042 || origin === 8453) && (scene.startsWith("approval_") || approved) ? { version: 1, chainId: origin, address: wallet, token: inputCurrency.address, spender: "0x4cd00e387622c35bddb9b4c962c136462338bc31", amount: inputAmount.toString(), createdAt: clock, status: scene === "approval_uncertain" ? "uncertain" : scene === "approval_confirmed" || approved ? "confirmed" : "pending", ...(scene === "approval_uncertain" ? {} : { approvalHash: requestId }) } : null;
   const tracking = ["pending", "success", "uncertain", "refund"].includes(scene);
   const bridge: ReturnType<typeof useBridge> = {
     address: scene === "disconnected" ? undefined : wallet, walletChainId: origin,
@@ -56,6 +57,7 @@ export default function BridgeReview() {
     tracked: tracking ? { address: wallet, requestId, amount: quote.amount, originChainId: origin, destinationChainId: destination, originAsset, destinationAsset, destinationHashes: [], status: scene as "pending" | "success" | "uncertain" | "refund", createdAt: clock } : null,
     statusError: null, retryStatus: () => {}, storageError: null, busy: false, canReset: scene === "success" || scene === "refund",
     approval, approvalRequired: erc20Input && !approved, allowanceLoading: false, approvalBusy: false, approvalError: null,
+    approvalHealth: ["approval_queued", "approval_missing", "approval_fee"].includes(scene) ? describePendingApproval({ createdAt: clock - 70_000, now: clock, transaction: scene === "approval_missing" ? null : { nonce: 2, maxFeePerGas: 30_000_000_000n }, latestNonce: scene === "approval_queued" ? 0 : 2, baseFeePerGas: 166_000_000_000n }) : null,
     approve: async () => setScene("approval_pending"), retryApproval: () => { setApproved(true); setScene("approval_confirmed"); },
     recoverApproval: async () => { setApproved(true); setScene("approval_confirmed"); },
     approvalCanBeDiscarded: scene === "approval_uncertain", discardApproval: async () => { setApproved(false); setScene("idle"); },

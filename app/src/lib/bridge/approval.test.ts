@@ -3,6 +3,7 @@ import test from "node:test";
 import { decodeFunctionData, encodeAbiParameters, encodeEventTopics, type Address, type Hex } from "viem";
 import { APPROVAL_DISCARD_AFTER_MS, APPROVAL_STORAGE_PREFIX, ARC_APPROVAL_CHAIN_ID, ARC_USDC, EXACT_APPROVAL_ABI, RELAY_APPROVAL_SPENDER, USDC_APPROVAL_EVENT, approvalBlocksSubmission, approvalCanDiscard, approvalRequestKey, approvalStorageKey, createApprovalStore, exactApprovalTransaction, hasMatchingApprovalEvent, isMatchingApprovalTransaction, parseStoredApproval, reconcileApproval, serializeApproval, submitExactApproval, validateApprovalMetadata, type ApprovalDependencies, type ApprovalRequest, type TrackedApproval } from "./approval";
 import { BASE_USDC } from "./types";
+import { canApplyApprovalPoll, recoverApprovalFromEvidence } from "./approval";
 
 const ADDRESS = "0x1111111111111111111111111111111111111111" as Address;
 const OTHER = "0x2222222222222222222222222222222222222222" as Address;
@@ -333,4 +334,39 @@ test("an unmined approval can be discarded after the wait; a hash needs a fresh 
   assert.equal(approvalCanDiscard(pending, { ...missing, createdAt: NOW + 1 }, later), false); // another attempt's observation
   for (const status of ["confirmed", "reverted", "insufficient"] as const) assert.equal(approvalCanDiscard(tracked({ status, approvalHash: HASH }), missing, later), false, status);
   assert.equal(approvalCanDiscard(null, missing, later), false);
+});
+
+test("a confirmed exact replacement recovers a pending hash without resubmitting or granting more allowance", () => {
+  const approval = tracked({ status: "pending", approvalHash: HASH });
+  const evidence = {
+    chainId: 5042, allowance: 25_000_000n,
+    transaction: { hash: OTHER_HASH, from: ADDRESS, to: ARC_USDC, input: exactApprovalTransaction(REQUEST).data, value: 0n },
+    receipt: { transactionHash: OTHER_HASH, status: "success" as const, logs: [] },
+    blockTimestamp: BigInt(NOW / 1000), now: NOW,
+  };
+  const recovered = recoverApprovalFromEvidence(approval, evidence);
+  assert.equal(recovered.approvalHash, OTHER_HASH);
+  assert.equal(recovered.status, "confirmed");
+  assert.equal(recovered.amount, approval.amount);
+  assert.equal(recovered.createdAt, approval.createdAt);
+  assert.equal(approval.approvalHash, HASH); // input journal untouched
+  assert.equal(recoverApprovalFromEvidence(approval, { ...evidence, allowance: 0n }).status, "insufficient");
+  assert.throws(() => recoverApprovalFromEvidence(approval, { ...evidence, chainId: 8453 }), /network/);
+  assert.throws(() => recoverApprovalFromEvidence(approval, { ...evidence, blockTimestamp: evidence.blockTimestamp - 31n }), /predates/);
+  assert.throws(() => recoverApprovalFromEvidence(approval, { ...evidence, blockTimestamp: evidence.blockTimestamp + 31n }), /clock/);
+  assert.throws(() => recoverApprovalFromEvidence(approval, { ...evidence, transaction: { ...evidence.transaction, hash: HASH } }), /network/);
+  for (const changes of [{ to: ADDRESS, input: "0x" as Hex }, { from: OTHER }, { input: exactApprovalTransaction({ ...REQUEST, amount: "1" }).data }, { value: 1n }]) {
+    assert.throws(() => recoverApprovalFromEvidence(approval, { ...evidence, transaction: { ...evidence.transaction, ...changes } }), /exact USDC approval/);
+  }
+  assert.throws(() => recoverApprovalFromEvidence({ ...approval, status: "confirmed" }, evidence), /already resolved/);
+});
+
+test("a delayed missing-receipt poll cannot undo same-hash confirmation or another recovery", () => {
+  const observed = tracked({ status: "pending", approvalHash: HASH });
+  assert.equal(canApplyApprovalPoll(observed, observed), true);
+  const confirmed = reconcileApproval(observed, { chainId: 5042, allowance: BigInt(observed.amount), receipt: { transactionHash: HASH, status: "success" } });
+  assert.equal(canApplyApprovalPoll(confirmed, observed), false);
+  for (const status of ["reverted", "insufficient"] as const) assert.equal(canApplyApprovalPoll({ ...observed, status }, observed), false);
+  for (const change of [{ approvalHash: OTHER_HASH }, { address: OTHER }, { amount: "1" }, { createdAt: NOW + 1 }, { chainId: 8453 as const }]) assert.equal(canApplyApprovalPoll({ ...observed, ...change }, observed), false);
+  assert.equal(canApplyApprovalPoll(null, observed), false);
 });

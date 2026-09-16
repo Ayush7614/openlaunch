@@ -53,6 +53,11 @@ These tests never connect a wallet or submit a transaction.
 
 ### Wallet test findings (2026-09-16)
 
+- Approval recovery now distinguishes a transaction missing from the queried node, an earlier nonce blocking it, a fee cap below the current base fee, and an RPC outage. These are advisory observations, never permission to resubmit or proof that a missing transaction failed. A fresh matching receipt and allowance are still required.
+- Before a new approval or deposit, the source RPC's pending and latest nonce counts are checked. A visible queue or inconsistent read stops submission before journaling or requesting the approval/deposit signature. A wallet network-switch prompt may happen first. This cannot see every node's mempool or wallet-private queue, and it deliberately never overrides a nonce.
+- A wallet speed-up can change the approval hash. Both uncertain and pending approvals accept a user-supplied mined replacement after validating chain, hash, recent block time, exact owner/token/spender/amount (or canonical USDC Approval event), receipt and current allowance. Verification sends no transaction. A stale poll cannot overwrite a completed recovery.
+- For a stuck approval, inspect the earliest pending transaction in the wallet on the source network. Do not clear wallet history or repeatedly approve. Discarding a saved UI record neither cancels a transaction nor resolves a nonce queue. Any wallet replacement/cancellation remains a user-controlled action.
+
 - Phantom cannot add Arc or Robinhood (fixed EVM network list), so its chain switch fails; MetaMask adds both from the wallet config. The error copy now names this case.
 - viem probes `eth_fillTransaction` when estimating Base fees. The read proxy used to answer HTTP 403 for the whole batch, which failed every Base read; it now returns a per-item JSON-RPC `-32601` so viem falls back and the other reads succeed. Production ran the same proxy, so Base-origin bridges would have failed there too.
 - Public Base and Arc nodes rate-limit one quote's burst of reads inside 200 bodies. The proxy maps those and malformed bodies to 429/502 so viem retries; Arc reads are proxied with `ARC_RPC_URL`. base-rpc.publicnode.com is unsuitable as an upstream because it refuses receipt lookups without a token, which stalls approval and transfer tracking.

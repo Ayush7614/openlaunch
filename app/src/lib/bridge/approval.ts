@@ -88,6 +88,13 @@ export function approvalBlocksSubmission(approval: TrackedApproval | null): bool
   return !!approval && (approval.status === "uncertain" || approval.status === "pending");
 }
 
+/** A delayed poll must not overwrite a recovery or a different wallet attempt. */
+export function canApplyApprovalPoll(current: TrackedApproval | null, observed: TrackedApproval): boolean {
+  return !!current && approvalBlocksSubmission(current) && current.createdAt === observed.createdAt &&
+    current.address.toLowerCase() === observed.address.toLowerCase() && current.chainId === observed.chainId &&
+    current.approvalHash === observed.approvalHash && current.amount === observed.amount;
+}
+
 export function exactApprovalTransaction(request: ApprovalRequest): ApprovalTransaction {
   const checked = validateRequest(request);
   return { chainId: checked.chainId ?? ARC_APPROVAL_CHAIN_ID, to: approvalToken(checked.chainId), value: 0n, data: encodeFunctionData({ abi: EXACT_APPROVAL_ABI, functionName: "approve", args: [RELAY_APPROVAL_SPENDER, BigInt(checked.amount)] }) };
@@ -147,6 +154,26 @@ export function reconcileApproval(approval: TrackedApproval, observation: Approv
   if (!observation.receipt) return { ...checked, status: "pending" };
   if (!validHash(observation.receipt.transactionHash) || observation.receipt.transactionHash.toLowerCase() !== checked.approvalHash.toLowerCase() || !["success", "reverted"].includes(observation.receipt.status)) throw new Error("The approval receipt did not match the saved transaction.");
   return { ...checked, status: observation.receipt.status === "reverted" ? "reverted" : observation.allowance >= BigInt(checked.amount) ? "confirmed" : "insufficient" };
+}
+
+/** Verify a user-supplied mined hash, including a wallet speed-up replacement. */
+export function recoverApprovalFromEvidence(approval: TrackedApproval, evidence: {
+  chainId: number;
+  allowance: bigint;
+  transaction: { hash: Hex; from: Address; to: Address | null; input: Hex; value: bigint };
+  receipt: { transactionHash: Hex; status: "success" | "reverted"; logs: readonly { address: Address; data: Hex; topics: readonly Hex[] }[] };
+  blockTimestamp: bigint;
+  now: number;
+}): TrackedApproval {
+  const current = parseStoredApproval(serializeApproval(approval), approval.address);
+  if (!approvalBlocksSubmission(current)) throw new Error("The saved approval is already resolved. Review its current status.");
+  const hash = evidence.receipt.transactionHash;
+  if (evidence.chainId !== current.chainId || !validHash(hash) || evidence.transaction.hash.toLowerCase() !== hash.toLowerCase()) throw new Error("The transaction could not be verified on the approval's network.");
+  const blockTime = Number(evidence.blockTimestamp) * 1000;
+  // Approvals have no order ID. Never adopt an old approval from before this attempt.
+  if (!Number.isSafeInteger(blockTime) || !Number.isSafeInteger(evidence.now) || blockTime < current.createdAt - 30_000 || blockTime > evidence.now + 30_000) throw new Error("This transaction predates the saved approval or your clock differs from the network. Check the hash and device clock.");
+  if (!isMatchingApprovalTransaction(current, evidence.transaction) && !hasMatchingApprovalEvent(current, evidence.receipt)) throw new Error("That transaction does not match this wallet's exact USDC approval.");
+  return reconcileApproval({ ...current, approvalHash: hash }, evidence);
 }
 
 type StorageAdapter = Pick<Storage, "getItem" | "setItem" | "removeItem">;
