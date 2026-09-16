@@ -12,13 +12,13 @@ const tape = readFileSync(new URL("../../components/launchpad/LaunchTape.tsx", i
 const toasts = readFileSync(new URL("../../components/launchpad/TxToasts.tsx", import.meta.url), "utf8");
 const trades = readFileSync(new URL("../../components/launchpad/TokenTrades.tsx", import.meta.url), "utf8");
 
-test("getLaunchFeed over-fetches swaps and returns the dust-filtered list trimmed to the requested count", () => {
-  assert.match(queries, /import \{ dropDust \} from "\.\/feed-dust";/);
-  assert.match(feedQuery, /const swapN = 2 \* n;/, "twice the swaps so a dust burst cannot empty the feed");
-  assert.match(feedQuery, /FROM bb_launch_swaps ORDER BY block_time DESC LIMIT \$\{swapN\}\)/, "the swap arm takes the over-fetch");
-  assert.match(feedQuery, /ORDER BY l\.block_time DESC LIMIT \$\{n\}\)/, "the launch arm stays at n: launches are never filtered");
-  assert.match(feedQuery, /\) x ORDER BY at DESC LIMIT \$\{n \+ swapN\}`/, "the union keeps every candidate row for the filter");
-  assert.match(feedQuery, /return dropDust\(items, n\);\s*\}\s*$/, "the filter is the last thing the feed does");
+test("getLaunchFeed pages swaps through collectNonDust and merges them with the newest launches", () => {
+  assert.match(queries, /import \{ collectNonDust \} from "\.\/feed-dust";/);
+  assert.match(feedQuery, /FROM bb_launches l LEFT JOIN bb_launch_meta m [^`]*ORDER BY l\.block_time DESC LIMIT \$\{n\}`/, "launches: the newest n, never filtered");
+  assert.match(feedQuery, /collectNonDust\(/);
+  assert.match(feedQuery, /FROM bb_launch_swaps ORDER BY block_time DESC, log_index DESC LIMIT \$\{size\} OFFSET \$\{offset\}\)/, "each swap page is a bounded, deterministic read");
+  assert.match(feedQuery, /\(i\) => `\$\{i\.chain\}:\$\{i\.tx_hash\}:\$\{i\.token\}:\$\{i\.quote_wei\}`/, "the dedupe key matches the tape's");
+  assert.match(feedQuery, /\.sort\(\(a, b\) => new Date\(b\.at\)\.getTime\(\) - new Date\(a\.at\)\.getTime\(\)\)\.slice\(0, n\);\s*\}\s*$/, "newest first, trimmed to n, last");
   assert.doesNotMatch(feedQuery, /abs\(s\.amount0\) [<>]/, "no raw-wei floor in SQL: the rule prices first and lives in feed-dust.ts");
 });
 

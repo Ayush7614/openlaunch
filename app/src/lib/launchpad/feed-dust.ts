@@ -20,16 +20,29 @@ export function isDustSwap(s: DustSwap): boolean {
   return units(s.quote_wei, s.quote_decimals) < quoteDisplayFloor(s.quote_decimals);
 }
 
+/** Pages of swap candidates (2×limit rows each) the feed reads before giving up on filling its quota. */
+export const FEED_SWAP_PAGES = 4;
+
 /**
- * Newest-first feed rows without dust swaps, at most `limit` of them. Launches always pass. The caller
- * over-fetches so a burst of dust cannot empty the feed.
+ * Newest-first swaps that are not dust, up to `limit`. Reads `fetchPage(offset, size)` in pages of 2×limit — the
+ * newest page first, older pages only while dust keeps the count short — and stops when the quota is met, the
+ * source runs dry, or FEED_SWAP_PAGES pages have been read, so even a bot flood is a bounded read. Pages are
+ * offset-based over a live table, so a row that shifts between two reads is dropped by its `keyOf`.
  */
-export function dropDust<T extends { kind: string }>(items: T[], limit: number): T[] {
+export async function collectNonDust<T extends DustSwap>(fetchPage: (offset: number, size: number) => Promise<T[]>, limit: number, keyOf: (item: T) => string): Promise<T[]> {
+  const size = 2 * limit;
+  const seen = new Set<string>();
   const out: T[] = [];
-  for (const item of items) {
-    if (item.kind === "swap" && isDustSwap(item as unknown as DustSwap)) continue;
-    out.push(item);
-    if (out.length >= limit) break;
+  for (let page = 0; page < FEED_SWAP_PAGES && out.length < limit; page++) {
+    const rows = await fetchPage(page * size, size);
+    for (const row of rows) {
+      if (out.length >= limit) break;
+      const key = keyOf(row);
+      if (seen.has(key) || isDustSwap(row)) continue;
+      seen.add(key);
+      out.push(row);
+    }
+    if (rows.length < size) break;
   }
   return out;
 }

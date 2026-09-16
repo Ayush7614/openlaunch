@@ -1,9 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { FEED_DUST_USD, dropDust, isDustSwap } from "./feed-dust.ts";
+import { FEED_DUST_USD, FEED_SWAP_PAGES, collectNonDust, isDustSwap } from "./feed-dust.ts";
 
 const swap = (over: Partial<{ usd: number | null; quote_wei: string; quote_decimals: number }> = {}) => ({ kind: "swap" as const, usd: null, quote_wei: "0", quote_decimals: 18, ...over });
-const launch = { kind: "launch" as const };
 
 test("priced swaps: dust is anything under FEED_DUST_USD", () => {
   assert.equal(FEED_DUST_USD, 0.01);
@@ -31,18 +30,64 @@ test("unpriced swaps fall back to the display floor: whatever would print as 0 i
   assert.equal(isDustSwap(swap({ usd: NaN, quote_wei: "1", quote_decimals: 18 })), true, "a broken price counts as no price");
 });
 
-test("dropDust keeps order, keeps launches, and trims to the limit after filtering", () => {
-  const dust = swap({ usd: 0.001 });
-  const real = swap({ usd: 25 });
-  const items = [dust, real, launch, dust, dust, real, real, launch, real];
-  assert.deepEqual(dropDust(items, 24), [real, launch, real, real, launch, real]);
-  assert.deepEqual(dropDust(items, 3), [real, launch, real], "the limit applies to what survives");
-  assert.deepEqual(dropDust([dust, dust, dust], 5), [], "all dust → empty, never a 0 row");
-  assert.deepEqual(dropDust([], 5), []);
+type Row = { id: number; usd: number | null; quote_wei: string; quote_decimals: number };
+const row = (id: number, usd: number): Row => ({ id, usd, quote_wei: "1", quote_decimals: 18 });
+/** A newest-first table of rows; `pager` serves offset pages from it and counts the reads. */
+function source(rows: Row[]) {
+  const reads: [number, number][] = [];
+  const fetchPage = async (offset: number, size: number) => {
+    reads.push([offset, size]);
+    return rows.slice(offset, offset + size);
+  };
+  return { fetchPage, reads };
+}
+const ids = (rows: Row[]) => rows.map((r) => r.id);
+const keyOf = (r: Row) => String(r.id);
+
+test("collectNonDust fills from the newest page and reads nothing more when it can", () => {
+  const rows = Array.from({ length: 100 }, (_, i) => row(i, 5));
+  const s = source(rows);
+  return collectNonDust(s.fetchPage, 24, keyOf).then((out) => {
+    assert.deepEqual(ids(out), ids(rows.slice(0, 24)), "newest first, in source order");
+    assert.deepEqual(s.reads, [[0, 48]], "one page of 2×limit");
+  });
 });
 
-test("a dust burst does not empty the feed when the caller over-fetches", () => {
-  // getLaunchFeed asks for 2n swaps and n launches, then trims to n: 30 dust swaps ahead of 24 real ones still yield 24 rows
-  const items = [...Array.from({ length: 30 }, () => swap({ usd: 0.0001 })), ...Array.from({ length: 24 }, () => swap({ usd: 3 }))];
-  assert.equal(dropDust(items, 24).length, 24);
+test("regression: 30 dust swaps ahead of 24 real ones still yield 24 rows — the older real swaps are paged in", () => {
+  const rows = [...Array.from({ length: 30 }, (_, i) => row(i, 0.0001)), ...Array.from({ length: 24 }, (_, i) => row(100 + i, 3))];
+  const s = source(rows);
+  return collectNonDust(s.fetchPage, 24, keyOf).then((out) => {
+    assert.equal(out.length, 24);
+    assert.deepEqual(ids(out), ids(rows.slice(30)), "every real swap, none of the dust, oldest real one included");
+    assert.deepEqual(s.reads, [[0, 48], [48, 48]], "a second page was needed and read once");
+  });
+});
+
+test("collectNonDust stops at a short page: the source ran dry", () => {
+  const rows = [row(1, 0.001), row(2, 9), row(3, 0.001)];
+  const s = source(rows);
+  return collectNonDust(s.fetchPage, 24, keyOf).then((out) => {
+    assert.deepEqual(ids(out), [2]);
+    assert.deepEqual(s.reads, [[0, 48]], "a page smaller than requested is the end");
+  });
+});
+
+test("collectNonDust is a bounded read under a dust flood: FEED_SWAP_PAGES pages, then it gives up", () => {
+  const rows = Array.from({ length: 10_000 }, (_, i) => row(i, 0.0001));
+  const s = source(rows);
+  return collectNonDust(s.fetchPage, 24, keyOf).then((out) => {
+    assert.deepEqual(out, []);
+    assert.equal(s.reads.length, FEED_SWAP_PAGES);
+    assert.equal(FEED_SWAP_PAGES, 4);
+    assert.deepEqual(s.reads.at(-1), [3 * 48, 48]);
+  });
+});
+
+test("collectNonDust drops a row that shifted across a page boundary between reads", () => {
+  const dust = Array.from({ length: 47 }, (_, i) => row(i, 0.0001));
+  const real = row(500, 7);
+  let reads = 0;
+  // the first page ends with `real`; a swap lands at the top of the table before the second read, so `real` is served again
+  const fetchPage = async (offset: number, size: number) => (reads++ === 0 ? [...dust, real].slice(offset, offset + size) : [real, row(600, 8)]);
+  return collectNonDust(fetchPage, 24, keyOf).then((out) => assert.deepEqual(ids(out), [500, 600]));
 });
