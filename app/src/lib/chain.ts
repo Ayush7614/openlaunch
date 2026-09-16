@@ -1,6 +1,6 @@
 import "server-only";
 import { createPublicClient, fallback, http, type PublicClient } from "viem";
-import { CHAINS, type ChainKey } from "./chainPublic";
+import { CHAINS, RPC_ENV_NAME, type ChainKey } from "./chainPublic";
 
 export * from "./chainPublic";
 
@@ -8,21 +8,7 @@ export * from "./chainPublic";
 const cached = new Map<ChainKey, PublicClient>();
 
 export function rpcUrl(key: ChainKey): string | undefined {
-  let value: string | undefined;
-  switch (key) {
-    case "base":
-      value = process.env.BASE_RPC_URL;
-      break;
-    case "robinhood":
-      value = process.env.ROBINHOOD_RPC_URL;
-      break;
-    case "arc":
-      value = process.env.ARC_RPC_URL;
-      break;
-    default:
-      value = undefined;
-  }
-  return value?.trim() || undefined;
+  return process.env[RPC_ENV_NAME[key]]?.trim() || undefined;
 }
 
 /**

@@ -33,5 +33,8 @@ export function chainList(conj: "or" | "and" | "&" = "or", labels: Record<ChainK
   const names = CHAIN_KEYS.map((k) => labels[k]);
   return names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} ${conj} ${names[names.length - 1]}`;
 }
+/** The server-side RPC override per chain (a keyed provider URL); unset → the chain's public node. */
+export const RPC_ENV_NAME: Record<ChainKey, string> = { base: "BASE_RPC_URL", robinhood: "ROBINHOOD_RPC_URL", arc: "ARC_RPC_URL" };
+
 /** `base|robinhood|arc`, for API docs and anchored regexes. */
 export const CHAIN_KEY_PATTERN = CHAIN_KEYS.join("|");

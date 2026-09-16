@@ -6,19 +6,14 @@
 // instead of a hand-rolled stub.
 import { createPublicClient, fallback, http } from "viem";
 import { base } from "viem/chains";
-import type { ChainKey } from "./chainPublic.ts";
+import { RPC_ENV_NAME, type ChainKey } from "./chainPublic.ts";
 import { getMock } from "./db-mock.ts";
 
 export * from "./chainPublic.ts";
 
-// Same per-chain env lookup as the real module, so a test can point one chain at a fake keyed upstream.
-const RPC_ENV: Record<ChainKey, () => string | undefined> = {
-  base: () => process.env.BASE_RPC_URL,
-  robinhood: () => process.env.ROBINHOOD_RPC_URL,
-  arc: () => process.env.ARC_RPC_URL,
-};
+// Same per-chain env lookup as the real module (one shared name table), so a test can point one chain at a fake keyed upstream.
 export function rpcUrl(key: ChainKey): string | undefined {
-  return RPC_ENV[key]()?.trim() || undefined;
+  return process.env[RPC_ENV_NAME[key]]?.trim() || undefined;
 }
 
 export function b20RpcUrl(): string {
