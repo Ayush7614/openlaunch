@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { CHAINS, CHAIN_KEYS } from "../chainPublic";
-import { arc, BRIDGE_WALLET_CHAINS } from "./chains";
+import { arc, arcBrowserRpc, BRIDGE_WALLET_CHAINS } from "./chains";
+import { browserRpc } from "../launchpad/config";
 import { BRIDGE_CHAIN_IDS, BRIDGE_CHAINS } from "./types";
 
-test("every bridge source has a matching wallet chain without extending launch networks", () => {
+test("every bridge source has a matching wallet chain, and Arc is the registry's own chain", () => {
   for (const id of BRIDGE_CHAIN_IDS) {
     const walletChain = BRIDGE_WALLET_CHAINS[id];
     assert.equal(walletChain.id, id);
@@ -13,8 +14,8 @@ test("every bridge source has a matching wallet chain without extending launch n
     assert.equal(walletChain.nativeCurrency.decimals, 18);
     assert.ok(walletChain.rpcUrls.default.http.length > 0);
   }
-  assert.deepEqual(CHAIN_KEYS, ["base", "robinhood"]);
-  assert.equal(Object.hasOwn(CHAINS, "arc"), false);
+  assert.deepEqual(CHAIN_KEYS, ["base", "robinhood", "arc"]);
+  assert.equal(arc, CHAINS.arc, "one Arc definition, shared by the launchpad and the bridge");
   assert.equal(arc.rpcUrls.default.http[0], "https://rpc.mainnet.arc.io");
   assert.equal(arc.blockExplorers.default.url, "https://explorer.arc.io");
   assert.equal(arc.nativeCurrency.symbol, "USDC");
@@ -23,9 +24,11 @@ test("every bridge source has a matching wallet chain without extending launch n
 
 test("wallet config registers Arc for switching and native-balance reads", () => {
   const config = readFileSync(new URL("../wagmi.ts", import.meta.url), "utf8");
-  assert.match(config, /chains:\s*\[CHAINS\.base,\s*robinhood,\s*arc\]/);
-  assert.match(config, /\[arc\.id\]:\s*http\(arcBrowserRpc\(\)/); // proxied reads; the chain's own rpcUrls stay official for wallet_addEthereumChain
+  // every registry chain, Arc included, through the same proxied transport; the chain's own rpcUrls stay official for wallet_addEthereumChain
+  assert.match(config, /const chains = keys\.map\(\(k\) => CHAINS\[k\]\)/);
+  assert.match(config, /transports: Object\.fromEntries\(keys\.map\(\(k\) => \[CHAINS\[k\]\.id, http\(browserRpc\(k\)/);
   assert.doesNotMatch(config, /rpc\.mainnet\.arc\.io/);
+  assert.equal(arcBrowserRpc(), browserRpc("arc"));
   const hook = readFileSync(new URL("../../components/bridge/useBridge.ts", import.meta.url), "utf8");
   assert.match(hook, /chain:\s*BRIDGE_WALLET_CHAINS\[q\.originChainId\]/);
   assert.doesNotMatch(hook, /CHAINS\[BRIDGE_CHAINS/);

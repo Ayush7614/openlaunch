@@ -58,10 +58,15 @@ test("pending actions are locked against duplicate requests and rejection is rec
 });
 
 test("network switcher uses official local logos with theme-correct Robinhood marks", () => {
-  for (const asset of ["base", "robinhood-black", "robinhood-white"]) {
-    assert.ok(source.includes(`src="/brand/${asset}.svg" alt=""`));
+  // one logo record per chain (a new chain must bring its own mark); every referenced file is a real SVG
+  assert.match(source, /const NETWORK_LOGOS: Record<ChainKey, \{/);
+  for (const asset of ["base", "robinhood-black", "robinhood-white", "arc"]) {
+    assert.ok(source.includes(`"/brand/${asset}.svg"`), `logo ${asset}`);
     assert.match(readFileSync(new URL(`../../public/brand/${asset}.svg`, import.meta.url), "utf8"), /<svg\b/);
   }
+  assert.match(source, /robinhood: \{ light: "\/brand\/robinhood-black\.svg", dark: "\/brand\/robinhood-white\.svg"/);
+  assert.match(source, /<Image className=\{styles\.lightLogo\} src=\{logo\.light\}/);
+  assert.match(source, /<Image className=\{styles\.darkLogo\} src=\{logo\.dark\}/);
   assert.match(source, /className=\{styles.networkLogo\} aria-hidden/);
   assert.doesNotMatch(source, /\? "B" : "R"|styles\.networkGlyph/);
   assert.match(css, /\.networkLogo img\s*\{[^}]*object-fit: contain/);

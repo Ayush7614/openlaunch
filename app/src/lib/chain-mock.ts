@@ -11,8 +11,14 @@ import { getMock } from "./db-mock.ts";
 
 export * from "./chainPublic.ts";
 
-export function rpcUrl(_key: ChainKey): string | undefined {
-  return undefined;
+// Same per-chain env lookup as the real module, so a test can point one chain at a fake keyed upstream.
+const RPC_ENV: Record<ChainKey, () => string | undefined> = {
+  base: () => process.env.BASE_RPC_URL,
+  robinhood: () => process.env.ROBINHOOD_RPC_URL,
+  arc: () => process.env.ARC_RPC_URL,
+};
+export function rpcUrl(key: ChainKey): string | undefined {
+  return RPC_ENV[key]()?.trim() || undefined;
 }
 
 export function b20RpcUrl(): string {
