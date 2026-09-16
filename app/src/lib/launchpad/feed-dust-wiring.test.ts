@@ -15,9 +15,11 @@ const trades = readFileSync(new URL("../../components/launchpad/TokenTrades.tsx"
 test("getLaunchFeed pages swaps through collectNonDust and merges them with the newest launches", () => {
   assert.match(queries, /import \{ collectNonDust \} from "\.\/feed-dust";/);
   assert.match(feedQuery, /FROM bb_launches l LEFT JOIN bb_launch_meta m [^`]*ORDER BY l\.block_time DESC LIMIT \$\{n\}`/, "launches: the newest n, never filtered");
-  assert.match(feedQuery, /collectNonDust\(/);
-  assert.match(feedQuery, /FROM bb_launch_swaps ORDER BY block_time DESC, log_index DESC LIMIT \$\{size\} OFFSET \$\{offset\}\)/, "each swap page is a bounded, deterministic read");
-  assert.match(feedQuery, /\(i\) => `\$\{i\.chain\}:\$\{i\.tx_hash\}:\$\{i\.token\}:\$\{i\.quote_wei\}`/, "the dedupe key matches the tape's");
+  assert.match(feedQuery, /collectNonDust<FeedSwap>\(/);
+  assert.match(feedQuery, /WHERE block_time <= \$\{after\.at\} AND \(block_time, log_index, chain_id, tx_hash\) < \(\$\{after\.at\}, \$\{after\.log_index\}, \$\{chainIdOf\(after\.chain\)\}, \$\{after\.tx_hash\}\)/, "keyset on the complete unique ordering: a swap indexed mid-read is neither skipped nor repeated");
+  assert.match(feedQuery, /ORDER BY block_time DESC, log_index DESC, chain_id DESC, tx_hash DESC LIMIT \$\{size\}\)/, "each page is a bounded, deterministic read");
+  assert.doesNotMatch(feedQuery, /OFFSET \$\{/, "no OFFSET paging over a live table");
+  assert.match(feedQuery, /\(i\) => `\$\{i\.chain\}:\$\{i\.tx_hash\}:\$\{i\.log_index\}`/, "dedupe by the swap log's identity (the table's primary key), never by amount");
   assert.match(feedQuery, /\.sort\(\(a, b\) => new Date\(b\.at\)\.getTime\(\) - new Date\(a\.at\)\.getTime\(\)\)\.slice\(0, n\);\s*\}\s*$/, "newest first, trimmed to n, last");
   assert.doesNotMatch(feedQuery, /abs\(s\.amount0\) [<>]/, "no raw-wei floor in SQL: the rule prices first and lives in feed-dust.ts");
 });
@@ -35,4 +37,13 @@ test("the trade table's symbol-less cell reads \"<0.01\", not \"0\", for a dust 
   assert.equal(fmtQuote(q < 0n ? -q : q, 6, "").trim(), "<0.01");
   assert.equal(fmtQuote(1n, 18, "").trim(), "<0.00000001");
   assert.equal(fmtQuote(0n, 6, "").trim(), "0", "an exact zero is still 0");
+});
+
+test("the tape and the toast tracker identify a swap by its log, so two equal swaps in one tx stay two rows", () => {
+  const queue = readFileSync(new URL("./toast-queue.ts", import.meta.url), "utf8");
+  for (const src of [tape, queue]) {
+    assert.match(src, /\$\{item\.kind === "swap" \? `:\$\{item\.log_index\}` : ""\}/);
+    assert.doesNotMatch(src, /:\$\{item\.quote_wei\}/);
+  }
+  assert.match(queries, /kind: "swap"; chain: ChainKey; at: string; tx_hash: string; log_index: number;/, "the feed item carries the log index");
 });

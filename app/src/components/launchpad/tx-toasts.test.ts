@@ -81,7 +81,7 @@ function harness(initial: FeedItem[] = [], enabled = false, initialAt?: number, 
   };
 }
 
-const swap = (id: string, quote_wei: string, quote_decimals: number, quote_symbol: string, is_buy = true): FeedItem => ({ kind: "swap", chain: "base", at: "2026-09-01T00:00:00Z", tx_hash: id, token: "dusty", name: "Dusty", symbol: "DUSTY", trader: "0xabc", is_buy, is_dev: false, quote_wei, quote_key: quote_decimals === 6 ? "usdg" : "eth", quote_symbol, quote_decimals, usd: null, image_url: null });
+const swap = (id: string, quote_wei: string, quote_decimals: number, quote_symbol: string, is_buy = true): FeedItem => ({ kind: "swap", chain: "base", at: "2026-09-01T00:00:00Z", tx_hash: id, log_index: 7, token: "dusty", name: "Dusty", symbol: "DUSTY", trader: "0xabc", is_buy, is_dev: false, quote_wei, quote_key: quote_decimals === 6 ? "usdg" : "eth", quote_symbol, quote_decimals, usd: null, image_url: null });
 const launch = (id: string): FeedItem => ({ kind: "launch", chain: "base", at: "2026-09-01T00:00:00Z", tx_hash: id, token: id, name: id, symbol: id, launcher: "wallet", lp_fee: 0, quote_key: "eth", image_url: null });
 const invoke = (element: Element, handler: string, ...args: unknown[]) => (element.props[handler] as (...args: unknown[]) => void)(...args);
 const cardBindings = { Link: "Link", TokenAvatar: "TokenAvatar", ArrowDownLeft: "ArrowDownLeft", ArrowUpRight: "ArrowUpRight", Check: "Check", Coins: "Coins", Info: "Info", Plus: "Plus", X: "X", CHAIN_SHORT: { base: "Base", robinhood: "Robinhood" }, TOAST_TTL_MS: queueFunctions.TOAST_TTL_MS };

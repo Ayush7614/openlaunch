@@ -24,17 +24,19 @@ export function isDustSwap(s: DustSwap): boolean {
 export const FEED_SWAP_PAGES = 4;
 
 /**
- * Newest-first swaps that are not dust, up to `limit`. Reads `fetchPage(offset, size)` in pages of 2×limit — the
- * newest page first, older pages only while dust keeps the count short — and stops when the quota is met, the
- * source runs dry, or FEED_SWAP_PAGES pages have been read, so even a bot flood is a bounded read. Pages are
- * offset-based over a live table, so a row that shifts between two reads is dropped by its `keyOf`.
+ * Newest-first swaps that are not dust, up to `limit`. Reads `fetchPage(after, size)` in pages of 2×limit — the
+ * newest page first (`after` null), then the rows older than the last one seen — and stops when the quota is met,
+ * the source runs dry, or FEED_SWAP_PAGES pages have been read, so even a bot flood is a bounded read. The cursor
+ * is the last row itself: the caller turns it into a keyset condition on its complete unique ordering, so a swap
+ * indexed between two reads can neither be skipped nor served twice. `keyOf` dedupes all the same, as a belt.
  */
-export async function collectNonDust<T extends DustSwap>(fetchPage: (offset: number, size: number) => Promise<T[]>, limit: number, keyOf: (item: T) => string): Promise<T[]> {
+export async function collectNonDust<T extends DustSwap>(fetchPage: (after: T | null, size: number) => Promise<T[]>, limit: number, keyOf: (item: T) => string): Promise<T[]> {
   const size = 2 * limit;
   const seen = new Set<string>();
   const out: T[] = [];
+  let after: T | null = null;
   for (let page = 0; page < FEED_SWAP_PAGES && out.length < limit; page++) {
-    const rows = await fetchPage(page * size, size);
+    const rows = await fetchPage(after, size);
     for (const row of rows) {
       if (out.length >= limit) break;
       const key = keyOf(row);
@@ -43,6 +45,7 @@ export async function collectNonDust<T extends DustSwap>(fetchPage: (offset: num
       out.push(row);
     }
     if (rows.length < size) break;
+    after = rows[rows.length - 1];
   }
   return out;
 }

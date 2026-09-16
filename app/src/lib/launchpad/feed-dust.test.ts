@@ -32,14 +32,15 @@ test("unpriced swaps fall back to the display floor: whatever would print as 0 i
 
 type Row = { id: number; usd: number | null; quote_wei: string; quote_decimals: number };
 const row = (id: number, usd: number): Row => ({ id, usd, quote_wei: "1", quote_decimals: 18 });
-/** A newest-first table of rows; `pager` serves offset pages from it and counts the reads. */
+/** A live newest-first table; `fetchPage(after, size)` serves the rows older than `after` (keyset), counting the reads. */
 function source(rows: Row[]) {
-  const reads: [number, number][] = [];
-  const fetchPage = async (offset: number, size: number) => {
-    reads.push([offset, size]);
-    return rows.slice(offset, offset + size);
+  const reads: [number | null, number][] = [];
+  const fetchPage = async (after: Row | null, size: number) => {
+    reads.push([after?.id ?? null, size]);
+    const from = after === null ? 0 : rows.findIndex((r) => r.id === after.id) + 1;
+    return rows.slice(from, from + size);
   };
-  return { fetchPage, reads };
+  return { rows, fetchPage, reads };
 }
 const ids = (rows: Row[]) => rows.map((r) => r.id);
 const keyOf = (r: Row) => String(r.id);
@@ -49,7 +50,7 @@ test("collectNonDust fills from the newest page and reads nothing more when it c
   const s = source(rows);
   return collectNonDust(s.fetchPage, 24, keyOf).then((out) => {
     assert.deepEqual(ids(out), ids(rows.slice(0, 24)), "newest first, in source order");
-    assert.deepEqual(s.reads, [[0, 48]], "one page of 2×limit");
+    assert.deepEqual(s.reads, [[null, 48]], "one page of 2×limit, from the top");
   });
 });
 
@@ -59,7 +60,7 @@ test("regression: 30 dust swaps ahead of 24 real ones still yield 24 rows — th
   return collectNonDust(s.fetchPage, 24, keyOf).then((out) => {
     assert.equal(out.length, 24);
     assert.deepEqual(ids(out), ids(rows.slice(30)), "every real swap, none of the dust, oldest real one included");
-    assert.deepEqual(s.reads, [[0, 48], [48, 48]], "a second page was needed and read once");
+    assert.deepEqual(s.reads, [[null, 48], [117, 48]], "a second page was needed, read once, from the last row seen");
   });
 });
 
@@ -68,7 +69,7 @@ test("collectNonDust stops at a short page: the source ran dry", () => {
   const s = source(rows);
   return collectNonDust(s.fetchPage, 24, keyOf).then((out) => {
     assert.deepEqual(ids(out), [2]);
-    assert.deepEqual(s.reads, [[0, 48]], "a page smaller than requested is the end");
+    assert.deepEqual(s.reads, [[null, 48]], "a page smaller than requested is the end");
   });
 });
 
@@ -79,15 +80,27 @@ test("collectNonDust is a bounded read under a dust flood: FEED_SWAP_PAGES pages
     assert.deepEqual(out, []);
     assert.equal(s.reads.length, FEED_SWAP_PAGES);
     assert.equal(FEED_SWAP_PAGES, 4);
-    assert.deepEqual(s.reads.at(-1), [3 * 48, 48]);
+    assert.deepEqual(s.reads.at(-1), [3 * 48 - 1, 48], "each page continues from the last row of the one before");
   });
 });
 
-test("collectNonDust drops a row that shifted across a page boundary between reads", () => {
-  const dust = Array.from({ length: 47 }, (_, i) => row(i, 0.0001));
-  const real = row(500, 7);
+test("a swap indexed between two page reads is neither skipped nor served twice", () => {
+  // 47 dust rows then one real: the first page ends with `real`; before the second read a new swap lands at the top
+  const rows = [...Array.from({ length: 47 }, (_, i) => row(i, 0.0001)), row(500, 7), row(600, 8), row(700, 9)];
+  const s = source(rows);
+  const fetchPage = async (after: Row | null, size: number) => {
+    const page = await s.fetchPage(after, size);
+    if (after === null) s.rows.unshift(row(999, 11)); // the live table grows at the head after page 1
+    return page;
+  };
+  return collectNonDust(fetchPage, 24, keyOf).then((out) => {
+    assert.deepEqual(ids(out), [500, 600, 700], "keyset paging: page 2 starts right after 500, unaffected by the head insert");
+    assert.deepEqual(s.reads, [[null, 48], [500, 48]]);
+  });
+});
+
+test("collectNonDust still dedupes by key if a source ever repeats a row", () => {
   let reads = 0;
-  // the first page ends with `real`; a swap lands at the top of the table before the second read, so `real` is served again
-  const fetchPage = async (offset: number, size: number) => (reads++ === 0 ? [...dust, real].slice(offset, offset + size) : [real, row(600, 8)]);
+  const fetchPage = async () => (reads++ === 0 ? [...Array.from({ length: 47 }, (_, i) => row(i, 0.0001)), row(500, 7)] : [row(500, 7), row(600, 8)]);
   return collectNonDust(fetchPage, 24, keyOf).then((out) => assert.deepEqual(ids(out), [500, 600]));
 });
