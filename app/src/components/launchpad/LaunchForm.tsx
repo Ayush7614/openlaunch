@@ -85,7 +85,7 @@ const CHAIN_COPY: Record<ChainKey, { blurb: string; gitlawbOrigin: string; stock
     },
   },
   arc: {
-    blurb: "Priced in USDC (dollars). Gas is paid in USDC too, a fraction of a cent.",
+    blurb: "Priced in USDC (dollars). Gas is paid in USDC too: cents per trade, well under a dollar to launch.",
     gitlawbOrigin: "",
     stock: null,
   },
@@ -793,7 +793,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
               <span className="font-mono font-bold text-ink tnum">{cap(buyPreview.fdvAfter).main}</span><span className="font-mono text-muted tnum"> · {cap(buyPreview.fdvAfter).detail}</span>. Includes price impact and the pool fee; the exact amount is quoted on-chain right before the buy.
             </p>
           ) : suggestion.reason === "insufficient" ? (
-            <p className={helper}>Suggested {fmtQuoteUnits(Number(defaultFirstBuy(quote)), quote.decimals)} {quote.symbol}, but this wallet holds only gas. The launch stays free; you can buy on the token page later.</p>
+            <p className={helper}>Suggested {fmtQuoteUnits(Number(defaultFirstBuy(quote)), quote.decimals)} {quote.symbol}, but this wallet {sharedGas ? `does not hold enough ${quote.symbol} for the buy plus its gas` : "holds only gas"}. The launch stays free; you can buy on the token page later.</p>
           ) : suggestion.reason === "no-gas" ? (
             <p className={helper}>Suggested {fmtQuoteUnits(Number(defaultFirstBuy(quote)), quote.decimals)} {quote.symbol}, but this wallet has no {NATIVE_SYMBOL} left for the buy&apos;s gas. The launch stays free; you can buy on the token page later.</p>
           ) : suggestion.reason === "unknown-balance" ? (

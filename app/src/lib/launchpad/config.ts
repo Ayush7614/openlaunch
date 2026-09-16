@@ -93,13 +93,13 @@ function allQuotes(chain: ChainKey): Quote[] {
 export const GAS_RESERVE_WEI: Record<ChainKey, bigint> = {
   base: 1_500_000_000_000_000n, // 0.0015 ETH: deploy + pool init + position mint, then approvals + swap
   robinhood: 1_500_000_000_000_000n, // 0.0015 ETH
-  arc: 100_000_000_000_000_000n, // 0.1 USDC: a launch is ~2.5M gas at Arc's flat 20 gwei (≈ 0.05 USDC), plus approvals and the buy
+  arc: 1_000_000_000_000_000_000n, // 1 USDC: a launch is ~2.5M gas; Arc's base fee floors at 20 gwei but ran ~80 gwei + ~30 gwei tips on launch day (≈ 0.3 USDC), so keep a wide margin
 };
 /** Native amount (18-dec wei) a trade keeps back for its own gas (approvals + one swap); the launch-sized reserve above is for the form. */
 export const SWAP_GAS_RESERVE_WEI: Record<ChainKey, bigint> = {
   base: 500_000_000_000_000n, // 0.0005 ETH
   robinhood: 500_000_000_000_000n, // 0.0005 ETH
-  arc: 20_000_000_000_000_000n, // 0.02 USDC: a router swap is ~0.3M gas at 20 gwei ≈ 0.006 USDC, plus approvals
+  arc: 200_000_000_000_000_000n, // 0.2 USDC: a router swap is ~0.3M gas (≈ 0.03 USDC at launch-day fees), plus approvals, with margin
 };
 /** The ERC-20 face of the chain's gas token where one exists (Arc: USDC). A buy paid in it draws on the gas balance. */
 export const NATIVE_ERC20: Record<ChainKey, Address | null> = { base: null, robinhood: null, arc: USDC_ARC.address };

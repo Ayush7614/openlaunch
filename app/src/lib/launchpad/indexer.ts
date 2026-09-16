@@ -286,16 +286,17 @@ async function applyTransfers(db: Db, chain: ChainKey, tokens: string[], from: b
   const cid = chainIdOf(chain);
   // one address list for every launched token, bisected by block like every other fetch; only when a SINGLE block is over
   // the node's result cap does the token list split, and one token still over the cap in one block (a contract spamming
-  // Transfer events, ~0.6 USDC of gas on Arc) has that block's holder update skipped rather than the chain's indexing
-  // wedging on it. Launches, swaps and fees are fetched separately and unaffected; `holders` for that token can be off
-  // until the backfill or a later transfer.
+  // Transfer events; a few USDC of gas on Arc) has that block's holder update skipped rather than the chain's indexing
+  // wedging on it. Launches, swaps and fees are fetched separately and unaffected. That token's holder balances stay off
+  // by that block's transfers (balances are accumulated deltas, so nothing recomputes them), which is why the skip is
+  // logged as an alert rather than a warning: it is a deliberate degradation to look at, not a transient.
   const oneBlockOrRange = async (addrs: string[], a: bigint, b: bigint): Promise<TransferLog[]> => {
     try {
       return (await client.getLogs({ address: addrs as Address[], event: ERC20_TRANSFER_EVENT, fromBlock: a, toBlock: b })) as TransferLog[];
     } catch (err) {
       if (a !== b || !isRangeTooLarge(err)) throw err; // a range: let fetchLogsSplit halve the blocks
       if (addrs.length <= 1) {
-        console.warn(`[launch-sync] ${chain}: Transfer logs of ${addrs[0]} in block ${a} exceed the node's result cap; skipping that block's holder update`);
+        console.error(`[alert] launch-sync ${chain}: Transfer logs of ${addrs[0]} in block ${a} exceed the node's result cap; that block's holder update for the token is skipped and its holder balances are off by it from now on`);
         return [];
       }
       const mid = Math.ceil(addrs.length / 2);
