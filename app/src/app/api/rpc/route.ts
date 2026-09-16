@@ -78,15 +78,22 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "bad json" }, { status: 400 });
   }
-  const list = Array.isArray(body) ? body : [body];
+  const batch = Array.isArray(body);
+  const list: Req[] = Array.isArray(body) ? body : [body];
   if (list.length > 20) return NextResponse.json({ error: "batch too large" }, { status: 400 });
-  for (const r of list) {
-    if (typeof r?.method !== "string" || !ALLOWED.has(r.method)) {
-      return NextResponse.json({ jsonrpc: "2.0", id: r?.id ?? null, error: { code: -32601, message: `method not allowed: ${String(r?.method)}` } }, { status: 403 });
-    }
-  }
+  // A method outside the allowlist gets a JSON-RPC "method not found" in its
+  // slot, never an HTTP error for the whole batch: viem then falls back (it
+  // probes eth_fillTransaction for fee estimates) and the other reads succeed.
+  const denied = new Map<number, unknown>();
+  const forward: Req[] = [];
+  list.forEach((r, i) => {
+    if (typeof r?.method !== "string" || !ALLOWED.has(r.method)) denied.set(i, { jsonrpc: "2.0", id: r?.id ?? null, error: { code: -32601, message: `method not allowed: ${String(r?.method)}` } });
+    else forward.push(r);
+  });
+  const reply = (items: unknown[]) => NextResponse.json(batch ? items : items[0], { headers: { "cache-control": "no-store" } });
+  if (forward.length === 0) return reply(list.map((_, i) => denied.get(i)));
   try {
-    const payload = JSON.stringify(body);
+    const payload = JSON.stringify(batch ? forward : forward[0]);
     const res = await fetch(upstream, { method: "POST", headers: { "content-type": "application/json" }, body: payload, signal: AbortSignal.timeout(15_000) });
     let text = await res.text();
     let status = res.status;
@@ -101,8 +108,11 @@ export async function POST(req: Request) {
     }
     // Rate limiting and malformed bodies become 429/502 so viem retries with backoff
     // instead of surfacing "unknown RPC error" or throwing inside its batch scheduler.
-    status = upstreamStatus(text, Array.isArray(body), list.length, status);
-    return new NextResponse(text, { status, headers: { "content-type": "application/json", "cache-control": "no-store", ...(status === 429 ? { "retry-after": "1" } : {}) } });
+    status = upstreamStatus(text, batch, forward.length, status);
+    if (status !== 200 || denied.size === 0) return new NextResponse(text, { status, headers: { "content-type": "application/json", "cache-control": "no-store", ...(status === 429 ? { "retry-after": "1" } : {}) } });
+    const upstreamItems = JSON.parse(text) as unknown[]; // upstreamStatus verified an array of forward.length
+    let next = 0;
+    return reply(list.map((_, i) => denied.get(i) ?? upstreamItems[next++]));
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "upstream failed" }, { status: 502 });
   }
