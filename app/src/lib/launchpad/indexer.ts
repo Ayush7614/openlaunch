@@ -276,17 +276,25 @@ type RawReceiptLog = { address: string; topics: Hex[]; data: Hex; blockNumber: H
  */
 async function transfersFromBlockReceipts(chain: ChainKey, token: string, block: bigint): Promise<TransferLog[] | null> {
   const client = publicClient(chain);
-  let receipts: { logs: RawReceiptLog[] }[];
+  const want = token.toLowerCase();
   try {
-    receipts = (await client.request({ method: "eth_getBlockReceipts" as never, params: [`0x${block.toString(16)}`] as never })) as { logs: RawReceiptLog[] }[];
+    const receipts: unknown = await client.request({ method: "eth_getBlockReceipts" as never, params: [`0x${block.toString(16)}`] as never });
+    // the response is untyped RPC data: anything not shaped like receipts with logs counts as "unavailable", never a throw
+    if (!Array.isArray(receipts)) return null;
+    const raw: RawReceiptLog[] = [];
+    for (const r of receipts) {
+      const logs = (r as { logs?: unknown } | null)?.logs;
+      if (!Array.isArray(logs)) return null;
+      for (const l of logs as Partial<RawReceiptLog>[]) {
+        if (typeof l?.address !== "string" || !Array.isArray(l.topics) || typeof l.data !== "string" || typeof l.blockNumber !== "string" || typeof l.transactionHash !== "string" || typeof l.logIndex !== "string") return null;
+        if (l.address.toLowerCase() === want && !l.removed) raw.push(l as RawReceiptLog);
+      }
+    }
+    const parsed = parseEventLogs({ abi: [ERC20_TRANSFER_EVENT], eventName: "Transfer", logs: raw.map((l) => ({ ...l, blockNumber: BigInt(l.blockNumber), logIndex: Number(l.logIndex) })) as unknown as Log[] });
+    return parsed as unknown as TransferLog[];
   } catch {
     return null;
   }
-  if (!Array.isArray(receipts)) return null;
-  const want = token.toLowerCase();
-  const raw = receipts.flatMap((r) => r.logs ?? []).filter((l) => l.address.toLowerCase() === want && !l.removed);
-  const parsed = parseEventLogs({ abi: [ERC20_TRANSFER_EVENT], eventName: "Transfer", logs: raw.map((l) => ({ ...l, blockNumber: BigInt(l.blockNumber), logIndex: Number(l.logIndex) })) as unknown as Log[] });
-  return parsed as unknown as TransferLog[];
 }
 const SYNCED_FOREVER = 9223372036854775807n; // bigint max = "history fully scanned; the live loop keeps it current"
 
