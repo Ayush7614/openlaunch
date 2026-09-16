@@ -69,9 +69,10 @@ test("extraConnectOrigins reduces env URLs to unique origins and ignores junk", 
     NEXT_PUBLIC_SITE_URL: "https://openlaunch.lol/",
     NEXT_PUBLIC_RPC_URL_BASE: " http://127.0.0.1:8545/rpc ",
     NEXT_PUBLIC_RPC_URL_ROBINHOOD: "http://127.0.0.1:8545",
+    NEXT_PUBLIC_RPC_URL_ARC: "http://127.0.0.1:8547",
     DATABASE_URL: "postgres://localhost/openlaunch_dev",
   });
-  assert.deepEqual(origins, ["https://openlaunch.lol", "http://127.0.0.1:8545"]);
+  assert.deepEqual(origins, ["https://openlaunch.lol", "http://127.0.0.1:8545", "http://127.0.0.1:8547"]);
   assert.deepEqual(extraConnectOrigins({ NEXT_PUBLIC_RPC_URL_BASE: "nope" }), []);
   assert.deepEqual(extraConnectOrigins({}), []);
 });
@@ -102,7 +103,7 @@ test("proxy mints a random nonce and sets the policy on the request and the resp
   assert.match(proxy, /const DEV = process\.env\.NODE_ENV === "development"/);
   assert.match(proxy, /dev: DEV/);
   // Literal env reads, so the build inlines the same values browserRpc() bakes into the client.
-  for (const key of ["NEXT_PUBLIC_SITE_URL", "NEXT_PUBLIC_RPC_URL_BASE", "NEXT_PUBLIC_RPC_URL_ROBINHOOD"]) {
+  for (const key of ["NEXT_PUBLIC_SITE_URL", "NEXT_PUBLIC_RPC_URL_BASE", "NEXT_PUBLIC_RPC_URL_ROBINHOOD", "NEXT_PUBLIC_RPC_URL_ARC"]) {
     assert.match(proxy, new RegExp(`${key}: process\\.env\\.${key}`));
   }
   assert.doesNotMatch(proxy, /extraConnectOrigins\(process\.env\)/);

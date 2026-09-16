@@ -169,12 +169,12 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
             <ol className={styles.capabilities}>
               <li><span className={styles.step}>01</span><div><h3><Layers3 size={18} aria-hidden="true" />Manage your launches</h3><p>Open each token, update its description, logo and links. On-chain settings stay fixed.</p></div></li>
               <li><span className={styles.step}>02</span><div><h3><Coins size={18} aria-hidden="true" />See where fees go</h3><p>View your beneficiary share and uncollected fees. Collect to the recipients set at launch.</p></div></li>
-              <li><span className={styles.step}>03</span><div><h3><ArrowDownLeft size={18} aria-hidden="true" />Follow your activity</h3><p>Check token balances and past trades across both chains, with links to the transactions.</p></div></li>
+              <li><span className={styles.step}>03</span><div><h3><ArrowDownLeft size={18} aria-hidden="true" />Follow your activity</h3><p>Check token balances and past trades across every chain, with links to the transactions.</p></div></li>
             </ol>
             <Link href="/#launches" className={styles.browseLink}>Just exploring? Browse launches<ArrowUpRight size={15} aria-hidden="true" /></Link>
           </div>
         </section>
-        <div className={styles.disclosure}><span>One wallet. Both chains.</span><p>This dashboard reads public on-chain activity. There is no separate openlaunch account.</p></div>
+        <div className={styles.disclosure}><span>One wallet. Every chain.</span><p>This dashboard reads public on-chain activity. There is no separate openlaunch account.</p></div>
       </div>
     );
   }
@@ -189,7 +189,7 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
 
   const walletBar = <div className={styles.walletBar}>
     <div className={styles.identity}><span className={styles.walletIcon} aria-hidden="true"><Wallet size={19} /></span><div><p>Connected wallet</p><span className={styles.address} title={address}>{shortAddr(address)}</span></div></div>
-    <div className={styles.walletUtilities}><span className={styles.updateNote}>{refreshing ? "Updating your dashboard" : now ? "Latest loaded snapshot" : "Base + Robinhood Chain"}</span><button type="button" className={styles.refresh} onClick={() => void load()} disabled={refreshing || busy !== null}><RefreshCw size={15} aria-hidden="true" />{refreshing ? "Refreshing…" : "Refresh"}</button></div>
+    <div className={styles.walletUtilities}><span className={styles.updateNote}>{refreshing ? "Updating your dashboard" : now ? "Latest loaded snapshot" : "Base + Robinhood Chain + Arc"}</span><button type="button" className={styles.refresh} onClick={() => void load()} disabled={refreshing || busy !== null}><RefreshCw size={15} aria-hidden="true" />{refreshing ? "Refreshing…" : "Refresh"}</button></div>
   </div>;
 
   if (!me) {
@@ -205,7 +205,7 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
       {walletBar}
       {err ? <p className={styles.error} role="alert">Refresh failed: {err}. Showing the last loaded data. Try Refresh again.</p> : null}
       <dl className={styles.stats}>
-        <Stat k="Your launches" v={String(me.launches.length)} hint="Across both chains" />
+        <Stat k="Your launches" v={String(me.launches.length)} hint="Across all chains" />
         <Stat k="Fees earned" v={fmtUsd(earnedUsd, { compact: true })} hint="Your share, USD-priced launches" accent="up" />
         <Stat k="Uncollected" v={feesReading ? "Reading…" : feesUnknown ? "—" : String(collectable.length)} hint={feesUnknown ? "Some pools could not be read" : "Pools with fees to collect"} accent={!feesReading && !feesUnknown && collectable.length ? "warm" : undefined} />
         <Stat k="Holdings value" v={holdingsReading ? "Reading…" : holdingsUnknown ? "—" : fmtUsd(holdingsUsd, { compact: true })} hint={holdingsUnknown ? "A balance or price is unavailable" : "Current estimated USD value"} />
@@ -323,7 +323,7 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
         {me && me.trades.length > 0 ? (
           <div className={`${styles.tradeScroll} bb-scroll`} role="region" aria-label="Your trades table" tabIndex={0}>
             <table className={styles.trades}>
-              <caption className="sr-only">Your latest indexed trades on Base and Robinhood Chain</caption>
+              <caption className="sr-only">Your latest indexed trades on Base, Robinhood Chain and Arc</caption>
               <thead><tr><th scope="col">Side</th><th scope="col">Token / chain</th><th scope="col">Amount</th><th scope="col" className={styles.usdColumn}>USD value</th><th scope="col">Transaction</th></tr></thead>
               <tbody className="font-mono tnum">
                 {me.trades.map((t) => (
