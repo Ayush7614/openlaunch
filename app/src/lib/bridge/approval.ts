@@ -68,6 +68,22 @@ export function approvalRequestKey(request: ApprovalRequest | null): string {
 
 export const approvalStorageKey = (address: Address) => `${APPROVAL_STORAGE_PREFIX}${address.toLowerCase()}`;
 
+export const APPROVAL_DISCARD_AFTER_MS = 15 * 60_000;
+export type ApprovalReceiptObservation = { createdAt: number; receiptFound: boolean; observedAt: number };
+
+/**
+ * An approval that is still unmined after a long wait can be dropped: if it
+ * mines later it only grants the exact allowance to the pinned depository, and
+ * every deposit re-reads the allowance before asking the wallet. A record with
+ * a hash needs a fresh "no receipt" observation; one without a hash cannot be
+ * checked on-chain, so only the wait applies.
+ */
+export function approvalCanDiscard(approval: TrackedApproval | null, observation: ApprovalReceiptObservation | null, now: number): boolean {
+  if (!approvalBlocksSubmission(approval) || now - approval!.createdAt < APPROVAL_DISCARD_AFTER_MS) return false;
+  if (!approval!.approvalHash) return true;
+  return !!observation && observation.createdAt === approval!.createdAt && !observation.receiptFound && now - observation.observedAt <= 60_000 && now >= observation.observedAt;
+}
+
 export function approvalBlocksSubmission(approval: TrackedApproval | null): boolean {
   return !!approval && (approval.status === "uncertain" || approval.status === "pending");
 }

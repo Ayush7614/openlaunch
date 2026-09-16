@@ -38,7 +38,7 @@ export default function BridgeReview() {
   const outputAmount = converted / 10n ** BigInt(18 - outputCurrency.decimals);
   const quote: BridgeQuote = {
     address: wallet, originChainId: origin, destinationChainId: destination, originAsset, destinationAsset, amount: inputAmount.toString(),
-    requestId, amountOut: outputAmount.toString(), minimumAmountOut: (outputAmount * 995n / 1000n).toString(), relayFee: formatUnits(inputAmount * 25n / 10000n, inputCurrency.decimals), sourceGas: origin === 5042 ? "0.001" : "0.0000007", totalImpactPercent: "-0.25", timeEstimate: 2, expiresAt: clock + 45_000,
+    requestId, amountOut: outputAmount.toString(), minimumAmountOut: (outputAmount * 995n / 1000n).toString(), relayFee: formatUnits(inputAmount * 25n / 10000n, inputCurrency.decimals), sourceGas: origin === 5042 ? "0.001" : "0.0000007", totalImpactPercent: "-0.25", timeEstimate: 2, expiresAt: clock + 45_000, ttlMs: 45_000,
     transaction: { to: wallet, data: "0x", value: "0", chainId: origin }, // deliberately non-executable fixture
     ...(erc20Input ? { approval: { token: inputCurrency.address, spender: "0x4cd00e387622c35bddb9b4c962c136462338bc31" as const, amount: inputAmount.toString() } } : {}),
   };
@@ -58,6 +58,8 @@ export default function BridgeReview() {
     approval, approvalRequired: erc20Input && !approved, allowanceLoading: false, approvalBusy: false, approvalError: null,
     approve: async () => setScene("approval_pending"), retryApproval: () => { setApproved(true); setScene("approval_confirmed"); },
     recoverApproval: async () => { setApproved(true); setScene("approval_confirmed"); },
+    approvalCanBeDiscarded: scene === "approval_uncertain", discardApproval: () => { setApproved(false); setScene("idle"); },
+    canDiscard: scene === "uncertain", discard: () => setScene("idle"),
   };
   return (
     <main className="mx-auto max-w-3xl px-5 py-20">

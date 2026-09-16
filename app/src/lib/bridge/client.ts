@@ -144,6 +144,63 @@ export function validateBridgeQuote(value: unknown, request: BridgeQuoteRequest,
   return quote;
 }
 
+/**
+ * The server states how long a quote stays valid; only this device's clock
+ * decides when that runs out. Anchoring on the request time also absorbs the
+ * round trip, so a skewed phone clock cannot expire (or extend) a fresh quote.
+ */
+export function anchorQuoteExpiry(value: unknown, requestedAt: number): unknown {
+  if (!value || typeof value !== "object") return value;
+  const { ttlMs } = value as { ttlMs?: unknown };
+  if (typeof ttlMs !== "number" || !Number.isFinite(ttlMs) || ttlMs < 0 || ttlMs > 120_000) throw new Error("The bridge returned an invalid quote validity. Request a new quote.");
+  return { ...value, expiresAt: requestedAt + ttlMs };
+}
+
+/** AbortSignal.any/timeout are missing in older in-app wallet browsers; link the signals by hand. */
+export function linkedTimeoutSignal(parent: AbortSignal | undefined, timeoutMs: number): AbortSignal {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new DOMException("The request timed out.", "TimeoutError")), timeoutMs);
+  controller.signal.addEventListener("abort", () => clearTimeout(timer), { once: true });
+  if (parent?.aborted) controller.abort(parent.reason);
+  else parent?.addEventListener("abort", () => controller.abort(parent.reason), { once: true });
+  return controller.signal;
+}
+
+/**
+ * The provider hash to verify and adopt as this transfer's source hash: any
+ * reported hash when the wallet returned none, or a different hash when the
+ * wallet's own was replaced (speed-up/cancel) and is not mined. A mined or
+ * still-reported wallet hash is never swapped; a mismatch then keeps retrying.
+ */
+export function replacementSourceHash(transfer: TrackedBridgeTransfer, status: BridgeStatusResponse, walletHashUnmined: boolean): Hex | null {
+  const known = transfer.sourceHash?.toLowerCase();
+  const candidate = status.inTxHashes.find((hash) => hash.toLowerCase() !== known) ?? null;
+  if (!candidate || !transfer.sourceHash) return candidate;
+  const knownReported = status.inTxHashes.some((hash) => hash.toLowerCase() === known);
+  return walletHashUnmined && !knownReported ? candidate : null;
+}
+
+export type BridgeActivity = { key: string; phase: "idle" | "quoting" | "switching" | "confirming" };
+/** An aborted quote never runs its own idle reset; wallet changes clear it here and leave wallet prompts alone. */
+export function activityAfterWalletChange(activity: BridgeActivity): BridgeActivity {
+  return activity.phase === "quoting" ? { key: "", phase: "idle" } : activity;
+}
+
+export const DISCARD_AFTER_MS = 15 * 60_000;
+export type ProviderObservation = { requestId: Hex; status: BridgeStatusResponse; sourceMined: boolean; observedAt: number };
+
+/**
+ * Bounded escape hatch for a deposit that never happened: the provider still
+ * reports "waiting" with no deposit, no wallet hash is mined, and the order
+ * deadline (about a minute) is long past. A record with any on-chain evidence,
+ * or a stale observation, keeps blocking until it settles.
+ */
+export function transferCanDiscard(transfer: TrackedBridgeTransfer | null, observation: ProviderObservation | null, now: number): boolean {
+  if (!transfer || transferIsTerminal(transfer) || !observation || observation.requestId !== transfer.requestId) return false;
+  if (observation.status.status !== "waiting" || observation.status.inTxHashes.length > 0 || observation.status.txHashes.length > 0 || observation.sourceMined) return false;
+  return now - transfer.createdAt >= DISCARD_AFTER_MS && now - observation.observedAt <= 60_000 && now >= observation.observedAt;
+}
+
 export function validateBridgeStatus(value: unknown): BridgeStatusResponse {
   if (!value || typeof value !== "object") throw new Error("Transfer status is temporarily unavailable.");
   const status = value as BridgeStatusResponse;

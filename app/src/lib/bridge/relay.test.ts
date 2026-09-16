@@ -363,3 +363,33 @@ test("Base USDC approval cannot borrow Arc's token, use unlimited amount or redi
     assert.throws(() => validateRelayQuote(quote, input, validateRelayChains(relayChainsFixture(), input), BASE_USDC_FIXTURE_NOW), BridgeApiError, variant);
   }
 });
+
+test("the chain catalogue is reused per fetcher within its TTL and refetched after it or after a failure", async () => {
+  const calls: string[] = [];
+  let chainsBody: unknown = relayChainsFixture();
+  const fetcher = async (url: string) => {
+    calls.push(url);
+    return Response.json(url.endsWith("/chains") ? chainsBody : relayQuoteFixture());
+  };
+  const chainsCalls = () => calls.filter((url) => url.endsWith("/chains")).length;
+  let now = FIXTURE_NOW - 100_000; // the fixture order deadline is FIXTURE_NOW + 100 s; keep every step inside it
+  await Promise.all([getBridgeQuote(FIXTURE_INPUT, fetcher, () => now), getBridgeQuote(FIXTURE_INPUT, fetcher, () => now)]);
+  assert.equal(chainsCalls(), 1); // concurrent quotes share one in-flight catalogue
+  now += 59_000;
+  await getBridgeQuote(FIXTURE_INPUT, fetcher, () => now);
+  assert.equal(chainsCalls(), 1);
+  now += 2_000;
+  await getBridgeQuote(FIXTURE_INPUT, fetcher, () => now);
+  assert.equal(chainsCalls(), 2);
+  // A copy that fails verification is dropped, not served again for a minute.
+  chainsBody = { chains: [] };
+  now += 61_000;
+  await assert.rejects(getBridgeQuote(FIXTURE_INPUT, fetcher, () => now), (error) => error instanceof BridgeApiError);
+  assert.equal(chainsCalls(), 3);
+  chainsBody = relayChainsFixture();
+  await getBridgeQuote(FIXTURE_INPUT, fetcher, () => now);
+  assert.equal(chainsCalls(), 4);
+  // Another fetcher never sees this fetcher's copy.
+  await getBridgeQuote(FIXTURE_INPUT, async (url) => { calls.push(`other:${url}`); return Response.json(url.endsWith("/chains") ? relayChainsFixture() : relayQuoteFixture()); }, () => now);
+  assert.equal(calls.filter((url) => url.startsWith("other:") && url.endsWith("/chains")).length, 1);
+});

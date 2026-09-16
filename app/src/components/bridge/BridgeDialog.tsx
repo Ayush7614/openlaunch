@@ -7,6 +7,7 @@ import { Select } from "@base-ui/react/select";
 import { ArrowLeftRight, ArrowRight, ArrowUpRight, Check, ChevronDown, ChevronRight, CircleAlert, Clock3, LoaderCircle, Wallet, X } from "lucide-react";
 import { formatEther, formatUnits, zeroAddress } from "viem";
 import { BRIDGE_ASSETS, BRIDGE_CHAINS, BRIDGE_CHAIN_IDS, bridgeCurrency, bridgeTransferInputCurrency, isBridgeAssetSupported, isBridgeChainId, type BridgeAsset, type BridgeChainId } from "@/lib/bridge/types";
+import { DISCARD_AFTER_MS } from "@/lib/bridge/client";
 import { shortAddr } from "@/lib/chainPublic";
 import WalletPicker from "../WalletPicker";
 import WalletAvatar from "../WalletAvatar";
@@ -213,7 +214,7 @@ export function BridgeForm({ bridge: b, connect }: { bridge: Bridge; connect: ()
         {b.address ? label : "Connect wallet"}
         {!locked && b.address ? <ArrowRight size={17} aria-hidden /> : null}
       </button>
-      <p id="bridge-gas-note" className={styles.disclaimer}>Keep some {origin.symbol} on {origin.name} for gas. {convertsAsset ? "Relay converts the asset at the quoted rate. " : ""}Bridging uses a third-party protocol and carries risk. {erc20Input ? "An unspent USDC approval remains until used or revoked." : "No token approvals required."}</p>
+      <p id="bridge-gas-note" className={styles.disclaimer}>Keep some {origin.symbol} on {origin.name} for gas. {convertsAsset ? "Relay converts the asset at the quoted rate. " : ""}Bridging uses Relay, a third-party protocol, and carries risk. Openlaunch does not operate Relay, holds no funds in transit, and is not responsible for delays, refunds or losses. {erc20Input ? "An unspent USDC approval remains until used or revoked." : "No token approvals required."}</p>
     </form>
   );
 }
@@ -246,6 +247,11 @@ function ApprovalProgress({ bridge: b }: { bridge: Bridge }) {
       </form>
     </details> : null}
     {approval.approvalHash ? <button type="button" className={styles.newTransfer} disabled={b.approvalBusy} onClick={b.retryApproval}>Check approval status</button> : null}
+    {b.approvalCanBeDiscarded ? <details className={styles.approvalRecovery}>
+      <summary>Still not confirmed after {DISCARD_AFTER_MS / 60_000} minutes?</summary>
+      <p>{approvalChain.name} has no record of this approval. If your wallet shows it as dropped or cancelled, you can discard it and start over. If it confirms later it only grants this exact allowance; the next deposit re-checks it.</p>
+      <button type="button" className={styles.newTransfer} disabled={b.approvalBusy} onClick={b.discardApproval}>Discard this approval</button>
+    </details> : null}
     <p className={styles.disclaimer}>You can close this panel. Reopen Bridge with this wallet to resume. If you stop after approval, the unspent allowance remains until used or revoked.</p>
   </div>;
 }
@@ -289,6 +295,11 @@ export function Transfer({ bridge: b }: { bridge: Bridge }) {
         {success && transfer.destinationHashes[0] ? <a href={`${destination.explorer}/tx/${transfer.destinationHashes[0]}`} target="_blank" rel="noreferrer">Destination transaction <ArrowUpRight size={12} aria-hidden /></a> : null}
       </div>
       {b.canReset ? <button type="button" className={styles.newTransfer} onClick={b.reset}>New bridge<ChevronRight size={15} aria-hidden /></button> : null}
+      {b.canDiscard ? <details className={styles.approvalRecovery}>
+        <summary>No deposit after {DISCARD_AFTER_MS / 60_000} minutes?</summary>
+        <p>Relay has not seen a deposit for this transfer and nothing is confirmed on {origin.name}. If your wallet shows the transaction as dropped or cancelled, you can discard this record and start over. Keep the Transfer ID below in case you need Relay support.</p>
+        <button type="button" className={styles.newTransfer} onClick={b.discard}>Discard this transfer</button>
+      </details> : null}
       <p className={styles.disclaimer}>Transfer ID <span className={styles.requestId}>{transfer.requestId}</span></p>
     </div>
   );

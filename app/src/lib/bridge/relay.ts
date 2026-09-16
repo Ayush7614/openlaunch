@@ -52,10 +52,28 @@ async function relayJson(path: string, init: RequestInit, maxBytes: number, fetc
   }
 }
 
+// The chain catalogue changes rarely and is large. One copy per fetcher for a
+// minute serves concurrent quotes; a failed or unverifiable copy is dropped so
+// the next quote refetches rather than repeating the same rejection.
+export const RELAY_CHAINS_TTL_MS = 60_000;
+const chainsCache = new WeakMap<Fetcher, { at: number; value: Promise<unknown> }>();
+function relayChains(fetcher: Fetcher, now: number): Promise<unknown> {
+  const cached = chainsCache.get(fetcher);
+  if (cached && now - cached.at < RELAY_CHAINS_TTL_MS && now >= cached.at) return cached.value;
+  const value = relayJson("/chains", { method: "GET" }, 2_000_000, fetcher);
+  chainsCache.set(fetcher, { at: now, value });
+  value.catch(() => forgetChains(fetcher, value));
+  return value;
+}
+function forgetChains(fetcher: Fetcher, value: Promise<unknown>) {
+  if (chainsCache.get(fetcher)?.value === value) chainsCache.delete(fetcher);
+}
+
 export async function getBridgeQuote(request: BridgeQuoteRequest, fetcher: Fetcher = fetch, now: () => number = Date.now): Promise<BridgeQuote> {
   const input = parseBridgeRequest(request);
+  const chainsPromise = relayChains(fetcher, now());
   const [chains, quote] = await Promise.all([
-    relayJson("/chains", { method: "GET" }, 2_000_000, fetcher),
+    chainsPromise,
     relayJson("/quote/v2", { method: "POST", body: JSON.stringify({
       user: input.address, recipient: input.address, refundTo: input.address, originChainId: input.originChainId,
       destinationChainId: input.destinationChainId, originCurrency: bridgeCurrency(input.originChainId, input.originAsset, "input").address,
@@ -64,7 +82,10 @@ export async function getBridgeQuote(request: BridgeQuoteRequest, fetcher: Fetch
     }) }, 128_000, fetcher),
   ]);
   try {
-    return validateRelayQuote(quote, input, validateRelayChains(chains, input), now());
+    let metadata;
+    try { metadata = validateRelayChains(chains, input); }
+    catch (error) { forgetChains(fetcher, chainsPromise); throw error; }
+    return validateRelayQuote(quote, input, metadata, now());
   } catch (error) {
     if (error instanceof BridgeApiError && error.status === 422) throw error;
     throw new BridgeApiError("The bridge returned an unverifiable quote. Please try again.");

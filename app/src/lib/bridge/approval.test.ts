@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { decodeFunctionData, encodeAbiParameters, encodeEventTopics, type Address, type Hex } from "viem";
-import { APPROVAL_STORAGE_PREFIX, ARC_APPROVAL_CHAIN_ID, ARC_USDC, EXACT_APPROVAL_ABI, RELAY_APPROVAL_SPENDER, USDC_APPROVAL_EVENT, approvalBlocksSubmission, approvalRequestKey, approvalStorageKey, createApprovalStore, exactApprovalTransaction, hasMatchingApprovalEvent, isMatchingApprovalTransaction, parseStoredApproval, reconcileApproval, serializeApproval, submitExactApproval, validateApprovalMetadata, type ApprovalDependencies, type ApprovalRequest, type TrackedApproval } from "./approval";
+import { APPROVAL_DISCARD_AFTER_MS, APPROVAL_STORAGE_PREFIX, ARC_APPROVAL_CHAIN_ID, ARC_USDC, EXACT_APPROVAL_ABI, RELAY_APPROVAL_SPENDER, USDC_APPROVAL_EVENT, approvalBlocksSubmission, approvalCanDiscard, approvalRequestKey, approvalStorageKey, createApprovalStore, exactApprovalTransaction, hasMatchingApprovalEvent, isMatchingApprovalTransaction, parseStoredApproval, reconcileApproval, serializeApproval, submitExactApproval, validateApprovalMetadata, type ApprovalDependencies, type ApprovalRequest, type TrackedApproval } from "./approval";
 import { BASE_USDC } from "./types";
 
 const ADDRESS = "0x1111111111111111111111111111111111111111" as Address;
@@ -316,4 +316,21 @@ test("approval workflow requires a new reviewed quote and never dispatches a dep
   assert.equal(confirmed.status, "confirmed");
   assert.equal(item.state.sends, 1);
   assert.equal(item.events.filter((event) => event === "send").length, 1);
+});
+
+test("an unmined approval can be discarded after the wait; a hash needs a fresh missing-receipt observation", () => {
+  const later = NOW + APPROVAL_DISCARD_AFTER_MS;
+  const uncertain = tracked({ status: "uncertain" });
+  const pending = tracked({ status: "pending", approvalHash: HASH });
+  const missing = { createdAt: NOW, receiptFound: false, observedAt: later };
+  assert.equal(approvalCanDiscard(uncertain, null, later), true);
+  assert.equal(approvalCanDiscard(uncertain, null, later - 1), false);
+  assert.equal(approvalCanDiscard(pending, missing, later), true);
+  assert.equal(approvalCanDiscard(pending, null, later), false); // never observed on-chain
+  assert.equal(approvalCanDiscard(pending, { ...missing, receiptFound: true }, later), false);
+  assert.equal(approvalCanDiscard(pending, { ...missing, observedAt: later - 61_000 }, later), false);
+  assert.equal(approvalCanDiscard(pending, { ...missing, observedAt: later + 1 }, later), false);
+  assert.equal(approvalCanDiscard(pending, { ...missing, createdAt: NOW + 1 }, later), false); // another attempt's observation
+  for (const status of ["confirmed", "reverted", "insufficient"] as const) assert.equal(approvalCanDiscard(tracked({ status, approvalHash: HASH }), missing, later), false, status);
+  assert.equal(approvalCanDiscard(null, missing, later), false);
 });

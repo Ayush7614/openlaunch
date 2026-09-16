@@ -69,6 +69,7 @@ export type BridgeQuote = BridgeQuoteRequest & {
   approval?: BridgeApproval; // allowlisted USDC -> pinned Relay depository, exact amount only
   timeEstimate: number;
   expiresAt: number; // milliseconds, shortened from the provider's order deadline
+  ttlMs: number; // remaining validity when issued; the browser anchors this on its own clock
   transaction: { to: Address; data: Hex; value: string; chainId: BridgeChainId };
 };
 

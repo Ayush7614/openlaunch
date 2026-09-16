@@ -29,6 +29,7 @@ test("captured native quote hashes to the independently captured order ID and no
   assert.equal(quote.relayFee, "0.000012330451724044");
   assert.equal(quote.sourceGas, "0.000003");
   assert.equal(quote.expiresAt, FIXTURE_NOW + QUOTE_TTL_MS);
+  assert.equal(quote.ttlMs, QUOTE_TTL_MS);
   assert.deepEqual(quote.transaction, { to: fixture.steps[0].items[0].data.to, data: fixture.steps[0].items[0].data.data, value: FIXTURE_INPUT.amount, chainId: 8453 });
 });
 

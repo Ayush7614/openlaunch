@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, type Address, type Hex } from "viem";
-import { bridgeGasBudget, bridgeRequest, bridgeRequestKey, changeBridgeRoute, ERC20_DEPOSIT_ABI, ERC20_DEPOSIT_EVENT, hasMatchingDepositEvent, isMatchingSourceDeposit, isWalletRejection, mergeBridgeStatus, nativeSourceAmount, NATIVE_DEPOSIT_ABI, NATIVE_DEPOSIT_EVENT, parseBridgeAmount, parseStoredTransfer, RELAY_DEPOSITORY, serializeTransfer, submitBridgeDeposit, transferIsTerminal, validateBridgeQuote, validateBridgeStatus, type DepositDependencies, type TrackedBridgeTransfer } from "./client";
+import { activityAfterWalletChange, anchorQuoteExpiry, DISCARD_AFTER_MS, linkedTimeoutSignal, replacementSourceHash, transferCanDiscard, bridgeGasBudget, bridgeRequest, bridgeRequestKey, changeBridgeRoute, ERC20_DEPOSIT_ABI, ERC20_DEPOSIT_EVENT, hasMatchingDepositEvent, isMatchingSourceDeposit, isWalletRejection, mergeBridgeStatus, nativeSourceAmount, NATIVE_DEPOSIT_ABI, NATIVE_DEPOSIT_EVENT, parseBridgeAmount, parseStoredTransfer, RELAY_DEPOSITORY, serializeTransfer, submitBridgeDeposit, transferIsTerminal, validateBridgeQuote, validateBridgeStatus, type DepositDependencies, type TrackedBridgeTransfer } from "./client";
 import { bridgeStorageKey, createBridgeTransferStore } from "./client-storage";
 import { ARC_USDC, BASE_USDC, BRIDGE_CHAIN_IDS, type BridgeQuote, type BridgeQuoteRequest } from "./types";
 
@@ -18,7 +18,7 @@ function quote(): BridgeQuote {
   return {
     address: ADDRESS, originChainId: 8453, destinationChainId: 4663, amount,
     requestId: REQUEST, amountOut: "9800000000000000", minimumAmountOut: "9700000000000000",
-    relayFee: "0.0002", sourceGas: "0.00001", totalImpactPercent: "-2", timeEstimate: 15, expiresAt: NOW + 45_000,
+    relayFee: "0.0002", sourceGas: "0.00001", totalImpactPercent: "-2", timeEstimate: 15, expiresAt: NOW + 45_000, ttlMs: 45_000,
     transaction: { to: RELAY_DEPOSITORY, data: encodeFunctionData({ abi: NATIVE_DEPOSIT_ABI, functionName: "depositNative", args: [ADDRESS, ORDER] }), value: amount, chainId: 8453 },
   };
 }
@@ -497,4 +497,85 @@ test("confirmed source-revert recovery survives a reload without claiming a prov
   assert.equal(restored.failureReason, "source-reverted");
   assert.equal(restored.status, "failure");
   assert.equal(transferIsTerminal(restored), true);
+});
+
+test("quote validity is anchored on this device's clock at request time, never on the server epoch", () => {
+  const skewed = { ...quote(), expiresAt: NOW - 600_000, ttlMs: 45_000 }; // a server 10 minutes "behind" this phone
+  const anchored = anchorQuoteExpiry(skewed, NOW) as BridgeQuote;
+  assert.equal(anchored.expiresAt, NOW + 45_000);
+  assert.equal(validateBridgeQuote(anchored, quote(), NOW).requestId, REQUEST);
+  assert.throws(() => validateBridgeQuote(skewed, quote(), NOW), /expired/);
+  for (const ttlMs of [undefined, "45000", -1, 120_001, Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.throws(() => anchorQuoteExpiry({ ...quote(), ttlMs }, NOW), /quote validity/);
+  }
+  assert.equal(anchorQuoteExpiry(null, NOW), null); // non-objects fall through to the quote validator
+});
+
+test("linked timeout signal aborts on the parent, on the timer, and never needs AbortSignal.any", async () => {
+  const parent = new AbortController();
+  const signal = linkedTimeoutSignal(parent.signal, 60_000);
+  assert.equal(signal.aborted, false);
+  parent.abort(new Error("gone"));
+  assert.equal(signal.aborted, true);
+  assert.equal((signal.reason as Error).message, "gone");
+  const timed = linkedTimeoutSignal(new AbortController().signal, 5);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(timed.aborted, true);
+  assert.equal((timed.reason as DOMException).name, "TimeoutError");
+  const already = new AbortController();
+  already.abort();
+  assert.equal(linkedTimeoutSignal(already.signal, 60_000).aborted, true);
+  assert.equal(linkedTimeoutSignal(undefined, 60_000).aborted, false);
+});
+
+test("a deposit that never happened can be discarded only after the wait, with fresh provider and chain evidence", () => {
+  const unsent: TrackedBridgeTransfer = { address: ADDRESS, originChainId: 8453, destinationChainId: 4663, amount, requestId: REQUEST, destinationHashes: [], status: "uncertain", createdAt: NOW };
+  const waiting = { status: "waiting" as const, inTxHashes: [], txHashes: [] };
+  const later = NOW + DISCARD_AFTER_MS;
+  const fresh = { requestId: REQUEST, status: waiting, sourceMined: false, observedAt: later };
+  assert.equal(transferCanDiscard(unsent, fresh, later), true);
+  assert.equal(transferCanDiscard({ ...unsent, sourceHash: HASH, status: "pending" }, fresh, later), true); // wallet hash dropped, never mined
+  assert.equal(transferCanDiscard(unsent, fresh, later - 1), false); // too early
+  assert.equal(transferCanDiscard(unsent, { ...fresh, observedAt: later - 61_000 }, later), false); // stale observation
+  assert.equal(transferCanDiscard(unsent, { ...fresh, observedAt: later + 1 }, later), false); // observation from the future
+  assert.equal(transferCanDiscard(unsent, { ...fresh, sourceMined: true }, later), false); // receipt exists or RPC unknown
+  assert.equal(transferCanDiscard(unsent, { ...fresh, requestId: ORDER }, later), false); // another transfer's status
+  assert.equal(transferCanDiscard(unsent, null, later), false);
+  for (const status of ["depositing", "pending", "submitted", "delayed", "success", "refund", "failure"] as const) {
+    assert.equal(transferCanDiscard(unsent, { ...fresh, status: { ...waiting, status } }, later), false, status);
+  }
+  assert.equal(transferCanDiscard(unsent, { ...fresh, status: { ...waiting, inTxHashes: [HASH] } }, later), false); // provider saw a deposit
+  assert.equal(transferCanDiscard(unsent, { ...fresh, status: { ...waiting, txHashes: [DEST_HASH] } }, later), false);
+  assert.equal(transferCanDiscard({ ...unsent, status: "success" }, fresh, later), false); // settled records use reset instead
+  assert.equal(transferCanDiscard(null, fresh, later), false);
+});
+
+test("a sped-up or cancelled deposit adopts Relay's hash only when the wallet's own hash is unmined and no longer reported", () => {
+  const base: TrackedBridgeTransfer = { address: ADDRESS, originChainId: 8453, destinationChainId: 4663, amount, requestId: REQUEST, destinationHashes: [], status: "pending", createdAt: NOW, sourceHash: HASH };
+  const status = (inTxHashes: Hex[]) => ({ status: "success" as const, inTxHashes, txHashes: [DEST_HASH] });
+  const REPLACEMENT = `0x${"e".repeat(64)}` as Hex;
+  // Wallet returned no hash: adopt whatever Relay reports, then verify it on-chain.
+  assert.equal(replacementSourceHash({ ...base, sourceHash: undefined, status: "uncertain" }, status([REPLACEMENT]), false), REPLACEMENT);
+  assert.equal(replacementSourceHash({ ...base, sourceHash: undefined, status: "uncertain" }, status([]), false), null);
+  // Speed-up: wallet hash dropped, Relay saw the replacement.
+  assert.equal(replacementSourceHash(base, status([REPLACEMENT]), true), REPLACEMENT);
+  assert.equal(replacementSourceHash(base, status([REPLACEMENT.toUpperCase().replace("0X", "0x") as Hex]), true), REPLACEMENT.toUpperCase().replace("0X", "0x"));
+  // Never swap a mined wallet hash, a wallet hash Relay still reports, or when Relay reports nothing else.
+  assert.equal(replacementSourceHash(base, status([REPLACEMENT]), false), null);
+  assert.equal(replacementSourceHash(base, status([HASH, REPLACEMENT]), true), null);
+  assert.equal(replacementSourceHash(base, status([HASH.toUpperCase().replace("0X", "0x") as Hex]), true), null);
+  assert.equal(replacementSourceHash(base, status([]), true), null);
+  // Once adopted, the provider's settled state applies to the same order.
+  const adopted = { ...base, sourceHash: REPLACEMENT };
+  assert.equal(mergeBridgeStatus(adopted, status([REPLACEMENT])).status, "success");
+  assert.deepEqual(mergeBridgeStatus(adopted, status([REPLACEMENT])).destinationHashes, [DEST_HASH]);
+  assert.throws(() => mergeBridgeStatus(base, status([REPLACEMENT])), /not yet been matched/); // without adoption it stays blocked
+});
+
+test("a wallet change clears an in-flight quote lock but leaves wallet prompts untouched", () => {
+  assert.deepEqual(activityAfterWalletChange({ key: "k", phase: "quoting" }), { key: "", phase: "idle" });
+  for (const phase of ["idle", "switching", "confirming"] as const) {
+    const activity = { key: "k", phase };
+    assert.equal(activityAfterWalletChange(activity), activity);
+  }
 });

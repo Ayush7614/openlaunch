@@ -114,3 +114,20 @@ test("USDC selectors separate selected token units from native gas and disallow 
   assert.match(panel, /uses additional \{origin.symbol\} for gas/);
   assert.match(panel, /const inputCurrency = bridgeTransferInputCurrency\(transfer\)/);
 });
+
+test("stuck records have a bounded discard path, and the hook avoids APIs missing in older wallet browsers", () => {
+  const hook = read("./useBridge.ts");
+  assert.match(panel, /b\.canDiscard \? <details/);
+  assert.match(panel, /onClick=\{b\.discard\}>Discard this transfer/);
+  assert.match(panel, /b\.approvalCanBeDiscarded \? <details/);
+  assert.match(panel, /onClick=\{b\.discardApproval\}>Discard this approval/);
+  assert.match(panel, /Keep the Transfer ID below/);
+  assert.match(panel, /Openlaunch does not operate Relay, holds no funds in transit, and is not responsible for delays, refunds or losses/);
+  assert.doesNotMatch(hook, /AbortSignal\.(any|timeout)/);
+  assert.match(hook, /linkedTimeoutSignal\(abort\.signal, 20_000\)/);
+  assert.match(hook, /anchorQuoteExpiry\(await responseBody\(response\), requestedAt\)/);
+  assert.match(hook, /setActivity\(activityAfterWalletChange\)/);
+  assert.match(hook, /error instanceof TransactionReceiptNotFoundError\) return null/);
+  assert.match(hook, /replacementSourceHash\(current, status, receipt\.status === "fulfilled" && receipt\.value === null\)/);
+  assert.match(hook, /friendlyError\(error\)/);
+});

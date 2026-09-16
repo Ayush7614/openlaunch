@@ -4,12 +4,13 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { useAccount, useBalance, useConfig, useReadContract, useSwitchChain } from "wagmi";
 import { getAccount, getPublicClient, getWalletClient } from "wagmi/actions";
 import { estimateTotalFee } from "viem/op-stack";
-import { erc20Abi, parseEther, TransactionReceiptNotFoundError, type Address } from "viem";
+import { BaseError, erc20Abi, parseEther, TransactionReceiptNotFoundError, type Address } from "viem";
+import { friendlyError } from "@/lib/errors";
 import { BRIDGE_WALLET_CHAINS } from "@/lib/bridge/chains";
 import { BRIDGE_CHAINS, bridgeCurrency, defaultBridgeAsset, isBridgeAssetSupported, isBridgeChainId, type BridgeAsset, type BridgeChainId, type BridgeQuote } from "@/lib/bridge/types";
-import { bridgeGasBudget, bridgeRequest, bridgeRequestKey, changeBridgeRoute, hasMatchingDepositEvent, isHash, isMatchingSourceDeposit, mergeBridgeStatus, nativeSourceAmount, RELAY_DEPOSITORY, submitBridgeDeposit, transferIsTerminal, transferPhase, validateBridgeQuote, validateBridgeStatus, type BridgePhase, type BridgeRouteChange, type BridgeRouteInputs, type TrackedBridgeTransfer } from "@/lib/bridge/client";
+import { activityAfterWalletChange, anchorQuoteExpiry, bridgeGasBudget, bridgeRequest, bridgeRequestKey, changeBridgeRoute, hasMatchingDepositEvent, isHash, isMatchingSourceDeposit, linkedTimeoutSignal, mergeBridgeStatus, nativeSourceAmount, RELAY_DEPOSITORY, replacementSourceHash, submitBridgeDeposit, transferCanDiscard, transferIsTerminal, transferPhase, validateBridgeQuote, validateBridgeStatus, type BridgeActivity, type BridgePhase, type BridgeRouteChange, type BridgeRouteInputs, type ProviderObservation, type TrackedBridgeTransfer } from "@/lib/bridge/client";
 import { BRIDGE_STORAGE_PREFIX, createBridgeTransferStore } from "@/lib/bridge/client-storage";
-import { APPROVAL_STORAGE_PREFIX, approvalBlocksSubmission, createApprovalStore, hasMatchingApprovalEvent, isMatchingApprovalTransaction, reconcileApproval, submitExactApproval, validateApprovalMetadata } from "@/lib/bridge/approval";
+import { APPROVAL_STORAGE_PREFIX, approvalBlocksSubmission, approvalCanDiscard, createApprovalStore, hasMatchingApprovalEvent, isMatchingApprovalTransaction, reconcileApproval, submitExactApproval, validateApprovalMetadata, type ApprovalReceiptObservation } from "@/lib/bridge/approval";
 
 export type { BridgePhase, TrackedBridgeTransfer } from "@/lib/bridge/client";
 
@@ -19,7 +20,14 @@ const transfers = createBridgeTransferStore(() => window.localStorage);
 const approvals = createApprovalStore(() => window.localStorage);
 type QuoteEnvelope = { quote: BridgeQuote; key: string; walletChainId?: number; requestedAt: number };
 type Issue = { key: string; message: string } | null;
-const messageOf = (error: unknown, fallback: string) => error instanceof Error ? error.message : fallback;
+/** Wallet and RPC errors go through the app's shared copy instead of raw viem dumps. */
+const messageOf = (error: unknown, fallback: string, gasSymbol = "ETH") => {
+  if (error instanceof BaseError) {
+    const message = friendlyError(error);
+    return /insufficient funds/i.test(error.shortMessage || error.message) ? `Not enough ${gasSymbol} for this transaction plus gas.` : message;
+  }
+  return error instanceof Error ? error.message : fallback;
+};
 const transferLockName = (address: Address) => `openlaunch:bridge:${address.toLowerCase()}`;
 
 async function responseBody(response: Response): Promise<unknown> {
@@ -43,7 +51,7 @@ export function useBridge() {
   const inputCurrency = bridgeCurrency(originChainId, originAsset, "input");
   const inputIsToken = !/^0x0{40}$/.test(inputCurrency.address);
   const [envelope, setEnvelope] = useState<QuoteEnvelope | null>(null);
-  const [activity, setActivity] = useState<{ key: string; phase: "idle" | "quoting" | "switching" | "confirming" }>({ key: "", phase: "idle" });
+  const [activity, setActivity] = useState<BridgeActivity>({ key: "", phase: "idle" });
   const [issue, setIssue] = useState<Issue>(null);
   const [quoteIssue, setQuoteIssue] = useState<Issue>(null);
   const [statusIssue, setStatusIssue] = useState<Issue>(null);
@@ -54,6 +62,9 @@ export function useBridge() {
   const [approvalSending, setApprovalSending] = useState(false);
   const [approvalIssue, setApprovalIssue] = useState<Issue>(null);
   const [allowanceResult, setAllowanceResult] = useState<{ key: string; value: bigint | null; error: string | null } | null>(null);
+  const [observation, setObservation] = useState<ProviderObservation | null>(null);
+  const [approvalObservation, setApprovalObservation] = useState<ApprovalReceiptObservation | null>(null);
+  const [now, setNow] = useState(0);
   const actionLock = useRef(false);
   const quoteSequence = useRef(0);
   const quoteAbort = useRef<AbortController | null>(null);
@@ -91,7 +102,12 @@ export function useBridge() {
 
   // Existing quotes are hidden immediately by their wallet-chain key. Abort
   // in-flight responses as well; an old account's response cannot reappear.
-  useEffect(() => cancelQuote, [address, walletChainId, cancelQuote]);
+  // The aborted request skips its own idle reset, so clear a quoting phase here
+  // or the form stays locked on "Finding your route…".
+  useEffect(() => () => {
+    cancelQuote();
+    setActivity(activityAfterWalletChange);
+  }, [address, walletChainId, cancelQuote]);
 
   useEffect(() => {
     if (!quote) return;
@@ -146,6 +162,7 @@ export function useBridge() {
           if (persist) {
             try { approvals.save(next); } catch { /* memory retains the receipt result */ }
           } else approvals.remember(next);
+          setApprovalObservation({ createdAt: current.createdAt, receiptFound: receipt !== null, observedAt: Date.now() });
           setApprovalIssue(null);
         };
         if (navigator.locks) await navigator.locks.request(transferLockName(address), { ifAvailable: true }, (lock) => { if (lock) apply(true); });
@@ -182,8 +199,12 @@ export function useBridge() {
         const observed = transfers.getSnapshot().transfers[address.toLowerCase()];
         const pub = observed ? getPublicClient(config, { chainId: observed.originChainId }) : undefined;
         const [provider, receipt] = await Promise.allSettled([
-          fetch(`/api/bridge/status?requestId=${encodeURIComponent(trackedId)}`, { cache: "no-store", signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)]) }).then(responseBody).then(validateBridgeStatus),
-          observed?.sourceHash && pub ? Promise.all([pub.getChainId(), pub.getTransactionReceipt({ hash: observed.sourceHash })]).then(([chainId, result]) => chainId === observed.originChainId ? result : null) : Promise.resolve(null),
+          fetch(`/api/bridge/status?requestId=${encodeURIComponent(trackedId)}`, { cache: "no-store", signal: linkedTimeoutSignal(controller.signal, 15_000) }).then(responseBody).then(validateBridgeStatus),
+          // "Not found" is a real answer (unmined, dropped or replaced); other RPC failures stay unknown.
+          observed?.sourceHash && pub ? Promise.all([pub.getChainId(), pub.getTransactionReceipt({ hash: observed.sourceHash }).catch((error) => {
+            if (error instanceof TransactionReceiptNotFoundError) return null;
+            throw error;
+          })]).then(([chainId, result]) => chainId === observed.originChainId ? result : null) : Promise.resolve(null),
         ]);
         if (stopped) return;
         const applyStatus = async (persist: boolean) => {
@@ -195,8 +216,9 @@ export function useBridge() {
           } else {
             if (provider.status === "rejected") throw provider.reason;
             const status = provider.value;
-            if (!current.sourceHash && status.inTxHashes[0] && pub) {
-              const candidate = status.inTxHashes[0];
+            // The candidate must still be this wallet's exact deposit for this order.
+            const candidate = pub ? replacementSourceHash(current, status, receipt.status === "fulfilled" && receipt.value === null) : null;
+            if (candidate && pub) {
               const [chainId, transaction] = await Promise.all([pub.getChainId(), pub.getTransaction({ hash: candidate })]);
               if (chainId !== current.originChainId) throw new Error("The source RPC reported a different network. Tracking will retry.");
               const matched = isMatchingSourceDeposit(current, transaction) || hasMatchingDepositEvent(current, await pub.getTransactionReceipt({ hash: candidate }));
@@ -204,6 +226,7 @@ export function useBridge() {
               current = { ...current, sourceHash: candidate };
             }
             next = mergeBridgeStatus(current, status);
+            setObservation({ requestId: current.requestId, status, sourceMined: receipt.status === "rejected" || (receipt.status === "fulfilled" && receipt.value !== null), observedAt: Date.now() });
           }
           if (stopped) return;
           if (persist) {
@@ -299,9 +322,9 @@ export function useBridge() {
       if (approvalBlocksSubmission(approvals.read(current.address))) throw new Error("An approval is still being tracked. Wait for its confirmation before requesting a new quote.");
       const response = await fetch("/api/bridge/quote", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(current), cache: "no-store",
-        signal: AbortSignal.any([abort.signal, AbortSignal.timeout(20_000)]),
+        signal: linkedTimeoutSignal(abort.signal, 20_000),
       });
-      const next = validateBridgeQuote(await responseBody(response), current, Date.now());
+      const next = validateBridgeQuote(anchorQuoteExpiry(await responseBody(response), requestedAt), current, Date.now());
       const wallet = getAccount(config);
       if (sequence !== quoteSequence.current || wallet.address?.toLowerCase() !== current.address.toLowerCase() || wallet.chainId !== connected.chainId) return;
       setEnvelope({ quote: next, key, walletChainId: connected.chainId, requestedAt });
@@ -333,7 +356,7 @@ export function useBridge() {
         const currentRequest = () => {
           const current = bridgeRequest(getAccount(config).address, inputs.current.originChainId, inputs.current.amount, inputs.current.destinationChainId, inputs.current.originAsset, inputs.current.destinationAsset);
           const deposit = transfers.read(reviewed.address);
-          if (Date.now() >= reviewed.expiresAt || bridgeRequestKey(current) !== operationKey || (deposit && !transferIsTerminal(deposit))) return null;
+          if (bridgeRequestKey(current) !== operationKey || (deposit && !transferIsTerminal(deposit))) return null;
           return request;
         };
         const result = await submitExactApproval(request, {
@@ -377,7 +400,7 @@ export function useBridge() {
         if (result.kind === "uncertain") setApprovalIssue({ key: reviewed.address.toLowerCase(), message: "The wallet did not return an approval hash. Check this approval before trying again; no bridge deposit was requested." });
       });
     } catch (error) {
-      setApprovalIssue({ key: reviewed.address.toLowerCase(), message: messageOf(error, "Could not prepare USDC approval. Request a new quote.") });
+      setApprovalIssue({ key: reviewed.address.toLowerCase(), message: messageOf(error, "Could not prepare USDC approval. Request a new quote.", BRIDGE_CHAINS[reviewed.originChainId].symbol) });
     } finally {
       actionLock.current = false;
       setApprovalSending(false);
@@ -497,7 +520,7 @@ export function useBridge() {
         });
       } else throw new Error("This browser cannot safely coordinate bridge requests between tabs. Open Openlaunch in a current browser to continue.");
     } catch (error) {
-      setIssue({ key: reviewed.address.toLowerCase(), message: messageOf(error, "Could not prepare the transfer. Request a new quote and try again.") });
+      setIssue({ key: reviewed.address.toLowerCase(), message: messageOf(error, "Could not prepare the transfer. Request a new quote and try again.", BRIDGE_CHAINS[reviewed.originChainId].symbol) });
     } finally {
       actionLock.current = false;
       setSending(false);
@@ -525,6 +548,51 @@ export function useBridge() {
     } else { invalidateQuote(); setStatusIssue(null); }
   }
 
+  // Discard eligibility depends on wall-clock age. Render stays pure: the clock
+  // is state, refreshed after every observation and once a minute while a record is open.
+  const blocked = (tracked && !transferIsTerminal(tracked)) || approvalPending;
+  useEffect(() => {
+    if (!blocked) return;
+    const tick = () => setNow(Date.now());
+    tick();
+    const timer = window.setInterval(tick, 60_000);
+    return () => window.clearInterval(timer);
+  }, [blocked, observation, approvalObservation]);
+  const canDiscard = transferCanDiscard(tracked, observation, now);
+  const approvalCanBeDiscarded = approvalCanDiscard(approval, approvalObservation, now);
+
+  function discard() {
+    if (actionLock.current || sending || !address || !tracked || !canDiscard || !navigator.locks) return;
+    const requestId = tracked.requestId;
+    void navigator.locks.request(transferLockName(address), { ifAvailable: true }, (lock) => {
+      if (!lock) return;
+      try {
+        const current = transfers.read(address);
+        if (current?.requestId !== requestId || !transferCanDiscard(current, observation, Date.now())) return;
+        transfers.remove(address);
+        setObservation(null);
+        invalidateQuote();
+        setStatusIssue(null);
+      } catch { /* storage warning is exposed in the store */ }
+    });
+  }
+
+  function discardApproval() {
+    if (actionLock.current || approvalSending || !address || !approval || !approvalCanBeDiscarded || !navigator.locks) return;
+    const createdAt = approval.createdAt;
+    void navigator.locks.request(transferLockName(address), { ifAvailable: true }, (lock) => {
+      if (!lock) return;
+      try {
+        const current = approvals.read(address);
+        if (current?.createdAt !== createdAt || !approvalCanDiscard(current, approvalObservation, Date.now())) return;
+        approvals.remove(address);
+        setApprovalObservation(null);
+        setApprovalIssue(null);
+        invalidateQuote();
+      } catch { /* storage warning is exposed in the store */ }
+    });
+  }
+
   const retryStatus = useCallback(() => setPollRevision((value) => value + 1), []);
   const retryApproval = useCallback(() => setApprovalPollRevision((value) => value + 1), []);
   const activePhase = activity.key === requestKey ? activity.phase : "idle";
@@ -540,7 +608,8 @@ export function useBridge() {
     quoteExpired, requestQuote, confirm, reset, tracked,
     approval, approvalRequired, allowanceLoading, approvalBusy: approvalSending,
     approvalError: approvalIssue?.key === walletKey ? approvalIssue.message : quote && allowanceResult?.key === quote.requestId ? allowanceResult.error : null,
-    approve, retryApproval, recoverApproval,
+    approve, retryApproval, recoverApproval, approvalCanBeDiscarded, discardApproval,
+    canDiscard, discard,
     statusError: statusIssue && statusIssue.key === trackedId ? statusIssue.message : null,
     retryStatus, storageError, busy: sending || approvalSending || approvalPending || activePhase === "quoting",
     canReset: !sending && !approvalSending && !approvalPending && (!tracked || transferIsTerminal(tracked)),

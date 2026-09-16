@@ -201,7 +201,7 @@ export function validateRelayQuote(value: unknown, input: BridgeQuoteRequest, ch
     ...input, requestId: step.requestId, amountOut, minimumAmountOut,
     relayFee: formatUnits(BigInt(relayerAmount), inputCurrency.decimals), sourceGas: formatEther(BigInt(gasAmount)), totalImpactPercent,
     ...(erc20Input ? { approval: { token: inputCurrency.address, spender: RELAY_DEPOSITORY, amount: input.amount } } : {}),
-    timeEstimate: details.timeEstimate, expiresAt,
+    timeEstimate: details.timeEstimate, expiresAt, ttlMs: expiresAt - now,
     transaction: { to: RELAY_DEPOSITORY, data: calldata, value: depositValue, chainId: input.originChainId },
   };
 }

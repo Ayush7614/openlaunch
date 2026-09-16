@@ -33,7 +33,9 @@ An interrupted wallet response is **uncertain**, not failed. The app must not si
 - Relay is a third-party bridge protocol. Its availability, liquidity, estimates and settlement are not guaranteed by Openlaunch. Provider response changes fail closed until reviewed.
 - Funds never pass through an Openlaunch wallet or new Openlaunch contract.
 - A user can keep a wallet approval prompt open beyond a quote's validity. The app cannot retract that wallet prompt; the protocol deadline and provider recovery process still apply.
-- Unknown broadcasts and manually replaced/cancelled transactions may need manual investigation via Relay and the source explorer. Never clear an unresolved recovery record merely because a timer elapsed.
+- A sped-up or cancelled-and-replaced deposit is adopted automatically: when the wallet's hash is unmined and Relay reports a different source hash, the app verifies that hash is this wallet's exact deposit for the same order before tracking it.
+- A record with no deposit anywhere can be discarded by the user after 15 minutes, and only while Relay still reports `waiting` with no transaction hashes and the source chain has no receipt for the wallet's hash, checked within the last minute. The same wait applies to an unmined approval, which if mined later only grants the exact allowance the next deposit re-reads. Any on-chain evidence keeps the record until it settles. Unknown broadcasts and replaced transactions that Relay cannot match still need manual investigation via Relay and the source explorer.
+- Quote validity travels as a remaining duration (`ttlMs`) and is anchored on the browser's own clock at request time, so device clock skew cannot expire or extend a quote.
 - This implementation has read-only live quote verification and mocked execution tests, **not a real-money end-to-end transfer test**. Before production rollout, an authorized maintainer should use a small amount to verify all supported directions, Arc approval and rejection, a normal delivery, and refresh recovery with their own wallet. Do not describe the feature as independently audited or risk-free.
 
 ## Development and verification
