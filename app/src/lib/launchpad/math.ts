@@ -59,10 +59,14 @@ export function fdvForStartTick(tick: number, quoteDecimals = 18, supplyWei: big
 }
 
 /** Whole-unit amount from a raw amount with `decimals`. */
-/** USD per quote unit: fixed (stables) or live (stocks) via `usd`; ETH only for the native address; anything else is unknown → null. */
-export function quoteUsdOf(q: { address: string; usd: number | null }, ethUsd: number | null): number | null {
+/**
+ * USD per quote unit: `usd` when the quote carries one (stables, a native stable such as USDC on Arc, live-priced
+ * stocks and GITLAWB), the live ETH price for the ETH quote, and unknown → null for anything else. The quote must come
+ * from quoteInfo(chain, …) / the chain's config: address(0) alone says nothing about what a chain's native asset is.
+ */
+export function quoteUsdOf(q: { key: string; usd: number | null }, ethUsd: number | null): number | null {
   if (q.usd !== null && q.usd !== undefined) return q.usd;
-  return q.address.toLowerCase() === "0x0000000000000000000000000000000000000000" ? ethUsd : null;
+  return q.key === "eth" ? ethUsd : null;
 }
 
 export function units(raw: bigint | string, decimals: number): number {
