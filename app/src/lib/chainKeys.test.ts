@@ -65,8 +65,8 @@ test("no source branches on a chain name or hardcodes a chain id outside the reg
   const allowed = new Set(["lib/chain.ts:B20", "app/api/rpc/route.ts:B20"]);
   const offenders: string[] = [];
   for (const file of files) {
-    const rel = path.relative(root, file);
-    readFileSync(file, "utf8").split("\n").forEach((line, i) => {
+    const rel = path.relative(root, file).split(path.sep).join("/");
+    readFileSync(file, "utf8").split(/\r?\n/).forEach((line, i) => {
       const code = line.replace(/^\s*\*.*$/, "").replace(/\/\*.*?\*\//g, "").replace(/\/\/.*$/, ""); // comments (and anything after // such as a URL) do not count
       // the bridge speaks Relay's own chain ids and names (numeric ids, solverChainId "base") by design: not our registry
       if (/^(lib\/bridge|components\/bridge|app\/ui-review-bridge)\//.test(rel)) return;
