@@ -1,7 +1,7 @@
 import "server-only";
 import { getOrderId, type Order } from "./relay-order";
 import { encodeFunctionData, formatEther, formatUnits, isAddress, parseAbi, zeroAddress, type Hex } from "viem";
-import { BRIDGE_CHAINS, bridgeCurrency, isBridgeAssetSupported, isBridgeChainId, type BridgeCurrency, type BridgeChainId, type BridgeQuote, type BridgeQuoteRequest, type BridgeStatus, type BridgeStatusResponse } from "./types";
+import { BRIDGE_CHAINS, bridgeCurrency, bridgeFeePercent, isBridgeAssetSupported, isBridgeChainId, type BridgeCurrency, type BridgeChainId, type BridgeQuote, type BridgeQuoteRejection, type BridgeQuoteRequest, type BridgeStatus, type BridgeStatusResponse } from "./types";
 
 // Independently pinned, then checked against GET /chains. Never trust a quote to
 // supply the address against which that same quote is validated.
@@ -19,7 +19,7 @@ const MAX_TOTAL_LOSS_PERCENT = 5;
 type ObjectValue = Record<string, unknown>;
 
 export class BridgeApiError extends Error {
-  constructor(message: string, public readonly status = 502) { super(message); }
+  constructor(message: string, public readonly status = 502, public readonly quoteRejection?: BridgeQuoteRejection) { super(message); }
 }
 
 function ensure(condition: unknown): asserts condition {
@@ -179,9 +179,6 @@ export function validateRelayQuote(value: unknown, input: BridgeQuoteRequest, ch
   checkCurrency(fees.relayer, input.originChainId, relayerAmount, inputCurrency);
   checkCurrency(fees.gas, input.originChainId, gasAmount, { address: zeroAddress, decimals: 18, symbol: NATIVE_SYMBOLS[input.originChainId] });
   ensure(BigInt(relayerAmount) < BigInt(input.amount));
-  if (BigInt(relayerAmount) * 100n > BigInt(input.amount) * BigInt(MAX_TOTAL_LOSS_PERCENT)) {
-    throw new BridgeApiError("This quote charges more than 5% in bridge fees. Try a different amount or wait for a better quote.", 422);
-  }
   // Same-symbol USDC still has 6/18-decimal interfaces. Cross multiplication
   // preserves exact fee equality without truncating either amount. ETH↔USDC
   // instead uses the bounded source fee and Relay's market-impact estimate.
@@ -195,11 +192,22 @@ export function validateRelayQuote(value: unknown, input: BridgeQuoteRequest, ch
   const impactMagnitude = BigInt(wholeImpact + fractionalImpact);
   const impactScale = 10n ** BigInt(fractionalImpact.length);
   ensure(impactMagnitude <= 100n * impactScale);
-  if (negativeImpact && impactMagnitude > BigInt(MAX_TOTAL_LOSS_PERCENT) * impactScale) throw new BridgeApiError("This quote loses more than 5% in fees and price impact. Try a different amount or wait for a better quote.", 422);
   ensure(typeof details.timeEstimate === "number" && Number.isFinite(details.timeEstimate) && details.timeEstimate >= 0 && details.timeEstimate <= 86400);
+  // Complete every structural, currency and order check before exposing costs.
+  // A rejected quote never exposes its approval, deposit calldata or request ID.
+  const relayFee = formatUnits(BigInt(relayerAmount), inputCurrency.decimals);
+  const sourceGas = formatEther(BigInt(gasAmount));
+  const reason = BigInt(relayerAmount) * 100n > BigInt(input.amount) * BigInt(MAX_TOTAL_LOSS_PERCENT) ? "relay-fee"
+    : negativeImpact && impactMagnitude > BigInt(MAX_TOTAL_LOSS_PERCENT) * impactScale ? "total-impact" : null;
+  if (reason) {
+    const quoteRejection: BridgeQuoteRejection = { ...input, reason, relayFee, relayFeePercent: bridgeFeePercent(BigInt(relayerAmount), BigInt(input.amount)), sourceGas, totalImpactPercent };
+    throw new BridgeApiError(reason === "relay-fee"
+      ? "This quote charges more than 5% in bridge fees. Try a different amount or wait for a better quote."
+      : "This quote loses more than 5% in fees and price impact. Try a different amount or wait for a better quote.", 422, quoteRejection);
+  }
   return {
     ...input, requestId: step.requestId, amountOut, minimumAmountOut,
-    relayFee: formatUnits(BigInt(relayerAmount), inputCurrency.decimals), sourceGas: formatEther(BigInt(gasAmount)), totalImpactPercent,
+    relayFee, sourceGas, totalImpactPercent,
     ...(erc20Input ? { approval: { token: inputCurrency.address, spender: RELAY_DEPOSITORY, amount: input.amount } } : {}),
     timeEstimate: details.timeEstimate, expiresAt, ttlMs: expiresAt - now,
     transaction: { to: RELAY_DEPOSITORY, data: calldata, value: depositValue, chainId: input.originChainId },

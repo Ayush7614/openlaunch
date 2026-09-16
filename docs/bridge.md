@@ -18,6 +18,10 @@ Quotes request `explicitDeposit`, `includeProtocolData`, and an explicit `refund
 
 The client binds the quote to the displayed account, direction and amount, rejects changed/expired quotes, then rechecks the wallet and source balance with fresh gas estimates before asking the wallet to send. Quotes are available for at most 45 seconds, with 0.5% output slippage. It rejects Relay fees above 5% of input and provider-reported total value loss above 5%. The latter is Relay's market estimate, not an independent fair-price oracle. ETH and USDC raw amounts are never subtracted from one another. No wallet request happens automatically. Inputs must leave room for source gas.
 
+While the panel is open and no approval or transfer is in progress, valid amount/route edits automatically request an unsigned quote after a 700 ms pause. Inputs remain editable during loading. A new edit, account/network change or dismissal cancels old quote work; late responses cannot replace the current quote or error. Background balance polling does not request new quotes, and errors do not trigger a retry loop. An expired quote still needs an explicit refresh. Approval confirmation automatically loads a fresh quote, but approval and deposit remain separate, explicit wallet actions.
+
+Fee-limit rejections include display-only costs after all protocol and currency checks pass. The panel shows the actual Relay fee and percentage, with native source gas separate. HTTP 422 diagnostics contain no transaction, approval or request ID and are checked against the current wallet/route/amount again in the client. The 5% limits are unchanged; a $1 input is not inherently blocked, but a small amount can fail when the quoted fee is too large relative to it.
+
 Base and Arc USDC sends check the exact allowance. If it is insufficient, approval is a separate user action with its own durable recovery record and transaction hash. Approval alone does not create a bridge transfer. Once approval confirms, the user reviews a **fresh quote** and explicitly confirms the deposit. An interrupted approval response must be resolved before another approval is requested. An unspent approval remains on-chain until used or revoked; rejection of a later deposit does not revoke it.
 
 An approval without a returned hash can be recovered using the actual mined transaction hash from the wallet. Recovery verifies the saved source chain, exact token/spender/amount, transaction or canonical approval event, receipt, fresh allowance, and a block timestamp no earlier than 30 seconds before the saved attempt. That clock check is a bounded heuristic, not unique nonce proof. Allowance alone cannot resolve an unknown broadcast; replaced or cancelled transactions without a matching recoverable hash remain blocked for manual investigation. Approval gas is additional to the later deposit gas estimate.
@@ -49,7 +53,7 @@ npx tsx --conditions=react-server --tsconfig tsconfig.test.json --test src/lib/b
 
 These tests never connect a wallet or submit a transaction.
 
-`/ui-review-bridge` is a development-only visual fixture with disconnected, quote, expired, error, pending, success, uncertain and refund states, plus pending/uncertain/confirmed approval states. Its synthetic data cannot execute a transaction, and the route returns 404 outside development. The real header action uses the actual integration.
+`/ui-review-bridge` is a development-only visual fixture with disconnected, quote, quoting, high-fee, expired, error, pending, success, uncertain and refund states, plus approval/recovery states. Its synthetic data cannot execute a transaction, and the route returns 404 outside development. The real header action uses the actual integration.
 
 ### Wallet test findings (2026-09-16)
 

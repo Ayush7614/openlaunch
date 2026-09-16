@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { formatUnits, zeroAddress } from "viem";
-import { ARC_USDC, BASE_USDC, BRIDGE_ASSETS, bridgeCurrency, bridgeTransferInputCurrency, isBridgeAssetSupported } from "./types";
+import { ARC_USDC, BASE_USDC, BRIDGE_ASSETS, bridgeCurrency, bridgeFeePercent, bridgeTransferInputCurrency, isBridgeAssetSupported } from "./types";
 
 test("bridge assets are chain-scoped and never inferred from a symbol alone", () => {
   assert.deepEqual(BRIDGE_ASSETS[8453], ["ETH", "USDC"]);
@@ -45,4 +45,14 @@ test("recovered Arc native and ERC20 journals both display the original USDC amo
   assert.deepEqual(modern, erc20);
   assert.equal(bridgeTransferInputCurrency({ originChainId: 8453 }).decimals, 18);
   assert.equal(bridgeTransferInputCurrency({ originChainId: 8453, originAsset: "USDC", depositKind: "erc20" }).decimals, 6);
+});
+
+test("relay fee percentages preserve exact boundaries and round upward without floats", () => {
+  assert.equal(bridgeFeePercent(50_000n, 1_000_000n), "5");
+  assert.equal(bridgeFeePercent(50_001n, 1_000_000n), "5.0001");
+  assert.equal(bridgeFeePercent(500_000_000_000_001n, 10_000_000_000_000_000n), "5.000001");
+  assert.equal(bridgeFeePercent(1n, 3n), "33.333334");
+  assert.equal(bridgeFeePercent(0n, 1n), "0");
+  assert.throws(() => bridgeFeePercent(-1n, 1n));
+  assert.throws(() => bridgeFeePercent(1n, 0n));
 });

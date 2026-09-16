@@ -133,12 +133,45 @@ test("stuck records have a bounded discard path, and the hook avoids APIs missin
   assert.match(panel, /Keep the Transfer ID below/);
   assert.match(panel, /Openlaunch does not operate Relay, holds no funds in transit, and is not responsible for delays, refunds or losses/);
   assert.doesNotMatch(hook, /AbortSignal\.(any|timeout)/);
-  assert.match(hook, /linkedTimeoutSignal\(abort\.signal, 20_000\)/);
-  assert.match(hook, /anchorQuoteExpiry\(await responseBody\(response\), requestedAt\)/);
+  assert.match(hook, /linkedTimeoutSignal\(signal, 20_000\)/);
+  assert.match(hook, /anchorQuoteExpiry\(body, requestedAt\)/);
   assert.match(hook, /setActivity\(activityAfterWalletChange\)/);
   assert.match(hook, /error instanceof TransactionReceiptNotFoundError\) return null/);
   assert.match(hook, /replacementSourceHash\(current, status, receipt\.status === "fulfilled" && receipt\.value === null\)/);
   assert.match(hook, /const messageOf = bridgeErrorMessage;/);
+});
+
+test("quotes update without locking typing or automatically submitting wallet actions", () => {
+  const hook = read("./useBridge.ts");
+  assert.match(panel, /useBridge\(open\)/);
+  assert.match(hook, /autoQuoteEnabled = open && !!request && !sending && !approvalSending && !approvalPending && !tracked/);
+  assert.match(hook, /quoteSession.schedule\(\(\) => \{ void requestQuote\(\); \}\)/);
+  assert.match(hook, /\[autoQuoteEnabled, amount, walletChainId, requestQuote, quoteSession\]/);
+  assert.match(hook, /if \(!canApply\(\)\) return/);
+  assert.match(hook, /if \(value === inputs.current.amount\) return/);
+  assert.match(hook, /next\.originChainId === inputs\.current\.originChainId[^\n]+next\.amount === inputs\.current\.amount\) return/);
+  assert.match(hook, /busy: sending \|\| approvalSending \|\| approvalPending,/);
+  assert.match(panel, /const loading = locked \|\| b.quoteLoading/);
+  assert.match(panel, /input id="bridge-amount"[^\n]+disabled=\{locked\}/);
+  assert.match(panel, /if \(loading \|\| b.allowanceLoading \|\| !b.canQuote\) return/);
+  assert.match(panel, /Your quote updates automatically/);
+  assert.match(panel, /rejection.reason === "relay-fee"/);
+  assert.match(panel, /rejection.relayFeePercent/);
+  assert.doesNotMatch(hook, /busy:.*quoting/);
+});
+
+test("fee warnings separate the percentage, costs and touch-accessible exact explanation", () => {
+  assert.match(panel, /<FeeLimitNotice rejection=\{b.quoteRejection\}/);
+  assert.match(panel, /formatFeeWarningPercent\(exactPercent\)/);
+  assert.match(panel, /5% safety limit/);
+  assert.match(panel, /role="status" aria-atomic="true"/);
+  assert.match(panel, /<details className=\{styles.feeLimitReason\}>[\s\S]+Why is this blocked\?/);
+  assert.match(panel, /Relay’s fee is \$\{exactPercent\}%/);
+  assert.match(panel, /quote loses \$\{exactPercent\}% in conversion and fees/);
+  assert.match(panel, /Source gas is extra and is not included in this limit/);
+  assert.match(css, /\.feeLimitHeading \{[^}]*display: grid[^}]*align-items: start/);
+  assert.match(css, /\.feeLimitReason summary \{[^}]*min-height: 44px/);
+  assert.match(css, /\.feeLimitReason p \{[^}]*overflow-wrap: anywhere/);
 });
 
 test("pending approvals explain missing/queued transactions and accept a verified replacement without a new wallet call", () => {

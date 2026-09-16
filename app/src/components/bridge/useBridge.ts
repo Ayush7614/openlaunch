@@ -6,7 +6,9 @@ import { getAccount, getPublicClient, getWalletClient } from "wagmi/actions";
 import { estimateTotalFee } from "viem/op-stack";
 import { erc20Abi, parseEther, TransactionReceiptNotFoundError, type Address } from "viem";
 import { BRIDGE_WALLET_CHAINS } from "@/lib/bridge/chains";
-import { BRIDGE_CHAINS, bridgeCurrency, defaultBridgeAsset, isBridgeAssetSupported, isBridgeChainId, type BridgeAsset, type BridgeChainId, type BridgeQuote } from "@/lib/bridge/types";
+import { BRIDGE_CHAINS, bridgeCurrency, defaultBridgeAsset, isBridgeAssetSupported, isBridgeChainId, type BridgeAsset, type BridgeChainId, type BridgeQuote, type BridgeQuoteRejection } from "@/lib/bridge/types";
+import { parseBridgeQuoteRejection } from "@/lib/bridge/client";
+import { createBridgeQuoteSession } from "@/lib/bridge/quote-session";
 import { activityAfterWalletChange, anchorQuoteExpiry, bridgeErrorMessage, bridgeGasBudget, bridgeRequest, bridgeRequestKey, changeBridgeRoute, hasMatchingDepositEvent, isHash, isMatchingSourceDeposit, linkedTimeoutSignal, mergeBridgeStatus, nativeSourceAmount, RELAY_DEPOSITORY, replacementSourceHash, submitBridgeDeposit, transferCanDiscard, transferIsTerminal, transferPhase, validateBridgeQuote, validateBridgeStatus, type BridgeActivity, type BridgePhase, type BridgeRouteChange, type BridgeRouteInputs, type ProviderObservation, type TrackedBridgeTransfer } from "@/lib/bridge/client";
 import { BRIDGE_STORAGE_PREFIX, createBridgeTransferStore } from "@/lib/bridge/client-storage";
 import { APPROVAL_STORAGE_PREFIX, approvalBlocksSubmission, approvalCanDiscard, canApplyApprovalPoll, createApprovalStore, reconcileApproval, recoverApprovalFromEvidence, submitExactApproval, validateApprovalMetadata, type ApprovalReceiptObservation } from "@/lib/bridge/approval";
@@ -21,6 +23,7 @@ const transfers = createBridgeTransferStore(() => window.localStorage);
 const approvals = createApprovalStore(() => window.localStorage);
 type QuoteEnvelope = { quote: BridgeQuote; key: string; walletChainId?: number; requestedAt: number };
 type Issue = { key: string; message: string } | null;
+type QuoteIssue = { key: string; walletChainId?: number; message: string; rejection?: BridgeQuoteRejection | null } | null;
 const messageOf = bridgeErrorMessage;
 const transferLockName = (address: Address) => `openlaunch:bridge:${address.toLowerCase()}`;
 
@@ -34,7 +37,7 @@ async function responseBody(response: Response): Promise<unknown> {
 }
 
 /** Mount once above the dialog so closing it never interrupts transfer recovery. */
-export function useBridge() {
+export function useBridge(open: boolean) {
   const config = useConfig();
   const { address, chainId: walletChainId } = useAccount();
   const { switchChainAsync } = useSwitchChain();
@@ -47,7 +50,7 @@ export function useBridge() {
   const [envelope, setEnvelope] = useState<QuoteEnvelope | null>(null);
   const [activity, setActivity] = useState<BridgeActivity>({ key: "", phase: "idle" });
   const [issue, setIssue] = useState<Issue>(null);
-  const [quoteIssue, setQuoteIssue] = useState<Issue>(null);
+  const [quoteIssue, setQuoteIssue] = useState<QuoteIssue>(null);
   const [statusIssue, setStatusIssue] = useState<Issue>(null);
   const [expiredId, setExpiredId] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
@@ -62,8 +65,7 @@ export function useBridge() {
   const [now, setNow] = useState(0);
   const [discarding, setDiscarding] = useState(false);
   const actionLock = useRef(false);
-  const quoteSequence = useRef(0);
-  const quoteAbort = useRef<AbortController | null>(null);
+  const [quoteSession] = useState(createBridgeQuoteSession);
   const inputs = useRef<BridgeRouteInputs>({ originChainId: 8453, destinationChainId: 4663, originAsset: "ETH", destinationAsset: "ETH", amount: "" });
   const snapshot = useSyncExternalStore(transfers.subscribe, transfers.getSnapshot, transfers.getServerSnapshot);
   const approvalSnapshot = useSyncExternalStore(approvals.subscribe, approvals.getSnapshot, approvals.getServerSnapshot);
@@ -80,7 +82,8 @@ export function useBridge() {
   const approvalRequired = !!quote?.approval && (allowanceResult?.key !== quote.requestId || allowanceResult.value === null || allowanceResult.value < BigInt(quote.approval.amount));
   const sourceBalance = useBalance({ address, chainId: originChainId, query: { enabled: !!address, refetchInterval: 15_000 } });
   const tokenBalance = useReadContract({ address: inputCurrency.address, abi: erc20Abi, functionName: "balanceOf", args: address ? [address] : undefined, chainId: originChainId, query: { enabled: !!address && inputIsToken, refetchInterval: 15_000 } });
-  const cancelQuote = useCallback(() => { quoteSequence.current++; quoteAbort.current?.abort(); }, []);
+  const cancelQuote = quoteSession.cancel;
+  const currentQuoteIssue = quoteIssue?.key === requestKey && quoteIssue.walletChainId === walletChainId ? quoteIssue : null;
 
   useEffect(() => {
     if (!address) return;
@@ -271,6 +274,7 @@ export function useBridge() {
   function updateRoute(change: BridgeRouteChange) {
     if (actionLock.current || approvalPending || (tracked && !transferIsTerminal(tracked))) return;
     const next = changeBridgeRoute(inputs.current, change);
+    if (next.originChainId === inputs.current.originChainId && next.destinationChainId === inputs.current.destinationChainId && next.originAsset === inputs.current.originAsset && next.destinationAsset === inputs.current.destinationAsset && next.amount === inputs.current.amount) return;
     inputs.current = next;
     setRoute(next);
     invalidateQuote();
@@ -296,54 +300,72 @@ export function useBridge() {
 
   function setAmount(value: string) {
     if (actionLock.current || approvalPending || (tracked && !transferIsTerminal(tracked))) return;
+    if (value === inputs.current.amount) return;
     const next = { ...inputs.current, amount: value };
     inputs.current = next;
     setRoute(next);
     invalidateQuote();
   }
 
-  async function requestQuote() {
+  const requestQuote = useCallback(async () => {
     if (actionLock.current || approvalPending || (tracked && !transferIsTerminal(tracked))) return;
     const connected = getAccount(config);
     const current = bridgeRequest(connected.address, inputs.current.originChainId, inputs.current.amount, inputs.current.destinationChainId, inputs.current.originAsset, inputs.current.destinationAsset);
     if (!current) {
       const currency = bridgeCurrency(inputs.current.originChainId, inputs.current.originAsset, "input");
-      setQuoteIssue({ key: requestKey, message: !connected.address ? "Connect your wallet to get a quote." : `Enter a ${currency.symbol} amount greater than zero, with at most ${currency.decimals} decimal places.` });
+      setQuoteIssue({ key: requestKey, walletChainId: connected.chainId, message: !connected.address ? "Connect your wallet to get a quote." : `Enter a ${currency.symbol} amount greater than zero, with at most ${currency.decimals} decimal places.` });
       return;
     }
     const key = bridgeRequestKey(current);
-    const sequence = ++quoteSequence.current;
     const requestedAt = Date.now();
-    quoteAbort.current?.abort();
-    const abort = new AbortController();
-    quoteAbort.current = abort;
     setEnvelope(null);
     setExpiredId(null);
-    setIssue(null);
     setQuoteIssue(null);
-    setApprovalIssue(null);
     setActivity({ key, phase: "quoting" });
-    try {
-      if (approvalBlocksSubmission(approvals.read(current.address))) throw new Error("An approval is still being tracked. Wait for its confirmation before requesting a new quote.");
-      const response = await fetch("/api/bridge/quote", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(current), cache: "no-store",
-        signal: linkedTimeoutSignal(abort.signal, 20_000),
-      });
-      const next = validateBridgeQuote(anchorQuoteExpiry(await responseBody(response), requestedAt), current, Date.now());
-      const wallet = getAccount(config);
-      if (sequence !== quoteSequence.current || wallet.address?.toLowerCase() !== current.address.toLowerCase() || wallet.chainId !== connected.chainId) return;
-      setEnvelope({ quote: next, key, walletChainId: connected.chainId, requestedAt });
-    } catch (error) {
-      if (sequence !== quoteSequence.current || abort.signal.aborted) return;
-      setQuoteIssue({ key, message: messageOf(error, "Could not get a quote. Try again.") });
-    } finally {
-      if (sequence === quoteSequence.current) setActivity({ key, phase: "idle" });
-    }
-  }
+    await quoteSession.run(async ({ signal, isCurrent }) => {
+      const canApply = () => {
+        const wallet = getAccount(config);
+        return isCurrent() && wallet.address?.toLowerCase() === current.address.toLowerCase() && wallet.chainId === connected.chainId;
+      };
+      try {
+        if (approvalBlocksSubmission(approvals.read(current.address))) throw new Error("An approval is still being tracked. Wait for its confirmation before requesting a new quote.");
+        const response = await fetch("/api/bridge/quote", {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(current), cache: "no-store",
+          signal: linkedTimeoutSignal(signal, 20_000),
+        });
+        const body: unknown = await response.json();
+        if (!canApply()) return;
+        if (!response.ok) {
+          const data = body && typeof body === "object" ? body : {};
+          const message = "error" in data && typeof data.error === "string" ? data.error : "Could not get a quote. Try again.";
+          const rejection = response.status === 422 && "quoteRejection" in data ? parseBridgeQuoteRejection(data.quoteRejection, current) : null;
+          setQuoteIssue({ key, walletChainId: connected.chainId, message, rejection });
+          return;
+        }
+        const next = validateBridgeQuote(anchorQuoteExpiry(body, requestedAt), current, Date.now());
+        setEnvelope({ quote: next, key, walletChainId: connected.chainId, requestedAt });
+      } catch (error) {
+        if (!canApply()) return;
+        setQuoteIssue({ key, walletChainId: connected.chainId, message: messageOf(error, "Could not get a quote. Try again.") });
+      } finally {
+        if (isCurrent()) setActivity({ key, phase: "idle" });
+      }
+    });
+  }, [approvalPending, tracked, config, requestKey, quoteSession]);
+
+  const autoQuoteEnabled = open && !!request && !sending && !approvalSending && !approvalPending && !tracked;
+  useEffect(() => {
+    if (!autoQuoteEnabled) return;
+    const cancel = quoteSession.schedule(() => { void requestQuote(); });
+    return () => { cancel(); setActivity(activityAfterWalletChange); };
+    // Include the raw amount: editing "1" to "1.0" invalidates the old display
+    // even though both normalize to the same request key. Balance polls do not.
+  }, [autoQuoteEnabled, amount, walletChainId, requestQuote, quoteSession]);
 
   async function approve() {
     if (actionLock.current || !quote?.approval || quoteExpired || approvalPending || (tracked && !transferIsTerminal(tracked))) return;
     actionLock.current = true;
+    cancelQuote();
     setApprovalSending(true);
     setApprovalIssue(null);
     const reviewed = quote;
@@ -453,6 +475,7 @@ export function useBridge() {
   async function confirm() {
     if (actionLock.current || !quote || quoteExpired || approvalPending || allowanceLoading || approvalRequired || (tracked && !transferIsTerminal(tracked))) return;
     actionLock.current = true;
+    cancelQuote();
     setSending(true);
     setIssue(null);
     const reviewed = quote;
@@ -637,6 +660,7 @@ export function useBridge() {
   const retryStatus = useCallback(() => setPollRevision((value) => value + 1), []);
   const retryApproval = useCallback(() => setApprovalPollRevision((value) => value + 1), []);
   const activePhase = activity.key === requestKey ? activity.phase : "idle";
+  const quoteLoading = activePhase === "quoting" || (autoQuoteEnabled && !quote && !currentQuoteIssue);
   const phase: BridgePhase = sending && (activePhase === "switching" || activePhase === "confirming") ? activePhase : tracked ? transferPhase(tracked) : activePhase === "quoting" ? "quoting" : quote ? "review" : "idle";
   return {
     address, walletChainId, originChainId, destinationChainId, originAsset, destinationAsset, setOriginAsset, setDestinationAsset, setOriginChainId, setDestinationChainId, reverseRoute, amount, setAmount,
@@ -645,7 +669,9 @@ export function useBridge() {
     balanceLoading: !!address && (inputIsToken ? tokenBalance.isPending : sourceBalance.isPending),
     balanceError: (inputIsToken ? tokenBalance.isError : sourceBalance.isError) ? "Could not read your source balance. It will be checked again before submission." : null,
     quote, phase, error: tracked?.failureReason === "source-reverted" ? "The source transaction reverted on-chain. The deposit was not made; network gas was still charged." : issue?.key === walletKey ? issue.message : null,
-    quoteError: quoteIssue?.key === requestKey ? quoteIssue.message : null,
+    quoteError: currentQuoteIssue?.message ?? null,
+    quoteRejection: currentQuoteIssue?.rejection ?? null,
+    quoteLoading, canQuote: !!request,
     quoteExpired, requestQuote, confirm, reset, tracked,
     approval, approvalRequired, allowanceLoading, approvalBusy: approvalSending,
     approvalHealth: approvalPending && approvalHealthResult?.wallet === walletKey && approvalHealthResult.createdAt === approvalId && approvalHealthResult.hash === approvalHash ? approvalHealthResult.value : null,
@@ -653,7 +679,7 @@ export function useBridge() {
     approve, retryApproval, recoverApproval, approvalCanBeDiscarded, discardApproval,
     canDiscard, discard, discarding,
     statusError: statusIssue && statusIssue.key === trackedId ? statusIssue.message : null,
-    retryStatus, storageError, busy: sending || approvalSending || approvalPending || activePhase === "quoting",
+    retryStatus, storageError, busy: sending || approvalSending || approvalPending,
     canReset: !sending && !approvalSending && !approvalPending && (!tracked || transferIsTerminal(tracked)),
   };
 }

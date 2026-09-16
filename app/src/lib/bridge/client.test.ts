@@ -3,7 +3,8 @@ import test from "node:test";
 import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, HttpRequestError, InsufficientFundsError, RpcRequestError, SwitchChainError, UnknownRpcError, UserRejectedRequestError, type Address, type Hex } from "viem";
 import { activityAfterWalletChange, anchorQuoteExpiry, bridgeErrorMessage, DISCARD_AFTER_MS, linkedTimeoutSignal, replacementSourceHash, transferCanDiscard, bridgeGasBudget, bridgeRequest, bridgeRequestKey, changeBridgeRoute, ERC20_DEPOSIT_ABI, ERC20_DEPOSIT_EVENT, hasMatchingDepositEvent, isMatchingSourceDeposit, isWalletRejection, mergeBridgeStatus, nativeSourceAmount, NATIVE_DEPOSIT_ABI, NATIVE_DEPOSIT_EVENT, parseBridgeAmount, parseStoredTransfer, RELAY_DEPOSITORY, serializeTransfer, submitBridgeDeposit, transferIsTerminal, validateBridgeQuote, validateBridgeStatus, type DepositDependencies, type TrackedBridgeTransfer } from "./client";
 import { bridgeStorageKey, createBridgeTransferStore } from "./client-storage";
-import { ARC_USDC, BASE_USDC, BRIDGE_CHAIN_IDS, type BridgeQuote, type BridgeQuoteRequest } from "./types";
+import { parseBridgeQuoteRejection } from "./client";
+import { ARC_USDC, BASE_USDC, BRIDGE_CHAIN_IDS, type BridgeQuote, type BridgeQuoteRejection, type BridgeQuoteRequest } from "./types";
 
 const ADDRESS = "0x1111111111111111111111111111111111111111" as Address;
 const OTHER = "0x2222222222222222222222222222222222222222" as Address;
@@ -260,6 +261,36 @@ test("fee and total-impact guards reject excessive loss, nonnumeric amounts and 
   for (const relayFee of ["0.000500000000000001", "0.01", "0.02", "-1", "1e-3", "Infinity", "9".repeat(80)]) assert.throws(() => validateBridgeQuote({ ...q, relayFee }, q, NOW), /fee/);
   assert.throws(() => validateBridgeQuote({ ...q, sourceGas: "9".repeat(80) }, q, NOW), /fee/);
   assert.throws(() => validateBridgeQuote({ ...q, totalImpactPercent: undefined }, q, NOW), /impact/);
+});
+
+test("fee rejection diagnostics bind the request and keep Arc input6 separate from native gas18", () => {
+  const request = bridgeRequest(ADDRESS, 5042, "1", 8453, "USDC", "ETH")!;
+  const rejected: BridgeQuoteRejection = { ...request, reason: "relay-fee", relayFee: "0.059123", relayFeePercent: "5.9123", sourceGas: "0.003000000000000001", totalImpactPercent: "-6.24" };
+  assert.deepEqual(parseBridgeQuoteRejection(rejected, request), rejected);
+  assert.notEqual(parseBridgeQuoteRejection(rejected, request), rejected);
+  for (const change of [
+    { address: OTHER }, { amount: "2000000" }, { destinationChainId: 4663 }, { originChainId: 8453 },
+    { originAsset: "ETH" }, { originAsset: null }, { destinationAsset: "USDC" }, { destinationAsset: null },
+    { reason: "total-impact" }, { relayFeePercent: "5" }, { relayFeePercent: 5.9123 },
+    { relayFee: "0.0591231" }, { relayFee: "1e-1" }, { relayFee: "-0.1" }, { relayFee: "1" },
+    { sourceGas: "0.0000000000000000001" }, { sourceGas: "9".repeat(80) },
+    { totalImpactPercent: "-100.01" }, { totalImpactPercent: "+1" }, { totalImpactPercent: "NaN" },
+    { transaction: arcQuote().transaction }, { approval: arcQuote().approval }, { requestId: REQUEST },
+  ]) assert.equal(parseBridgeQuoteRejection({ ...rejected, ...change }, request), null, JSON.stringify(change));
+  for (const invalid of [null, [], "bad", {}, { ...rejected, relayFee: undefined }]) assert.equal(parseBridgeQuoteRejection(invalid, request), null);
+  assert.throws(() => validateBridgeQuote(rejected, request, NOW));
+});
+
+test("total-impact rejections are display-only and neither lower nor bypass either 5% guard", () => {
+  const request = bridgeRequest(ADDRESS, 5042, "1", 4663)!;
+  const rejected: BridgeQuoteRejection = { ...request, reason: "total-impact", relayFee: "0.05", relayFeePercent: "5", sourceGas: "0.001", totalImpactPercent: "-5.000000000000000001" };
+  assert.deepEqual(parseBridgeQuoteRejection(rejected, request), rejected);
+  assert.equal(parseBridgeQuoteRejection({ ...rejected, totalImpactPercent: "-5" }, request), null);
+  assert.equal(parseBridgeQuoteRejection({ ...rejected, totalImpactPercent: "100" }, request), null);
+  assert.equal(parseBridgeQuoteRejection({ ...rejected, relayFee: "0.050001", relayFeePercent: "5.0001" }, request), null);
+  const ethRequest = bridgeRequest(ADDRESS, 8453, "0.01", 5042)!;
+  const ethRejected: BridgeQuoteRejection = { ...ethRequest, reason: "relay-fee", relayFee: "0.000500000000000001", relayFeePercent: "5.000001", sourceGas: "0.000000000000000001", totalImpactPercent: "0" };
+  assert.deepEqual(parseBridgeQuoteRejection(ethRejected, ethRequest), ethRejected);
 });
 
 test("gas preflight reserves fresh fees and rejects spending the full native balance", () => {

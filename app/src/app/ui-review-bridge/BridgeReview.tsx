@@ -1,21 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Dialog } from "@base-ui/react/dialog";
 import { X } from "lucide-react";
 import { BridgeForm, Transfer } from "@/components/bridge/BridgeDialog";
 import type useBridge from "@/components/bridge/useBridge";
 import { formatUnits, parseEther, parseUnits, zeroAddress } from "viem";
 import { changeBridgeRoute, parseBridgeAmount, type BridgeRouteChange, type BridgeRouteInputs } from "@/lib/bridge/client";
-import { bridgeCurrency, defaultBridgeAsset, type BridgeQuote } from "@/lib/bridge/types";
+import { bridgeCurrency, bridgeFeePercent, defaultBridgeAsset, type BridgeQuote } from "@/lib/bridge/types";
 import type { TrackedApproval } from "@/lib/bridge/approval";
 import { describePendingApproval } from "@/lib/bridge/approval-health";
+import { BRIDGE_QUOTE_DEBOUNCE_MS } from "@/lib/bridge/quote-session";
 import styles from "@/components/bridge/BridgeDialog.module.css";
 
 const wallet = "0x03508bB71268BBA25ECaCC8F620e01866650532c" as const;
 const requestId = `0x${"1".repeat(64)}` as const;
-type Scene = "idle" | "disconnected" | "quote" | "expired" | "error" | "pending" | "success" | "uncertain" | "refund" | "approval_pending" | "approval_uncertain" | "approval_confirmed" | "approval_queued" | "approval_missing" | "approval_fee";
-const scenes: Scene[] = ["disconnected", "quote", "expired", "error", "pending", "success", "uncertain", "refund", "approval_pending", "approval_uncertain", "approval_confirmed", "approval_queued", "approval_missing", "approval_fee"];
+type Scene = "idle" | "disconnected" | "quote" | "quoting" | "high_fee" | "fee_boundary" | "impact_limit" | "expired" | "error" | "pending" | "success" | "uncertain" | "refund" | "approval_pending" | "approval_uncertain" | "approval_confirmed" | "approval_queued" | "approval_missing" | "approval_fee";
+const scenes: Scene[] = ["disconnected", "quote", "quoting", "high_fee", "fee_boundary", "impact_limit", "expired", "error", "pending", "success", "uncertain", "refund", "approval_pending", "approval_uncertain", "approval_confirmed", "approval_queued", "approval_missing", "approval_fee"];
 
 export default function BridgeReview() {
   const [open, setOpen] = useState(false);
@@ -33,6 +34,11 @@ export default function BridgeReview() {
   const [clock] = useState(() => Date.now());
   // Synthetic fixed conversion, not a market quote. This page never calls Relay.
   const inputAmount = parseBridgeAmount(amount, inputCurrency.decimals) ?? 0n;
+  useEffect(() => {
+    if (!open || (scene !== "idle" && scene !== "approval_confirmed") || !inputAmount) return;
+    const timer = setTimeout(() => setScene("quote"), BRIDGE_QUOTE_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [open, scene, inputAmount, amount, origin, destination, originAsset, destinationAsset]);
   const normalizedInput = inputAmount * 10n ** BigInt(18 - inputCurrency.decimals);
   const netAmount = normalizedInput * 9975n / 10000n;
   const converted = originAsset === destinationAsset ? netAmount : originAsset === "USDC" ? netAmount / 2400n : netAmount * 2400n;
@@ -45,6 +51,8 @@ export default function BridgeReview() {
   };
   const approval: TrackedApproval | null = erc20Input && (origin === 5042 || origin === 8453) && (scene.startsWith("approval_") || approved) ? { version: 1, chainId: origin, address: wallet, token: inputCurrency.address, spender: "0x4cd00e387622c35bddb9b4c962c136462338bc31", amount: inputAmount.toString(), createdAt: clock, status: scene === "approval_uncertain" ? "uncertain" : scene === "approval_confirmed" || approved ? "confirmed" : "pending", ...(scene === "approval_uncertain" ? {} : { approvalHash: requestId }) } : null;
   const tracking = ["pending", "success", "uncertain", "refund"].includes(scene);
+  const feeWarning = ["high_fee", "fee_boundary", "impact_limit"].includes(scene);
+  const rejectedFee = scene === "fee_boundary" ? inputAmount / 20n + 1n : scene === "impact_limit" ? inputAmount / 400n : inputAmount * 55548n / 1_000_000n;
   const bridge: ReturnType<typeof useBridge> = {
     address: scene === "disconnected" ? undefined : wallet, walletChainId: origin,
     originChainId: origin, destinationChainId: destination, setOriginChainId: (chainId) => changeRoute({ side: "origin", chainId }), setDestinationChainId: (chainId) => changeRoute({ side: "destination", chainId }), reverseRoute: () => changeRoute({ side: "reverse" }), amount, setAmount,
@@ -52,7 +60,9 @@ export default function BridgeReview() {
     balance: parseUnits(originAsset === "USDC" ? "125" : "0.05", inputCurrency.decimals), nativeBalance: parseEther(origin === 5042 ? "125" : "0.05"), balanceLoading: false, balanceError: null,
     quote: scene === "quote" || scene === "expired" ? quote : null,
     phase: tracking ? scene as "pending" | "success" | "uncertain" | "refund" : scene === "quote" || scene === "expired" ? "review" : "idle",
-    error: scene === "error" ? "Relay is temporarily unavailable. Try requesting a quote again." : null, quoteError: null,
+    error: null, quoteError: scene === "error" ? "Relay is temporarily unavailable. Try requesting a quote again." : feeWarning ? "This quote exceeds the 5% safety limit." : null,
+    quoteRejection: feeWarning && inputAmount > 0n ? { address: wallet, originChainId: origin, destinationChainId: destination, originAsset, destinationAsset, amount: inputAmount.toString(), reason: scene === "impact_limit" ? "total-impact" : "relay-fee", relayFee: formatUnits(rejectedFee, inputCurrency.decimals), relayFeePercent: bridgeFeePercent(rejectedFee, inputAmount), sourceGas: quote.sourceGas, totalImpactPercent: scene === "impact_limit" ? "-5.000000000000000001" : "-5.5548" } : null,
+    quoteLoading: scene === "quoting" || (scene === "idle" || scene === "approval_confirmed") && inputAmount > 0n, canQuote: inputAmount > 0n,
     quoteExpired: scene === "expired", requestQuote: async () => setScene("quote"), confirm: async () => setScene("pending"), reset: () => setScene("quote"),
     tracked: tracking ? { address: wallet, requestId, amount: quote.amount, originChainId: origin, destinationChainId: destination, originAsset, destinationAsset, destinationHashes: [], status: scene as "pending" | "success" | "uncertain" | "refund", createdAt: clock } : null,
     statusError: null, retryStatus: () => {}, storageError: null, busy: false, canReset: scene === "success" || scene === "refund",

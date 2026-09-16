@@ -60,6 +60,28 @@
 .previewNote { display: flex; align-items: flex-start; gap: 10px; padding: 17px 0; border-top: 1px solid var(--color-line); color: var(--color-body); font-size: 12px; line-height: 1.65; }
 .previewNote svg { flex-shrink: 0; margin-top: 2px; color: var(--color-brand); }
 .previewNote span { color: var(--color-muted); }
+.feeLimit { padding-top: 20px; border-top: 1px solid var(--color-line); font-size: 12px; font-weight: 400; line-height: 1.5; }
+.feeLimitHeading { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: start; gap: 10px; }
+.feeLimitIcon { margin-top: 3px; color: var(--color-down-ink); }
+.feeLimitCopy h3 { margin: 0; color: var(--color-ink); font-size: 14px; font-weight: 600; line-height: 1.5; text-wrap: balance; }
+.feeLimitCopy p { margin: 4px 0 0; color: var(--color-muted); font-size: 11px; font-weight: 400; line-height: 1.5; }
+.feeLimitPercent { display: grid; justify-items: end; gap: 4px; }
+.feeLimitPercent strong { color: var(--color-down-ink); font-size: 22px; font-weight: 600; line-height: 1.1; letter-spacing: -.025em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.feeLimitPercent strong span { margin-left: 1px; font-size: 14px; font-weight: 500; }
+.feeLimitPercent > span { color: var(--color-muted); font-size: 11px; }
+.feeLimitCosts { display: grid; gap: 12px; margin: 20px 0 14px; }
+.feeLimitCosts > div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; column-gap: 16px; }
+.feeLimitCosts dt { color: var(--color-body); font-size: 12px; font-weight: 400; }
+.feeLimitCosts dt span { display: block; margin-top: 2px; color: var(--color-muted); font-size: 11px; }
+.feeLimitCosts dd { margin: 0; color: var(--color-ink); text-align: right; font-weight: 500; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.feeLimitCosts dd span { color: var(--color-muted); font-size: 11px; font-weight: 400; }
+.feeLimitReason { padding-top: 2px; border-top: 1px solid var(--color-line); }
+.feeLimitReason summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; color: var(--color-body); font-size: 12px; font-weight: 500; list-style: none; cursor: pointer; }
+.feeLimitReason summary::-webkit-details-marker { display: none; }
+.feeLimitReason summary svg { flex-shrink: 0; color: var(--color-muted); }
+.feeLimitReason[open] summary svg { transform: rotate(180deg); }
+.feeLimitReason p { margin: 0 0 12px; color: var(--color-body); font-size: 12px; font-weight: 400; line-height: 1.65; overflow-wrap: anywhere; }
+.feeLimit .feeLimitHint { margin: 0; color: var(--color-muted); font-size: 11px; font-weight: 400; line-height: 1.65; text-wrap: pretty; }
 .quote { padding: 18px 0 0; border-top: 1px solid var(--color-line); }
 .receiveLabel { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 12px; color: var(--color-body); }
 .estimate { font-size: 11px; color: var(--color-muted); }
