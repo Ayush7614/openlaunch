@@ -15,7 +15,8 @@ export const FEED_DUST_USD = 0.01;
 export type DustSwap = { usd: number | null; quote_wei: string; quote_decimals: number };
 
 export function isDustSwap(s: DustSwap): boolean {
-  if (s.usd !== null && Number.isFinite(s.usd)) return s.usd < FEED_DUST_USD;
+  // A zero or broken USD figure is "no price", not "worthless": a quote whose feed reads 0 must not vanish wholesale.
+  if (s.usd !== null && Number.isFinite(s.usd) && s.usd > 0) return s.usd < FEED_DUST_USD;
   return units(s.quote_wei, s.quote_decimals) < quoteDisplayFloor(s.quote_decimals);
 }
 

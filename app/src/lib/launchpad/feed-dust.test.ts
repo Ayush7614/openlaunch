@@ -10,7 +10,14 @@ test("priced swaps: dust is anything under FEED_DUST_USD", () => {
   assert.equal(isDustSwap(swap({ usd: 0.0099, quote_wei: "4000000000000000", quote_decimals: 18 })), true, "a $0.0099 buy is dust however many wei it is");
   assert.equal(isDustSwap(swap({ usd: 0.01, quote_wei: "1", quote_decimals: 18 })), false, "exactly one cent stays");
   assert.equal(isDustSwap(swap({ usd: 15.65, quote_wei: "6525170685363478", quote_decimals: 18 })), false);
-  assert.equal(isDustSwap(swap({ usd: 0, quote_wei: "0", quote_decimals: 6 })), true);
+  assert.equal(isDustSwap(swap({ usd: 0, quote_wei: "0", quote_decimals: 6 })), true, "nothing moved: dust");
+});
+
+test("a price that reads 0 is treated as no price: a real trade in that quote stays in the feed", () => {
+  // e.g. a GITLAWB price read of 0 during a pool hiccup: $0 × 2.79M GITLAWB must not drop the trade
+  assert.equal(isDustSwap(swap({ usd: 0, quote_wei: "125573071944892711331197", quote_decimals: 18 })), false);
+  assert.equal(isDustSwap(swap({ usd: -1, quote_wei: "18924421", quote_decimals: 6 })), false, "a negative price is nonsense, not a verdict");
+  assert.equal(isDustSwap(swap({ usd: 0, quote_wei: "4999", quote_decimals: 6 })), true, "the display floor still applies without a price");
 });
 
 test("unpriced swaps fall back to the display floor: whatever would print as 0 is dust", () => {
