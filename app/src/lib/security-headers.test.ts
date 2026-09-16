@@ -35,10 +35,14 @@ test("production policy: nonce-only scripts, no framing, same-origin by default"
 test("connect-src covers the site and the wallet SDK, plus vetted extra origins only", () => {
   const csp = buildCsp(NONCE, { connectSrc: ["http://127.0.0.1:8545", "https://openlaunch.lol", "https://evil.example/path", "javascript:alert(1)", "not a url"] });
   const connect = directive(csp, "connect-src");
+  const connectSources = new Set(connect.split(/\s+/).slice(1));
   assert.ok(connect.startsWith("connect-src 'self' "));
-  for (const origin of WALLET_CONNECT_SRC) assert.ok(connect.includes(` ${origin}`), `missing ${origin}`);
-  assert.ok(connect.includes(" http://127.0.0.1:8545"));
-  assert.ok(connect.includes(" https://openlaunch.lol"));
+  for (const origin of WALLET_CONNECT_SRC) assert.ok(connectSources.has(origin), `missing ${origin}`);
+  assert.ok(!connectSources.has("https://rpc.mainnet.arc.io")); // Arc reads go through /api/rpc, never a third-party origin
+  assert.deepEqual(extraConnectOrigins({ NEXT_PUBLIC_RPC_URL_ARC: "http://127.0.0.1:8547/" }), ["http://127.0.0.1:8547"]);
+  assert.ok(!connectSources.has("https:"));
+  assert.ok(connectSources.has("http://127.0.0.1:8545"));
+  assert.ok(connectSources.has("https://openlaunch.lol"));
   assert.doesNotMatch(connect, /evil|javascript|not a url/);
 });
 

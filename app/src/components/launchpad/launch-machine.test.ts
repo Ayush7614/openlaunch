@@ -10,7 +10,7 @@ import test from "node:test";
  */
 const read = (file: string) => readFileSync(new URL(file, import.meta.url), "utf8");
 const machine = read("./LaunchMachine.tsx");
-const css = read("./LaunchMachine.module.css");
+const css = read("./LaunchMachine.module.css").replaceAll("\r\n", "\n");
 const metrics = read("./LaunchMechanism.tsx");
 const hero = read("./LaunchHero.tsx");
 

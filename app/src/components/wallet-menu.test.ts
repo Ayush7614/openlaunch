@@ -33,8 +33,10 @@ test("wallet adapter preserves hydration, routes connecting through the picker, 
 
 test("unknown networks stay unknown and never get an inferred explorer destination", () => {
   assert.match(source, /const key = chainKeyOf\(chainId\)/);
-  assert.match(source, /key \? CHAIN_SHORT\[key\] : "Unsupported network"/);
-  assert.match(source, /\{key \? \(\s*<a[^>]*href=\{explorerAddress\(key, address\)\}/);
+  assert.match(source, /key \? CHAIN_SHORT\[key\] : bridgeNetwork\?\.name \?\? "Unsupported network"/);
+  assert.match(source, /isBridgeChainId\(chainId\) \? BRIDGE_CHAINS\[chainId\]/);
+  assert.match(source, /\{explorer \? \(\s*<a[^>]*href=\{explorer\}/);
+  assert.match(source, /const explorer = key \? explorerAddress\(key, address\) : bridgeNetwork \? `[\s\S]*` : null/);
   assert.match(source, /explorerName\(key\)/);
   assert.match(source, /This network isn’t supported\. Choose one below\./);
   assert.match(source, /CHAIN_KEYS.map\(\(chain\) =>/);
@@ -52,6 +54,19 @@ test("pending actions are locked against duplicate requests and rejection is rec
   assert.match(source, /Couldn’t disconnect\. Try again\./);
   assert.match(source, /disabled=\{busy\} onClick=\{\(\) => void runAction\(chain\)\}/);
   assert.match(source, /role="status" aria-live="polite"/);
+});
+
+test("network switcher uses official local logos with theme-correct Robinhood marks", () => {
+  for (const asset of ["base", "robinhood-black", "robinhood-white"]) {
+    assert.ok(source.includes(`src="/brand/${asset}.svg" alt=""`));
+    assert.match(readFileSync(new URL(`../../public/brand/${asset}.svg`, import.meta.url), "utf8"), /<svg\b/);
+  }
+  assert.match(source, /className=\{styles.networkLogo\} aria-hidden/);
+  assert.doesNotMatch(source, /\? "B" : "R"|styles\.networkGlyph/);
+  assert.match(css, /\.networkLogo img\s*\{[^}]*object-fit: contain/);
+  assert.match(css, /\.networkLogo \.darkLogo\s*\{\s*display: none/);
+  assert.match(css, /:global\(\.dark\) \.networkLogo \.lightLogo\s*\{\s*display: none/);
+  assert.match(css, /:global\(\.dark\) \.networkLogo \.darkLogo\s*\{\s*display: block/);
 });
 
 test("wallet shortcuts copy the full address and close the nested menu on navigation", () => {
