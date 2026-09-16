@@ -11,7 +11,6 @@ import { VISIBLE_CHAINS } from "@/lib/launchpad/config";
 import WalletAvatar from "./WalletAvatar";
 import styles from "./WalletMenu.module.css";
 
-/** The letter tile beside each network in the switcher; tone "" keeps the brand default. */
 /** Official network marks (app/public/brand). A chain with a dark-mode variant lists both; the CSS swaps them by theme. */
 const NETWORK_LOGOS: Record<ChainKey, { light: string; dark?: string; width: number; height: number }> = {
   base: { light: "/brand/base.svg", width: 22, height: 22 },
