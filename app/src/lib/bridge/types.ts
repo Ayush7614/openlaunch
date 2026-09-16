@@ -84,5 +84,3 @@ export function isBridgeChainId(value: unknown): value is BridgeChainId {
   return value === 8453 || value === 4663 || value === 5042;
 }
 
-/** Default destination only; users can select either of the other networks. */
-export const otherBridgeChain = (id: BridgeChainId): BridgeChainId => id === 8453 ? 4663 : 8453;

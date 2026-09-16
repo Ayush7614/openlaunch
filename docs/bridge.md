@@ -36,7 +36,7 @@ An interrupted wallet response is **uncertain**, not failed. The app must not si
 - A sped-up or cancelled-and-replaced deposit is adopted automatically: when the wallet's hash is unmined and Relay reports a different source hash, the app verifies that hash is this wallet's exact deposit for the same order before tracking it.
 - A record with no deposit anywhere can be discarded by the user after 15 minutes, and only while Relay still reports `waiting` with no transaction hashes and the source chain has no receipt for the wallet's hash, checked within the last minute. The same wait applies to an unmined approval, which if mined later only grants the exact allowance the next deposit re-reads. Any on-chain evidence keeps the record until it settles. Unknown broadcasts and replaced transactions that Relay cannot match still need manual investigation via Relay and the source explorer.
 - Quote validity travels as a remaining duration (`ttlMs`) and is anchored on the browser's own clock at request time, so device clock skew cannot expire or extend a quote.
-- This implementation has read-only live quote verification and mocked execution tests, **not a real-money end-to-end transfer test**. Before production rollout, an authorized maintainer should use a small amount to verify all supported directions, Arc approval and rejection, a normal delivery, and refresh recovery with their own wallet. Do not describe the feature as independently audited or risk-free.
+- Real-money coverage so far: on 2026-09-16 a maintainer completed Base USDC → Arc with their own wallet (exact 9 USDC approval, fresh quote, deposit, delivery). Other directions, a deliberate wallet rejection, and refresh recovery still need the same small-amount check before this is described as fully exercised. Do not describe the feature as independently audited or risk-free.
 
 ## Development and verification
 
@@ -50,6 +50,12 @@ npx tsx --conditions=react-server --tsconfig tsconfig.test.json --test src/lib/b
 These tests never connect a wallet or submit a transaction.
 
 `/ui-review-bridge` is a development-only visual fixture with disconnected, quote, expired, error, pending, success, uncertain and refund states, plus pending/uncertain/confirmed approval states. Its synthetic data cannot execute a transaction, and the route returns 404 outside development. The real header action uses the actual integration.
+
+### Wallet test findings (2026-09-16)
+
+- Phantom cannot add Arc or Robinhood (fixed EVM network list), so its chain switch fails; MetaMask adds both from the wallet config. The error copy now names this case.
+- viem probes `eth_fillTransaction` when estimating Base fees. The read proxy used to answer HTTP 403 for the whole batch, which failed every Base read; it now returns a per-item JSON-RPC `-32601` so viem falls back and the other reads succeed. Production ran the same proxy, so Base-origin bridges would have failed there too.
+- Public Base and Arc nodes rate-limit one quote's burst of reads inside 200 bodies. The proxy maps those and malformed bodies to 429/502 so viem retries; Arc reads are proxied with `ARC_RPC_URL`. base-rpc.publicnode.com is unsuitable as an upstream because it refuses receipt lookups without a token, which stalls approval and transfer tracking.
 
 ### Base USDC extension verification (2026-09-16)
 
