@@ -155,9 +155,23 @@ test("quotes update without locking typing or automatically submitting wallet ac
   assert.match(panel, /input id="bridge-amount"[^\n]+disabled=\{locked\}/);
   assert.match(panel, /if \(loading \|\| b.allowanceLoading \|\| !b.canQuote\) return/);
   assert.match(panel, /Your quote updates automatically/);
-  assert.match(panel, /b.quoteRejection.reason === "relay-fee"/);
-  assert.match(panel, /b.quoteRejection.relayFeePercent/);
+  assert.match(panel, /rejection.reason === "relay-fee"/);
+  assert.match(panel, /rejection.relayFeePercent/);
   assert.doesNotMatch(hook, /busy:.*quoting/);
+});
+
+test("fee warnings separate the percentage, costs and touch-accessible exact explanation", () => {
+  assert.match(panel, /<FeeLimitNotice rejection=\{b.quoteRejection\}/);
+  assert.match(panel, /formatFeeWarningPercent\(exactPercent\)/);
+  assert.match(panel, /5% safety limit/);
+  assert.match(panel, /role="status" aria-atomic="true"/);
+  assert.match(panel, /<details className=\{styles.feeLimitReason\}>[\s\S]+Why is this blocked\?/);
+  assert.match(panel, /Relay’s fee is \$\{exactPercent\}%/);
+  assert.match(panel, /quote loses \$\{exactPercent\}% in conversion and fees/);
+  assert.match(panel, /Source gas is extra and is not included in this limit/);
+  assert.match(css, /\.feeLimitHeading \{[^}]*display: grid[^}]*align-items: start/);
+  assert.match(css, /\.feeLimitReason summary \{[^}]*min-height: 44px/);
+  assert.match(css, /\.feeLimitReason p \{[^}]*overflow-wrap: anywhere/);
 });
 
 test("pending approvals explain missing/queued transactions and accept a verified replacement without a new wallet call", () => {

@@ -6,8 +6,9 @@ import { Dialog } from "@base-ui/react/dialog";
 import { Select } from "@base-ui/react/select";
 import { ArrowLeftRight, ArrowRight, ArrowUpRight, Check, ChevronDown, ChevronRight, CircleAlert, Clock3, LoaderCircle, Wallet, X } from "lucide-react";
 import { formatEther, formatUnits, zeroAddress } from "viem";
-import { BRIDGE_ASSETS, BRIDGE_CHAINS, BRIDGE_CHAIN_IDS, bridgeCurrency, bridgeTransferInputCurrency, isBridgeAssetSupported, isBridgeChainId, type BridgeAsset, type BridgeChainId } from "@/lib/bridge/types";
+import { BRIDGE_ASSETS, BRIDGE_CHAINS, BRIDGE_CHAIN_IDS, bridgeCurrency, bridgeTransferInputCurrency, isBridgeAssetSupported, isBridgeChainId, type BridgeAsset, type BridgeChainId, type BridgeQuoteRejection } from "@/lib/bridge/types";
 import { DISCARD_AFTER_MS } from "@/lib/bridge/client";
+import { formatFeeWarningPercent } from "@/lib/bridge/fee-display";
 import { shortAddr } from "@/lib/chainPublic";
 import WalletPicker from "../WalletPicker";
 import WalletAvatar from "../WalletAvatar";
@@ -108,6 +109,33 @@ function Recipient({ address }: { address: string }) {
       <code className={styles.fullAddress}>{address}</code>
     </details>
   );
+}
+
+function FeeLimitNotice({ rejection, inputSymbol, gasSymbol }: { rejection: BridgeQuoteRejection; inputSymbol: BridgeAsset; gasSymbol: BridgeAsset }) {
+  const feeTooHigh = rejection.reason === "relay-fee";
+  const exactPercent = feeTooHigh ? rejection.relayFeePercent : rejection.totalImpactPercent.replace(/^-/, "");
+  return <section className={styles.feeLimit} aria-label="Quote above safety limit">
+    <div className={styles.feeLimitHeading} role="status" aria-atomic="true">
+      <CircleAlert className={styles.feeLimitIcon} size={18} aria-hidden />
+      <div className={styles.feeLimitCopy}>
+        <h3>{feeTooHigh ? "Bridge fee too high" : "Quote loss too high"}</h3>
+        <p>Nothing has been submitted.</p>
+      </div>
+      <div className={styles.feeLimitPercent}>
+        <strong aria-label={`${feeTooHigh ? "Relay fee" : "Quote loss"}: ${exactPercent}%`}>{formatFeeWarningPercent(exactPercent)}<span>%</span></strong>
+        <span>5% safety limit</span>
+      </div>
+    </div>
+    <dl className={styles.feeLimitCosts}>
+      <div><dt>Relay fee <span>Included</span></dt><dd title={`${rejection.relayFee} ${inputSymbol}`}>{nativeAmount(rejection.relayFee)} <span>{inputSymbol}</span></dd></div>
+      <div><dt>Source gas <span>Extra · estimated</span></dt><dd title={`${rejection.sourceGas} ${gasSymbol}`}>{nativeAmount(rejection.sourceGas)} <span>{gasSymbol}</span></dd></div>
+    </dl>
+    <details className={styles.feeLimitReason}>
+      <summary>Why is this blocked?<ChevronDown size={14} aria-hidden /></summary>
+      <p>{feeTooHigh ? `Relay’s fee is ${exactPercent}% of your amount.` : `This quote loses ${exactPercent}% in conversion and fees.`} Openlaunch blocks quotes above 5%. Source gas is extra and is not included in this limit.</p>
+    </details>
+    <p className={styles.feeLimitHint}>Change the amount or route. Your quote updates automatically.</p>
+  </section>;
 }
 
 export default function BridgeDialog({ open, onOpenChange, restoreFocus }: {
@@ -212,15 +240,7 @@ export function BridgeForm({ bridge: b, connect }: { bridge: Bridge; connect: ()
           <p className={styles.quoteNotice}>{needsRefresh ? "This quote expired. Refresh and review the new amounts." : "0.5% slippage limit. Arrival time and gas can change."}</p>
           {b.approvalRequired ? <p className={styles.approvalNotice}>First, approve only {nativeAmount(b.amount)} USDC for Relay’s deposit contract. Then review a fresh quote and confirm the bridge separately. Approval alone does not move your funds and uses additional {origin.symbol} for gas.</p> : null}
         </div>
-      ) : b.quoteRejection ? <div className={styles.feeLimit} role="status">
-        <div className={styles.feeLimitHeading}><CircleAlert size={17} aria-hidden /><h3>This route is too expensive right now</h3></div>
-        <p>{b.quoteRejection.reason === "relay-fee" ? `Relay’s fee is ${b.quoteRejection.relayFeePercent}% of your amount, above our 5% safety limit.` : `This quote loses ${b.quoteRejection.totalImpactPercent.replace(/^-/, "")}% in conversion and fees, above our 5% safety limit.`}</p>
-        <dl className={styles.fees}>
-          <div><dt>Relay fee <span>(included)</span></dt><dd title={`${b.quoteRejection.relayFee} ${inputCurrency.symbol}`}>{nativeAmount(b.quoteRejection.relayFee)} {inputCurrency.symbol}</dd></div>
-          <div><dt>Source gas <span>(extra, estimated)</span></dt><dd title={`${b.quoteRejection.sourceGas} ${origin.symbol}`}>{nativeAmount(b.quoteRejection.sourceGas)} {origin.symbol}</dd></div>
-        </dl>
-        <p className={styles.feeLimitHint}>Try a different amount or route. Your quote updates automatically. Nothing has been submitted.</p>
-      </div> : <div className={styles.previewNote} role="status" aria-live="polite">
+      ) : b.quoteRejection ? <FeeLimitNotice rejection={b.quoteRejection} inputSymbol={inputCurrency.symbol} gasSymbol={origin.symbol} /> : <div className={styles.previewNote} role="status" aria-live="polite">
         {b.quoteLoading ? <LoaderCircle size={16} className={styles.spinner} aria-hidden /> : <ArrowRight size={16} aria-hidden />}
         <p>{b.quoteLoading ? "Updating your quote…" : b.quoteError ? "No quote available yet." : b.address ? "Enter an amount. We’ll find your route." : "See your route before you commit."}<br />
           <span>{b.quoteLoading ? "Keep typing. We’ll use your latest amount." : "Quotes update automatically. No wallet request until you confirm."}</span></p>
