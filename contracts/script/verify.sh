@@ -2,8 +2,8 @@
 # Verify the launchpad contracts on the block explorers (source already exact-matched on Sourcify).
 #   Basescan (Base):            needs an Etherscan API key (one key works for every chain on Etherscan V2):
 #                               export ETHERSCAN_API_KEY=... (or put ETHERSCAN_API_KEY= in contracts/.env)
-#   Blockscout (Robinhood/Base): keyless.
-# Usage: script/verify.sh [base|robinhood|all]   (default: all)
+#   Blockscout (Robinhood/Base/Arc): keyless.
+# Usage: script/verify.sh [base|robinhood|arc|all]   (default: all)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 [ -f .env ] && set -a && . ./.env && set +a
@@ -17,6 +17,8 @@ BASE_PM=0x498581fF718922c3f8e6A244956aF099B2652b2b
 BASE_POSM=0x7C5f5A4bBd8fD63184577525326123B519429bDc
 RH_PM=0x8366a39CC670B4001A1121B8F6A443A643e40951
 RH_POSM=0x58daec3116aae6d93017baaea7749052e8a04fa7
+ARC_PM=0x8366a39CC670B4001A1121B8F6A443A643e40951
+ARC_POSM=0x6049c9a0e26405c0985f9e3685c87d0ae917f82b
 
 common=(--watch --compiler-version 0.8.26 --evm-version cancun --num-of-optimizations 200 --via-ir)
 
@@ -42,4 +44,8 @@ fi
 if [[ $target == robinhood || $target == all ]]; then
   echo "== Robinhood Chain Blockscout (keyless)"
   verify_pair 4663 "$RH_PM" "$RH_POSM" --verifier blockscout --verifier-url https://robinhoodchain.blockscout.com/api/
+fi
+if [[ $target == arc || $target == all ]]; then
+  echo "== Arc Blockscout (keyless)"
+  verify_pair 5042 "$ARC_PM" "$ARC_POSM" --verifier blockscout --verifier-url https://explorer.arc.io/api/
 fi

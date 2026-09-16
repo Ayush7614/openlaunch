@@ -2,6 +2,8 @@
 
 **LIVE on Base mainnet (block 50940130) and Robinhood Chain (block 55880172), 2026-09-06** — same addresses on both: LaunchFactory `0x815542E8b392389A1389E22E588E4B62A67Ade72`, LaunchLocker `0xcd1680D26922fcd9CabFbb8a56bA40C333fD842a` (`deployments/launchpad-base.json`, `deployments/launchpad-robinhood.json`). Robinhood default quote: USDG `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168` (6 dec).
 
+**Arc (5042)**: same deployment planned from the same deployer at nonce 0 (so the same addresses). Only quote: USDC `0x3600000000000000000000000000000000000000` (6 dec; it is also the gas token, the native balance at 18 dec). Uniswap v4 there: PoolManager `0x8366a39CC670B4001A1121B8F6A443A643e40951`, PositionManager `0x6049c9a0e26405C0985f9E3685C87d0aE917f82B`, Universal Router `0x4fcA4a51Ab4F23A7447b3284fBd7D73289A89Fb1` (v2.1.1, "v2" swap layout). `test/LaunchFactory.arc.fork.t.sol` proves launch → buy → collect and the router layout against the live chain; it runs only under Circle's [arc-foundry](https://github.com/circlefin/arc-foundry) (`FOUNDRY_PROFILE=arc arc-forge test`), since upstream forge cannot execute USDC transfers on Arc.
+
 Three contracts, no platform fee, no owner:
 
 | contract | role |

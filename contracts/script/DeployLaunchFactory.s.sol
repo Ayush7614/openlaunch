@@ -8,7 +8,7 @@ import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol"
 import {LaunchFactory} from "src/LaunchFactory.sol";
 
 /// Deploys the fee-free LaunchFactory (+ its LaunchLocker) against the canonical
-/// Uniswap v4 deployment of the current chain (Base 8453, Robinhood Chain 4663).
+/// Uniswap v4 deployment of the current chain (Base 8453, Robinhood Chain 4663, Arc 5042).
 /// There is nothing to configure: no fee recipient, no bps, no owner.
 ///
 /// Env:
@@ -18,6 +18,7 @@ import {LaunchFactory} from "src/LaunchFactory.sol";
 /// Run:
 ///   forge script script/DeployLaunchFactory.s.sol --rpc-url https://mainnet.base.org --broadcast
 ///   forge script script/DeployLaunchFactory.s.sol --rpc-url https://rpc.mainnet.chain.robinhood.com --broadcast
+///   forge script script/DeployLaunchFactory.s.sol --rpc-url $ARC_RPC_URL --broadcast   (Arc: gas is paid in USDC; fund the deployer with USDC)
 /// Then verify factory + locker (constructor args: factory = pm, posm, permit2;
 /// locker = posm) and point the app at the factory address.
 contract DeployLaunchFactory is Script {
@@ -29,6 +30,10 @@ contract DeployLaunchFactory is Script {
         }
         if (chainId == 4663) {
             return (0x8366a39CC670B4001A1121B8F6A443A643e40951, 0x58daec3116aae6D93017bAAea7749052E8a04fA7);
+        }
+        if (chainId == 5042) {
+            // Uniswap/contracts deployments/5042.md — same PoolManager address as Robinhood, a different PositionManager
+            return (0x8366a39CC670B4001A1121B8F6A443A643e40951, 0x6049c9a0e26405C0985f9E3685C87d0aE917f82B);
         }
         return (address(0), address(0));
     }
