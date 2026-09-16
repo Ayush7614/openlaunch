@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { SECURITY_HEADERS, WALLET_CONNECT_SRC, buildCsp, cspNonce, extraConnectOrigins, isOrigin } from "./security-headers.ts";
+import { SECURITY_HEADERS, WALLET_CONNECT_SRC, BRIDGE_CONNECT_SRC, buildCsp, cspNonce, extraConnectOrigins, isOrigin } from "./security-headers.ts";
 
 const NONCE = "AAAAAAAAAAAAAAAAAAAAAA==";
 
@@ -37,6 +37,9 @@ test("connect-src covers the site and the wallet SDK, plus vetted extra origins 
   const connect = directive(csp, "connect-src");
   assert.ok(connect.startsWith("connect-src 'self' "));
   for (const origin of WALLET_CONNECT_SRC) assert.ok(connect.includes(` ${origin}`), `missing ${origin}`);
+  assert.deepEqual(BRIDGE_CONNECT_SRC, ["https://rpc.mainnet.arc.io"]);
+  assert.ok(connect.split(" ").includes("https://rpc.mainnet.arc.io"));
+  assert.ok(!connect.split(" ").includes("https:"));
   assert.ok(connect.includes(" http://127.0.0.1:8545"));
   assert.ok(connect.includes(" https://openlaunch.lol"));
   assert.doesNotMatch(connect, /evil|javascript|not a url/);

@@ -33,8 +33,10 @@ test("wallet adapter preserves hydration, routes connecting through the picker, 
 
 test("unknown networks stay unknown and never get an inferred explorer destination", () => {
   assert.match(source, /const key = chainKeyOf\(chainId\)/);
-  assert.match(source, /key \? CHAIN_SHORT\[key\] : "Unsupported network"/);
-  assert.match(source, /\{key \? \(\s*<a[^>]*href=\{explorerAddress\(key, address\)\}/);
+  assert.match(source, /key \? CHAIN_SHORT\[key\] : bridgeNetwork\?\.name \?\? "Unsupported network"/);
+  assert.match(source, /isBridgeChainId\(chainId\) \? BRIDGE_CHAINS\[chainId\]/);
+  assert.match(source, /\{explorer \? \(\s*<a[^>]*href=\{explorer\}/);
+  assert.match(source, /const explorer = key \? explorerAddress\(key, address\) : bridgeNetwork \? `[\s\S]*` : null/);
   assert.match(source, /explorerName\(key\)/);
   assert.match(source, /This network isn’t supported\. Choose one below\./);
   assert.match(source, /CHAIN_KEYS.map\(\(chain\) =>/);

@@ -13,6 +13,7 @@ import ConnectButton from "./ConnectButton";
 import ThemeToggle from "./ThemeToggle";
 import NotificationSettings from "./NotificationSettings";
 import LivePulse from "./launchpad/LivePulse";
+import { BridgeButton, BridgeProvider } from "./bridge/BridgeProvider";
 
 const NAV = [
   { href: "/", label: "Launchpad" },
@@ -38,12 +39,12 @@ export default function HeaderNav({ pulse }: { pulse: Pulse }) {
   const heroCtaOnScreen = useHeroCtaOnScreen(pathname);
 
   return (
-    <MotionConfig reducedMotion="user">
+    <BridgeProvider><MotionConfig reducedMotion="user">
       <Navbar className="top-0">
         <Desktop pulse={pulse} isActive={isActive} quietCta={heroCtaOnScreen} />
         <Mobile key={pathname} pulse={pulse} isActive={isActive} />
       </Navbar>
-    </MotionConfig>
+    </MotionConfig></BridgeProvider>
   );
 }
 
@@ -99,6 +100,7 @@ function Desktop({ visible = false, pulse, isActive, quietCta }: { visible?: boo
       <NavLinks isActive={isActive} compact={visible} />
 
       <div className="relative z-20 ml-auto flex items-center gap-2">
+        <BridgeButton />
         <NotificationSettings />
         <ThemeToggle />
         <ConnectButton />
@@ -261,6 +263,7 @@ function Mobile({ visible = false, pulse, isActive }: { visible?: boolean; pulse
           <LivePulse initial={pulse} block />
           <div className="my-1 border-t border-line" aria-hidden />
           <XLink block />
+          <BridgeButton block onOpen={() => setOpen(false)} />
           <NotificationSettings block />
           <ThemeToggle block />
           <ConnectButton block onNavigate={() => setOpen(false)} />
