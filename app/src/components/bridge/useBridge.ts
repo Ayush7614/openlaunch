@@ -9,7 +9,9 @@ import { BRIDGE_WALLET_CHAINS } from "@/lib/bridge/chains";
 import { BRIDGE_CHAINS, bridgeCurrency, defaultBridgeAsset, isBridgeAssetSupported, isBridgeChainId, type BridgeAsset, type BridgeChainId, type BridgeQuote } from "@/lib/bridge/types";
 import { activityAfterWalletChange, anchorQuoteExpiry, bridgeErrorMessage, bridgeGasBudget, bridgeRequest, bridgeRequestKey, changeBridgeRoute, hasMatchingDepositEvent, isHash, isMatchingSourceDeposit, linkedTimeoutSignal, mergeBridgeStatus, nativeSourceAmount, RELAY_DEPOSITORY, replacementSourceHash, submitBridgeDeposit, transferCanDiscard, transferIsTerminal, transferPhase, validateBridgeQuote, validateBridgeStatus, type BridgeActivity, type BridgePhase, type BridgeRouteChange, type BridgeRouteInputs, type ProviderObservation, type TrackedBridgeTransfer } from "@/lib/bridge/client";
 import { BRIDGE_STORAGE_PREFIX, createBridgeTransferStore } from "@/lib/bridge/client-storage";
-import { APPROVAL_STORAGE_PREFIX, approvalBlocksSubmission, approvalCanDiscard, createApprovalStore, hasMatchingApprovalEvent, isMatchingApprovalTransaction, reconcileApproval, submitExactApproval, validateApprovalMetadata, type ApprovalReceiptObservation } from "@/lib/bridge/approval";
+import { APPROVAL_STORAGE_PREFIX, approvalBlocksSubmission, approvalCanDiscard, canApplyApprovalPoll, createApprovalStore, reconcileApproval, recoverApprovalFromEvidence, submitExactApproval, validateApprovalMetadata, type ApprovalReceiptObservation } from "@/lib/bridge/approval";
+import { APPROVAL_HEALTH_UNAVAILABLE, readPendingApprovalHealth, type ApprovalHealth } from "@/lib/bridge/approval-health";
+import { assertBridgeWalletQueueClear } from "@/lib/bridge/transaction-preflight";
 
 export type { BridgePhase, TrackedBridgeTransfer } from "@/lib/bridge/client";
 
@@ -56,6 +58,7 @@ export function useBridge() {
   const [allowanceResult, setAllowanceResult] = useState<{ key: string; value: bigint | null; error: string | null } | null>(null);
   const [observation, setObservation] = useState<ProviderObservation | null>(null);
   const [approvalObservation, setApprovalObservation] = useState<ApprovalReceiptObservation | null>(null);
+  const [approvalHealthResult, setApprovalHealthResult] = useState<{ wallet: string; createdAt: number; hash: string; value: ApprovalHealth | null } | null>(null);
   const [now, setNow] = useState(0);
   const [discarding, setDiscarding] = useState(false);
   const actionLock = useRef(false);
@@ -137,7 +140,7 @@ export function useBridge() {
       clearTimeout(timer);
       try {
         const observed = approvals.getSnapshot().approvals[address.toLowerCase()];
-        if (!observed || observed.createdAt !== approvalId || observed.approvalHash !== approvalHash) return;
+        if (!observed || !approvalBlocksSubmission(observed) || observed.createdAt !== approvalId || observed.approvalHash !== approvalHash) return;
         const pub = getPublicClient(config, { chainId: observed.chainId });
         if (!pub) throw new Error("Could not connect to the source network to check the approval.");
         const [chainId, allowance, receipt] = await Promise.all([
@@ -148,20 +151,29 @@ export function useBridge() {
             throw error;
           }),
         ]);
+        if (chainId !== observed.chainId) throw new Error("The approval RPC reported a different network. Checking will retry.");
+        // Diagnostics never substitute for a receipt or allowance, and failed
+        // optional reads cannot stop an already-mined approval from resolving.
+        const health = receipt ? null : await readPendingApprovalHealth(pub, observed, Date.now());
         const apply = (persist: boolean) => {
           const current = approvals.read(address);
-          if (stopped || !current || current.createdAt !== approvalId || current.approvalHash !== approvalHash || current.amount !== observed.amount) return;
+          if (stopped || !current || !canApplyApprovalPoll(current, observed)) return;
           const next = reconcileApproval(current, { chainId, allowance, receipt });
           if (persist) {
             try { approvals.save(next); } catch { /* memory retains the receipt result */ }
           } else approvals.remember(next);
           setApprovalObservation({ createdAt: current.createdAt, receiptFound: receipt !== null, observedAt: Date.now() });
+          setApprovalHealthResult({ wallet: address.toLowerCase(), createdAt: current.createdAt, hash: approvalHash, value: health });
           setApprovalIssue(null);
         };
         if (navigator.locks) await navigator.locks.request(transferLockName(address), { ifAvailable: true }, (lock) => { if (lock) apply(true); });
         else apply(false);
       } catch (error) {
-        if (!stopped) setApprovalIssue({ key: address.toLowerCase(), message: messageOf(error, "Approval status is temporarily unavailable. Checking will retry.") });
+        const current = approvals.getSnapshot().approvals[address.toLowerCase()];
+        if (!stopped && current?.createdAt === approvalId && current.approvalHash === approvalHash && approvalBlocksSubmission(current)) {
+          setApprovalHealthResult({ wallet: address.toLowerCase(), createdAt: approvalId, hash: approvalHash, value: APPROVAL_HEALTH_UNAVAILABLE });
+          setApprovalIssue({ key: address.toLowerCase(), message: messageOf(error, "Approval status is temporarily unavailable. Checking will retry.") });
+        }
       } finally {
         active = false;
         const current = approvals.getSnapshot().approvals[address.toLowerCase()];
@@ -363,6 +375,7 @@ export function useBridge() {
           },
           switchChain: (chainId) => switchChainAsync({ chainId }),
           prepare: async (owner, transaction) => {
+            await assertBridgeWalletQueueClear(pub, owner.address, BRIDGE_CHAINS[transaction.chainId].name);
             const call = { account: owner.address, to: transaction.to, data: transaction.data, value: transaction.value };
             const [chainId, balance, estimate, fees, allowance, selectedBalance, additional] = await Promise.all([
               pub.getChainId(), pub.getBalance({ address: owner.address }), pub.estimateGas(call), pub.estimateFeesPerGas(),
@@ -404,7 +417,7 @@ export function useBridge() {
   }
 
   async function recoverApproval(hash: string) {
-    if (actionLock.current || !address || !approval || approval.approvalHash || approval.status !== "uncertain") return;
+    if (actionLock.current || !address || !approval || !approvalBlocksSubmission(approval)) return;
     if (!isHash(hash) || /^0x0+$/.test(hash)) {
       setApprovalIssue({ key: address.toLowerCase(), message: "Enter the approval transaction hash from your wallet or its source explorer." });
       return;
@@ -417,21 +430,16 @@ export function useBridge() {
       await navigator.locks.request(transferLockName(address), { ifAvailable: true }, async (lock) => {
         if (!lock) throw new Error("A bridge request is open in another tab. Check it before recovering this approval.");
         const current = approvals.read(address);
-        if (!current || current.createdAt !== approval.createdAt || current.approvalHash) throw new Error("The saved approval changed. Review its current status.");
+        if (!current || current.createdAt !== approval.createdAt || current.approvalHash !== approval.approvalHash || !approvalBlocksSubmission(current)) throw new Error("The saved approval changed. Review its current status.");
         const pub = getPublicClient(config, { chainId: current.chainId });
         if (!pub) throw new Error("Could not connect to the approval's network. Try checking again.");
         const [chainId, transaction, receipt, allowance] = await Promise.all([
           pub.getChainId(), pub.getTransaction({ hash }), pub.getTransactionReceipt({ hash }),
           pub.readContract({ address: current.token, abi: erc20Abi, functionName: "allowance", args: [address, RELAY_DEPOSITORY] }),
         ]);
-        if (chainId !== current.chainId || receipt.transactionHash.toLowerCase() !== hash.toLowerCase()) throw new Error("The transaction could not be verified on the approval's network.");
+        if (receipt.transactionHash.toLowerCase() !== hash.toLowerCase()) throw new Error("The transaction receipt did not match the supplied hash.");
         const block = await pub.getBlock({ blockNumber: receipt.blockNumber });
-        const blockTime = Number(block.timestamp) * 1000;
-        // Approvals have no unique order ID. Do not adopt a historical matching
-        // approval; allow only a bounded clock difference from this wallet call.
-        if (blockTime < current.createdAt - 30_000 || blockTime > Date.now() + 30_000) throw new Error("This transaction predates the saved approval or your clock differs from the network. Check the hash and device clock.");
-        if (!isMatchingApprovalTransaction(current, transaction) && !hasMatchingApprovalEvent(current, receipt)) throw new Error("That transaction does not match this wallet's exact USDC approval.");
-        const next = reconcileApproval({ ...current, approvalHash: hash }, { chainId, allowance, receipt });
+        const next = recoverApprovalFromEvidence(current, { chainId, transaction, receipt, allowance, blockTimestamp: block.timestamp, now: Date.now() });
         approvals.save(next);
       });
     } catch (error) {
@@ -475,6 +483,7 @@ export function useBridge() {
           prepare: async (q) => {
             const pub = getPublicClient(config, { chainId: q.originChainId });
             if (!pub) throw new Error("Could not connect to the source network. Try again.");
+            await assertBridgeWalletQueueClear(pub, q.address, BRIDGE_CHAINS[q.originChainId].name);
             const transaction = { account: q.address, to: q.transaction.to, data: q.transaction.data, value: BigInt(q.transaction.value) };
             const [rpcChain, balance, estimate, fees, additional, allowance, selectedBalance] = await Promise.all([
               pub.getChainId(), pub.getBalance({ address: q.address }), pub.estimateGas(transaction), pub.estimateFeesPerGas(),
@@ -639,6 +648,7 @@ export function useBridge() {
     quoteError: quoteIssue?.key === requestKey ? quoteIssue.message : null,
     quoteExpired, requestQuote, confirm, reset, tracked,
     approval, approvalRequired, allowanceLoading, approvalBusy: approvalSending,
+    approvalHealth: approvalPending && approvalHealthResult?.wallet === walletKey && approvalHealthResult.createdAt === approvalId && approvalHealthResult.hash === approvalHash ? approvalHealthResult.value : null,
     approvalError: approvalIssue?.key === walletKey ? approvalIssue.message : quote && allowanceResult?.key === quote.requestId ? allowanceResult.error : null,
     approve, retryApproval, recoverApproval, approvalCanBeDiscarded, discardApproval,
     canDiscard, discard, discarding,

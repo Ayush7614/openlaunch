@@ -223,33 +223,35 @@ function ApprovalProgress({ bridge: b }: { bridge: Bridge }) {
   const approval = b.approval!;
   const approvalChain = BRIDGE_CHAINS[approval.chainId];
   const uncertain = approval.status === "uncertain";
+  const health = b.approvalHealth;
+  const needsAttention = uncertain || (!!health && health.kind !== "waiting");
   const [hash, setHash] = useState("");
   const [verifying, setVerifying] = useState(false);
   return <div className={styles.transfer}>
     <div className={styles.transferRoute}><NetworkMark chain={approval.chainId} /><span>USDC approval on {approvalChain.name}</span></div>
     <div className={styles.statusHeading} role="status">
-      <span className={styles.statusIcon}>{uncertain ? <CircleAlert size={26} aria-hidden /> : <LoaderCircle size={26} className={styles.spinner} aria-hidden />}</span>
-      <h3>{verifying ? "Verifying transaction" : b.approvalBusy ? "Check your wallet" : uncertain ? "Check your approval" : "Approval submitted"}</h3>
-      <p>{verifying ? `Checking the transaction on ${approvalChain.name}. No wallet request will be made.` : b.approvalBusy ? "Approve the exact USDC amount in your wallet. This is not the bridge deposit." : uncertain ? "The wallet response was interrupted. Check your wallet’s activity and verify the transaction hash below. Do not approve again." : `Waiting for ${approvalChain.name} to confirm. You’ll review a fresh bridge quote next.`}</p>
+      <span className={styles.statusIcon}>{needsAttention ? <CircleAlert size={26} aria-hidden /> : <LoaderCircle size={26} className={styles.spinner} aria-hidden />}</span>
+      <h3>{verifying ? "Verifying transaction" : b.approvalBusy ? "Check your wallet" : uncertain ? "Check your approval" : health?.title ?? "Approval submitted"}</h3>
+      <p>{verifying ? `Checking the transaction on ${approvalChain.name}. No wallet request will be made.` : b.approvalBusy ? "Approve the exact USDC amount in your wallet. This is not the bridge deposit." : uncertain ? "The wallet response was interrupted. Check your wallet’s activity and verify the transaction hash below. Do not approve again." : health?.detail ?? `Waiting for ${approvalChain.name} to confirm. You’ll review a fresh bridge quote next.`}</p>
     </div>
     <dl className={styles.transferDetails}><div><dt>Approval limit</dt><dd>{nativeAmount(formatUnits(BigInt(approval.amount), 6))} USDC</dd></div></dl>
     {b.address ? <Recipient address={b.address} /> : null}
     <p className={styles.approvalNotice}>No bridge deposit has been requested. An approval permits Relay’s deposit contract to use up to this amount; it does not bridge it.</p>
     {b.approvalError || b.storageError ? <p className={styles.error} role="alert"><CircleAlert size={16} aria-hidden /><span>{b.approvalError || b.storageError}</span></p> : null}
     {approval.approvalHash ? <a className={styles.externalAction} href={`${approvalChain.explorer}/tx/${approval.approvalHash}`} target="_blank" rel="noreferrer">View approval on {approvalChain.name} <ArrowUpRight size={17} aria-hidden /></a> : null}
-    {uncertain && !approval.approvalHash && !b.approvalBusy ? <details className={styles.approvalRecovery}>
-      <summary>Have the approval transaction hash?</summary>
-      <p>Copy it from your wallet’s activity on {approvalChain.name}. We’ll verify the wallet, token, spender and exact amount before resuming.</p>
+    {!b.approvalBusy ? <details className={styles.approvalRecovery}>
+      <summary>{approval.approvalHash ? "Sped up your approval in the wallet?" : "Have the approval transaction hash?"}</summary>
+      <p>Copy the confirmed approval hash from your wallet’s activity on {approvalChain.name}. We’ll verify the network, wallet, token, spender, exact amount and confirmation before resuming. A cancellation or an unrelated transaction cannot be used.</p>
       <form onSubmit={(event) => { event.preventDefault(); setVerifying(true); void b.recoverApproval(hash.trim()).finally(() => setVerifying(false)); }}>
         <label htmlFor="bridge-approval-hash" className={styles.smallLabel}>Approval transaction hash</label>
         <input id="bridge-approval-hash" value={hash} onChange={(event) => setHash(event.target.value)} placeholder="0x…" maxLength={66} autoComplete="off" spellCheck={false} />
-        <button type="submit" className={styles.newTransfer} disabled={!/^0x[0-9a-fA-F]{64}$/.test(hash.trim())}>Verify approval transaction</button>
+        <button type="submit" className={styles.newTransfer} disabled={verifying || !/^0x[0-9a-fA-F]{64}$/.test(hash.trim())}>Verify approval transaction</button>
       </form>
     </details> : null}
     {approval.approvalHash ? <button type="button" className={styles.newTransfer} disabled={b.approvalBusy} onClick={b.retryApproval}>Check approval status</button> : null}
     {b.approvalCanBeDiscarded ? <details className={styles.approvalRecovery}>
       <summary>Still not confirmed after {DISCARD_AFTER_MS / 60_000} minutes?</summary>
-      <p>{approvalChain.name} has no record of this approval. If your wallet shows it as dropped or cancelled, you can discard it and start over. If it confirms later it only grants this exact allowance; the next deposit re-checks it.</p>
+      <p>No confirmation was found for this saved approval hash. This does not prove the transaction was dropped. Check your wallet’s earliest pending transaction before starting over; discarding this record does not cancel it or fix a queued nonce. If it confirms later it only grants this exact allowance; the next deposit re-checks it.</p>
       <button type="button" className={styles.newTransfer} disabled={b.approvalBusy || b.discarding} onClick={b.discardApproval}>{b.discarding ? "Checking the approval…" : "Discard this approval"}</button>
     </details> : null}
     <p className={styles.disclaimer}>You can close this panel. Reopen Bridge with this wallet to resume. If you stop after approval, the unspent allowance remains until used or revoked.</p>
