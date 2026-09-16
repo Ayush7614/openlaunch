@@ -147,6 +147,39 @@ contract LaunchFactoryArcFork is Test {
         assertEq(IERC20Meta(USDC).balanceOf(bob), quoteOut - (quoteOut * 6_000) / 10_000, "bob got the rest");
     }
 
+    /// Burn mode (no beneficiary) sends the quote fee to 0x…dEaD with a plain ERC-20 transfer. Circle's USDC keeps a
+    /// blocklist and Arc reverts transfers to some special addresses, so this pins that USDC → dEaD works on Arc:
+    /// otherwise every burn-mode launch's collect() would revert forever (LaunchLocker._burn).
+    function test_fork_arc_burnModeSendsUsdcFeesToDead() public {
+        vm.skip(!forked);
+        LaunchFactory.LaunchParams memory p = _params();
+        p.recipients = new LaunchLocker.Recipient[](0);
+        p.symbol = "ARCB";
+        (bytes32 salt,) =
+            factory.findSalt(address(this), keccak256("arc-burn"), p.name, p.symbol, 0, p.metadataURI, USDC, 64);
+        p.salt = salt;
+        (address token, uint256 tokenId) = factory.launch(p);
+        uint256 quoteIn = 100e6;
+        PoolKey memory key = factory.poolKeyOf(token);
+        vm.startPrank(buyer);
+        IERC20Meta(USDC).approve(address(swapRouter), quoteIn);
+        swapRouter.swap(
+            key,
+            SwapParams({
+                zeroForOne: true, amountSpecified: -int256(quoteIn), sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+            }),
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            ""
+        );
+        vm.stopPrank();
+        uint256 deadBefore = IERC20Meta(USDC).balanceOf(locker.DEAD());
+        (uint256 quoteOut,) = locker.collect(tokenId);
+        assertApproxEqRel(quoteOut, quoteIn / 100, 1e15, "1% fee in USDC");
+        assertEq(
+            IERC20Meta(USDC).balanceOf(locker.DEAD()) - deadBefore, quoteOut, "the whole USDC fee was burned to dEaD"
+        );
+    }
+
     /// The app buys through the Universal Router with Permit2 (app/src/lib/launchpad/swap.ts): same commands, same
     /// actions, and for Arc the "v2" params layout. Both layouts are tried against the live router.
     function test_fork_arc_universalRouterDecodesV2Layout() public {
