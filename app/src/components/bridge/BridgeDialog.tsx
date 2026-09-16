@@ -115,7 +115,7 @@ export default function BridgeDialog({ open, onOpenChange, restoreFocus }: {
   onOpenChange: (open: boolean) => void;
   restoreFocus: () => HTMLElement | null;
 }) {
-  const bridge = useBridge();
+  const bridge = useBridge(open);
   const popup = useRef<HTMLDivElement>(null);
   const [connecting, setConnecting] = useState(false);
   const transferring = bridge.tracked !== null;
@@ -152,6 +152,7 @@ export default function BridgeDialog({ open, onOpenChange, restoreFocus }: {
 export function BridgeForm({ bridge: b, connect }: { bridge: Bridge; connect: () => void }) {
   if (b.approval && (b.approval.status === "pending" || b.approval.status === "uncertain")) return <ApprovalProgress bridge={b} />;
   const locked = b.busy || b.approvalBusy;
+  const loading = locked || b.quoteLoading;
   const reviewing = !!b.quote && !b.quoteExpired;
   const needsRefresh = !!b.quote && b.quoteExpired;
   const origin = BRIDGE_CHAINS[b.originChainId];
@@ -161,15 +162,21 @@ export function BridgeForm({ bridge: b, connect }: { bridge: Bridge; connect: ()
   const erc20Input = inputCurrency.address !== zeroAddress;
   const convertsAsset = inputCurrency.symbol !== outputCurrency.symbol;
   const outputAmount = (value: string) => nativeAmount(formatUnits(BigInt(value), outputCurrency.decimals));
-  const label = b.approvalBusy ? "Confirm USDC approval…" : b.allowanceLoading ? "Checking USDC permission…" : b.phase === "quoting" ? "Finding your route…"
+  const label = b.approvalBusy ? "Confirm USDC approval…" : b.allowanceLoading ? "Checking USDC permission…" : b.quoteLoading ? "Getting your quote…"
     : b.phase === "switching" ? "Confirm network switch…"
     : b.phase === "confirming" ? "Confirm in your wallet…"
     : needsRefresh ? "Refresh quote"
     : reviewing && b.approvalRequired ? `Approve ${nativeAmount(b.amount)} USDC`
-    : reviewing ? `Bridge to ${destination.name}` : "Review bridge";
+    : reviewing ? `Bridge to ${destination.name}` : b.quoteError ? "Retry quote" : !b.canQuote ? "Enter an amount" : "Get quote";
+  const error = (!b.quoteRejection && b.quoteError) || b.error || b.storageError || b.approvalError;
 
   return (
-    <form onSubmit={(event) => { event.preventDefault(); if (b.address) void (reviewing ? b.approvalRequired ? b.approve() : b.confirm() : b.requestQuote()); else connect(); }}>
+    <form onSubmit={(event) => {
+      event.preventDefault();
+      if (!b.address) { connect(); return; }
+      if (loading || b.allowanceLoading || !b.canQuote) return;
+      void (reviewing ? b.approvalRequired ? b.approve() : b.confirm() : b.requestQuote());
+    }}>
       <div className={styles.route}>
         <NetworkSelect label="From" chain={b.originChainId} disabled={locked} onChange={b.setOriginChainId} />
         <button type="button" className={styles.reverse} aria-label={`Reverse route: ${destination.name} to ${origin.name}`} disabled={locked} onClick={b.reverseRoute}><ArrowLeftRight size={18} aria-hidden /></button>
@@ -193,7 +200,7 @@ export function BridgeForm({ bridge: b, connect }: { bridge: Bridge; connect: ()
 
       {b.quote ? (
         <div className={styles.quote} aria-live="polite">
-          <div className={styles.receiveLabel}><span>Estimated output</span></div>
+          <div className={styles.receiveLabel}><span>Estimated output</span><span className={styles.estimate}>{needsRefresh ? "Quote expired" : "Live quote"}</span></div>
           <p className={styles.receiveAmount}>{outputAmount(b.quote.amountOut)}<span><AssetMark asset={outputCurrency.symbol} />{outputCurrency.symbol}</span></p>
           <dl className={styles.fees}>
             <div><dt>Minimum received</dt><dd title={`${formatUnits(BigInt(b.quote.minimumAmountOut), outputCurrency.decimals)} ${outputCurrency.symbol}`}>{outputAmount(b.quote.minimumAmountOut)} {outputCurrency.symbol}</dd></div>
@@ -205,14 +212,26 @@ export function BridgeForm({ bridge: b, connect }: { bridge: Bridge; connect: ()
           <p className={styles.quoteNotice}>{needsRefresh ? "This quote expired. Refresh and review the new amounts." : "0.5% slippage limit. Arrival time and gas can change."}</p>
           {b.approvalRequired ? <p className={styles.approvalNotice}>First, approve only {nativeAmount(b.amount)} USDC for Relay’s deposit contract. Then review a fresh quote and confirm the bridge separately. Approval alone does not move your funds and uses additional {origin.symbol} for gas.</p> : null}
         </div>
-      ) : <div className={styles.previewNote}><ArrowRight size={16} aria-hidden /><p>Get a live quote before you commit.<br /><span>Fees and the minimum received shown upfront.</span></p></div>}
+      ) : b.quoteRejection ? <div className={styles.feeLimit} role="status">
+        <div className={styles.feeLimitHeading}><CircleAlert size={17} aria-hidden /><h3>This route is too expensive right now</h3></div>
+        <p>{b.quoteRejection.reason === "relay-fee" ? `Relay’s fee is ${b.quoteRejection.relayFeePercent}% of your amount, above our 5% safety limit.` : `This quote loses ${b.quoteRejection.totalImpactPercent.replace(/^-/, "")}% in conversion and fees, above our 5% safety limit.`}</p>
+        <dl className={styles.fees}>
+          <div><dt>Relay fee <span>(included)</span></dt><dd title={`${b.quoteRejection.relayFee} ${inputCurrency.symbol}`}>{nativeAmount(b.quoteRejection.relayFee)} {inputCurrency.symbol}</dd></div>
+          <div><dt>Source gas <span>(extra, estimated)</span></dt><dd title={`${b.quoteRejection.sourceGas} ${origin.symbol}`}>{nativeAmount(b.quoteRejection.sourceGas)} {origin.symbol}</dd></div>
+        </dl>
+        <p className={styles.feeLimitHint}>Try a different amount or route. Your quote updates automatically. Nothing has been submitted.</p>
+      </div> : <div className={styles.previewNote} role="status" aria-live="polite">
+        {b.quoteLoading ? <LoaderCircle size={16} className={styles.spinner} aria-hidden /> : <ArrowRight size={16} aria-hidden />}
+        <p>{b.quoteLoading ? "Updating your quote…" : b.quoteError ? "No quote available yet." : b.address ? "Enter an amount. We’ll find your route." : "See your route before you commit."}<br />
+          <span>{b.quoteLoading ? "Keep typing. We’ll use your latest amount." : "Quotes update automatically. No wallet request until you confirm."}</span></p>
+      </div>}
 
       {b.address ? <Recipient address={b.address} /> : null}
-      {b.quoteError || b.error || b.storageError || b.approvalError ? <p className={styles.error} role="alert"><CircleAlert size={16} aria-hidden /><span>{b.quoteError || b.error || b.storageError || b.approvalError}</span></p> : null}
-      <button type="submit" className={styles.primary} disabled={locked || b.allowanceLoading || (!!b.address && !b.amount.trim())}>
-        {locked ? <LoaderCircle size={17} className={styles.spinner} aria-hidden /> : !b.address ? <Wallet size={17} aria-hidden /> : null}
+      {error ? <p className={styles.error} role="alert"><CircleAlert size={16} aria-hidden /><span>{error}</span></p> : null}
+      <button type="submit" className={styles.primary} disabled={loading || b.allowanceLoading || (!!b.address && !b.canQuote)}>
+        {loading ? <LoaderCircle size={17} className={styles.spinner} aria-hidden /> : !b.address ? <Wallet size={17} aria-hidden /> : null}
         {b.address ? label : "Connect wallet"}
-        {!locked && b.address ? <ArrowRight size={17} aria-hidden /> : null}
+        {!loading && b.address ? <ArrowRight size={17} aria-hidden /> : null}
       </button>
       <p id="bridge-gas-note" className={styles.disclaimer}>Keep some {origin.symbol} on {origin.name} for gas. {convertsAsset ? "Relay converts the asset at the quoted rate. " : ""}Bridging uses Relay, a third-party protocol, and carries risk. Openlaunch does not operate Relay, holds no funds in transit, and is not responsible for delays, refunds or losses. {erc20Input ? "An unspent USDC approval remains until used or revoked." : "No token approvals required."}</p>
     </form>

@@ -73,6 +73,23 @@ export type BridgeQuote = BridgeQuoteRequest & {
   transaction: { to: Address; data: Hex; value: string; chainId: BridgeChainId };
 };
 
+/** Display-only costs from a verified quote that fails the unchanged 5% limit. */
+export type BridgeQuoteRejection = BridgeQuoteRequest & {
+  reason: "relay-fee" | "total-impact";
+  relayFee: string; // source input currency, not native-gas units
+  relayFeePercent: string; // percentage rounded up to six decimal places
+  sourceGas: string; // source native currency, always 18 decimals
+  totalImpactPercent: string;
+};
+
+/** Round upward so an actual fee just above 5% is never displayed as 5%. */
+export function bridgeFeePercent(fee: bigint, amount: bigint): string {
+  if (fee < 0n || amount <= 0n) throw new Error("Invalid bridge fee amounts.");
+  const scaled = (fee * 100_000_000n + amount - 1n) / amount;
+  const fraction = (scaled % 1_000_000n).toString().padStart(6, "0").replace(/0+$/, "");
+  return `${scaled / 1_000_000n}${fraction ? `.${fraction}` : ""}`;
+}
+
 export type BridgeStatus = "waiting" | "depositing" | "pending" | "submitted" | "delayed" | "success" | "refund" | "failure";
 export type BridgeStatusResponse = {
   status: BridgeStatus;

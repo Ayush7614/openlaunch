@@ -6,6 +6,7 @@ import { getOrderId, type Order } from "./relay-order.ts";
 import { ARC_USDC, BASE_USDC, BRIDGE_INPUT_CURRENCIES, bridgeCurrency, type BridgeAsset, type BridgeChainId } from "./types.ts";
 import { BRIDGE_PRIVATE_HEADERS, bridgeErrorResponse, getBridgeQuote, getBridgeStatus, readBridgeJson } from "./relay.ts";
 import { ARC_FIXTURE_NOW, ARC_FIXTURE_ORDER_ID, ARC_OUTBOUND_FIXTURE_NOW, ARC_OUTBOUND_ORDER_ID, BASE_USDC_FIXTURE_NOW, BASE_USDC_ORDER_ID, FIXTURE_INPUT, FIXTURE_NOW, FIXTURE_REQUEST_ID, addApprovalFixture, relayArcOutboundFixture, relayArcQuoteFixture, relayBaseUsdcFixture, relayChainsFixture, relayQuoteFixture, relayRouteFixture } from "./relay.fixture.ts";
+import { parseBridgeQuoteRejection } from "./client.ts";
 
 test("quote adapter uses only fixed provider endpoints and requests native verification data without app fees", async () => {
   const seen: { url: string; init: RequestInit }[] = [];
@@ -159,6 +160,59 @@ test("rejects excessive source fees even when provider impact claims no loss", (
   quote.fees.relayer.amount = (BigInt(input.amount) * 5n / 100n + 1n).toString();
   quote.details.totalImpact.percent = "0";
   assert.throws(() => validateRelayQuote(quote, input, validateRelayChains(relayChainsFixture(), input), FIXTURE_NOW), (error) => error instanceof BridgeApiError && error.status === 422);
+});
+
+test("verified fee rejection returns request-bound cost diagnostics but never executable quote data", async () => {
+  const { input, quote } = relayRouteFixture(5042, 8453, "USDC", "ETH");
+  quote.fees.relayer.amount = "1875000";
+  quote.details.totalImpact.percent = "-8.12";
+  let caught: unknown;
+  try { await getBridgeQuote(input, async (url) => Response.json(url.endsWith("/chains") ? relayChainsFixture() : quote), () => FIXTURE_NOW); }
+  catch (error) { caught = error; }
+  assert.ok(caught instanceof BridgeApiError);
+  const response = bridgeErrorResponse(caught);
+  assert.equal(response.status, 422);
+  assert.match(response.headers.get("cache-control")!, /private, no-store/);
+  const body = await response.json();
+  assert.deepEqual(Object.keys(body).sort(), ["error", "quoteRejection"]);
+  assert.deepEqual(body.quoteRejection, { ...input, reason: "relay-fee", relayFee: "1.875", relayFeePercent: "7.5", sourceGas: "0.003", totalImpactPercent: "-8.12" });
+  assert.deepEqual(parseBridgeQuoteRejection(body.quoteRejection, input), body.quoteRejection);
+  assert.doesNotMatch(JSON.stringify(body), /transaction|approval|requestId|orderId|calldata/);
+});
+
+test("unverifiable quotes never gain trusted cost diagnostics just because their fees exceed the cap", async () => {
+  for (const mutate of [
+    (quote: ReturnType<typeof relayQuoteFixture>) => { quote.fees.app.amount = "1"; },
+    (quote: ReturnType<typeof relayQuoteFixture>) => { quote.details.totalImpact.percent = "NaN"; },
+    (quote: ReturnType<typeof relayQuoteFixture>) => { quote.details.timeEstimate = 86401; },
+    (quote: ReturnType<typeof relayQuoteFixture>) => { quote.fees.gas.currency.decimals = 6; },
+    (quote: ReturnType<typeof relayQuoteFixture>) => { quote.fees.relayer.currency.decimals = 18; },
+    (quote: ReturnType<typeof relayQuoteFixture>) => { quote.steps[0].items[0].data.to = zeroAddress; },
+  ]) {
+    const { input, quote } = relayRouteFixture(5042, 8453);
+    quote.fees.relayer.amount = "1875000";
+    mutate(quote);
+    let caught: unknown;
+    try { validateRelayQuote(quote, input, validateRelayChains(relayChainsFixture(), input), FIXTURE_NOW); }
+    catch (error) { caught = error; }
+    assert.ok(caught instanceof BridgeApiError);
+    assert.equal(caught.status, 502);
+    assert.equal(caught.quoteRejection, undefined);
+    assert.deepEqual(Object.keys(await bridgeErrorResponse(caught).json()), ["error"]);
+  }
+});
+
+test("both safety thresholds stay inclusive at 5% and impact-only rejection has its own reason", () => {
+  const { input, quote } = relayRouteFixture(5042, 8453);
+  const metadata = validateRelayChains(relayChainsFixture(), input);
+  quote.fees.relayer.amount = "1250000";
+  quote.details.totalImpact.percent = "-5";
+  assert.doesNotThrow(() => validateRelayQuote(quote, input, metadata, FIXTURE_NOW));
+  quote.details.totalImpact.percent = "-5.000000000000000001";
+  assert.throws(() => validateRelayQuote(quote, input, metadata, FIXTURE_NOW), (error) => error instanceof BridgeApiError && error.status === 422 && error.quoteRejection?.reason === "total-impact" && error.quoteRejection.relayFeePercent === "5");
+  quote.details.totalImpact.percent = "0";
+  quote.fees.relayer.amount = "1250001";
+  assert.throws(() => validateRelayQuote(quote, input, metadata, FIXTURE_NOW), (error) => error instanceof BridgeApiError && error.quoteRejection?.reason === "relay-fee" && error.quoteRejection.relayFeePercent === "5.000004");
 });
 
 test("captured Arc ERC-20 quote binds the independent order hash and exact approval", () => {

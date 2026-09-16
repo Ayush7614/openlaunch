@@ -60,6 +60,13 @@
 .previewNote { display: flex; align-items: flex-start; gap: 10px; padding: 17px 0; border-top: 1px solid var(--color-line); color: var(--color-body); font-size: 12px; line-height: 1.65; }
 .previewNote svg { flex-shrink: 0; margin-top: 2px; color: var(--color-brand); }
 .previewNote span { color: var(--color-muted); }
+.feeLimit { padding: 18px 0 0; border-top: 1px solid var(--color-line); font-size: 12px; line-height: 1.65; }
+.feeLimitHeading { display: flex; align-items: center; gap: 8px; color: var(--color-down-ink); }
+.feeLimitHeading svg { flex-shrink: 0; }
+.feeLimitHeading h3 { font-size: 13px; font-weight: 600; }
+.feeLimit > p { margin: 8px 0 14px; color: var(--color-body); }
+.feeLimit .feeLimitHint { margin: 12px 0 0; color: var(--color-muted); font-size: 11px; }
+.feeLimit dd { min-width: 0; overflow-wrap: anywhere; }
 .quote { padding: 18px 0 0; border-top: 1px solid var(--color-line); }
 .receiveLabel { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 12px; color: var(--color-body); }
 .estimate { font-size: 11px; color: var(--color-muted); }

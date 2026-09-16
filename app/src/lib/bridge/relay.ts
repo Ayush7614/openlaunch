@@ -101,5 +101,5 @@ export async function getBridgeStatus(requestId: string, fetcher: Fetcher = fetc
 
 export function bridgeErrorResponse(error: unknown): Response {
   const known = error instanceof BridgeApiError ? error : new BridgeApiError("The bridge service is unavailable. Please try again.");
-  return Response.json({ error: known.message }, { status: known.status, headers: { ...BRIDGE_PRIVATE_HEADERS, ...(known.status === 429 ? { "Retry-After": "5" } : {}) } });
+  return Response.json({ error: known.message, ...(known.status === 422 && known.quoteRejection ? { quoteRejection: known.quoteRejection } : {}) }, { status: known.status, headers: { ...BRIDGE_PRIVATE_HEADERS, ...(known.status === 429 ? { "Retry-After": "5" } : {}) } });
 }

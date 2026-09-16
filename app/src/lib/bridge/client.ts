@@ -1,6 +1,6 @@
 import { BaseError, decodeEventLog, decodeFunctionData, encodeFunctionData, InsufficientFundsError, isAddress, parseUnits, type Address, type Hex } from "viem";
 import { friendlyError } from "../errors";
-import { bridgeCurrency, defaultBridgeAsset, isBridgeAssetSupported, isBridgeChainId, type BridgeAsset, type BridgeChainId, type BridgeQuote, type BridgeQuoteRequest, type BridgeStatus, type BridgeStatusResponse } from "./types";
+import { bridgeCurrency, bridgeFeePercent, defaultBridgeAsset, isBridgeAssetSupported, isBridgeChainId, type BridgeAsset, type BridgeChainId, type BridgeQuote, type BridgeQuoteRejection, type BridgeQuoteRequest, type BridgeStatus, type BridgeStatusResponse } from "./types";
 
 export type BridgePhase = "idle" | "quoting" | "review" | "switching" | "confirming" | "pending" | "success" | "refund" | "failure" | "uncertain";
 export type TrackedBridgeTransfer = BridgeQuoteRequest & {
@@ -96,13 +96,35 @@ export function nativeSourceAmount(request: BridgeQuoteRequest): bigint {
   return request.originChainId === 5042 ? BigInt(request.amount) * 10n ** 12n : /^0x0{40}$/.test(currency.address) ? BigInt(request.amount) : 0n;
 }
 
-function validImpactPercent(value: unknown): boolean {
+function validImpactPercent(value: unknown, lossLimit = 5n): boolean {
   if (typeof value !== "string" || value.length > 32 || !/^-?\d+(?:\.\d+)?$/.test(value)) return false;
   const negative = value.startsWith("-");
   const [whole, fractional = ""] = (negative ? value.slice(1) : value).split(".");
   const scaled = BigInt(whole + fractional);
   const scale = 10n ** BigInt(fractional.length);
-  return scaled <= (negative ? 5n : 100n) * scale;
+  return scaled <= (negative ? lossLimit : 100n) * scale;
+}
+
+/** Rejections are display-only, request-bound and never usable as wallet quotes. */
+export function parseBridgeQuoteRejection(value: unknown, request: BridgeQuoteRequest): BridgeQuoteRejection | null {
+  try {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const rejected = value as BridgeQuoteRejection;
+    const allowed = ["address", "originChainId", "destinationChainId", "originAsset", "destinationAsset", "amount", "reason", "relayFee", "relayFeePercent", "sourceGas", "totalImpactPercent"];
+    if (Object.keys(value).some((key) => !allowed.includes(key)) || !isAddress(rejected.address ?? "") || !isBridgeChainId(rejected.originChainId) || !isBridgeChainId(rejected.destinationChainId) || rejected.originChainId === rejected.destinationChainId || !isWei(rejected.amount, true)) return null;
+    if ((rejected.originAsset !== undefined && !isBridgeAssetSupported(rejected.originChainId, rejected.originAsset)) || (rejected.destinationAsset !== undefined && !isBridgeAssetSupported(rejected.destinationChainId, rejected.destinationAsset)) || bridgeRequestKey(rejected) !== bridgeRequestKey(request)) return null;
+    const decimals = bridgeCurrency(rejected.originChainId, rejected.originAsset, "input").decimals;
+    for (const [fee, precision] of [[rejected.relayFee, decimals], [rejected.sourceGas, 18]] as const) {
+      if (typeof fee !== "string" || fee.length > 100 || !new RegExp(`^\\d+(?:\\.\\d{1,${precision}})?$`).test(fee) || parseUnits(fee, precision) > MAX_UINT) return null;
+    }
+    const fee = parseUnits(rejected.relayFee, decimals);
+    const amount = BigInt(rejected.amount);
+    if (fee >= amount || rejected.relayFeePercent !== bridgeFeePercent(fee, amount) || !validImpactPercent(rejected.totalImpactPercent, 100n)) return null;
+    const reason = fee * 100n > amount * 5n ? "relay-fee" : !validImpactPercent(rejected.totalImpactPercent) ? "total-impact" : null;
+    if (reason === null || rejected.reason !== reason) return null;
+    // Copy only the display schema, never retain untrusted object references.
+    return { address: rejected.address, originChainId: rejected.originChainId, destinationChainId: rejected.destinationChainId, ...(rejected.originAsset === undefined ? {} : { originAsset: rejected.originAsset }), ...(rejected.destinationAsset === undefined ? {} : { destinationAsset: rejected.destinationAsset }), amount: rejected.amount, reason, relayFee: rejected.relayFee, relayFeePercent: rejected.relayFeePercent, sourceGas: rejected.sourceGas, totalImpactPercent: rejected.totalImpactPercent };
+  } catch { return null; }
 }
 
 export function validateBridgeQuote(value: unknown, request: BridgeQuoteRequest, now: number): BridgeQuote {

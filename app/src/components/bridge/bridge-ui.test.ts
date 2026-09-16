@@ -133,12 +133,31 @@ test("stuck records have a bounded discard path, and the hook avoids APIs missin
   assert.match(panel, /Keep the Transfer ID below/);
   assert.match(panel, /Openlaunch does not operate Relay, holds no funds in transit, and is not responsible for delays, refunds or losses/);
   assert.doesNotMatch(hook, /AbortSignal\.(any|timeout)/);
-  assert.match(hook, /linkedTimeoutSignal\(abort\.signal, 20_000\)/);
-  assert.match(hook, /anchorQuoteExpiry\(await responseBody\(response\), requestedAt\)/);
+  assert.match(hook, /linkedTimeoutSignal\(signal, 20_000\)/);
+  assert.match(hook, /anchorQuoteExpiry\(body, requestedAt\)/);
   assert.match(hook, /setActivity\(activityAfterWalletChange\)/);
   assert.match(hook, /error instanceof TransactionReceiptNotFoundError\) return null/);
   assert.match(hook, /replacementSourceHash\(current, status, receipt\.status === "fulfilled" && receipt\.value === null\)/);
   assert.match(hook, /const messageOf = bridgeErrorMessage;/);
+});
+
+test("quotes update without locking typing or automatically submitting wallet actions", () => {
+  const hook = read("./useBridge.ts");
+  assert.match(panel, /useBridge\(open\)/);
+  assert.match(hook, /autoQuoteEnabled = open && !!request && !sending && !approvalSending && !approvalPending && !tracked/);
+  assert.match(hook, /quoteSession.schedule\(\(\) => \{ void requestQuote\(\); \}\)/);
+  assert.match(hook, /\[autoQuoteEnabled, amount, walletChainId, requestQuote, quoteSession\]/);
+  assert.match(hook, /if \(!canApply\(\)\) return/);
+  assert.match(hook, /if \(value === inputs.current.amount\) return/);
+  assert.match(hook, /next\.originChainId === inputs\.current\.originChainId[^\n]+next\.amount === inputs\.current\.amount\) return/);
+  assert.match(hook, /busy: sending \|\| approvalSending \|\| approvalPending,/);
+  assert.match(panel, /const loading = locked \|\| b.quoteLoading/);
+  assert.match(panel, /input id="bridge-amount"[^\n]+disabled=\{locked\}/);
+  assert.match(panel, /if \(loading \|\| b.allowanceLoading \|\| !b.canQuote\) return/);
+  assert.match(panel, /Your quote updates automatically/);
+  assert.match(panel, /b.quoteRejection.reason === "relay-fee"/);
+  assert.match(panel, /b.quoteRejection.relayFeePercent/);
+  assert.doesNotMatch(hook, /busy:.*quoting/);
 });
 
 test("pending approvals explain missing/queued transactions and accept a verified replacement without a new wallet call", () => {
