@@ -4,7 +4,6 @@ import { CHAIN_KEYS, DEFAULT_CHAIN, chainIdOf, chainKeyOf, type ChainKey } from 
 import { quoteInfo as staticQuoteInfo, quoteUsdOf, type Quote, NATIVE_QUOTES, fixedUsdQuotes, quotesWithKey } from "./config";
 import { ensureRegistry, stockByAddress, stockUsdInUse } from "./stocksServer";
 import { gitlawbUsd } from "./gitlawbServer";
-import { GITLAWB_ADDRESSES } from "./gitlawb";
 import { canonicalImageUrl } from "./images";
 import { GRACE_HOURS, LIVE_WINDOW_HOURS, rankTrending, type LiveTier } from "./ranking";
 import { SNIPER_BLOCKS } from "./holders";
@@ -242,9 +241,8 @@ export async function listLaunchesPage(opts: ListOpts = {}): Promise<ListPage> {
     return arms.length ? db`(${arms.reduce((a, c) => db`${a} OR ${c}`)})` : db`false`;
   };
   if (opts.filter === "usdg" || opts.filter === "usdc") conds.push(db`${quoteArms(opts.filter)}`);
-  // GITLAWB has a different address per chain; each match is chain-scoped so a same-address token elsewhere is never GITLAWB
-  const gitlawbArms = CHAIN_KEYS.flatMap((k) => (GITLAWB_ADDRESSES[k] ? [db`(l.chain_id = ${chainIdOf(k)} AND l.quote = ${GITLAWB_ADDRESSES[k]})`] : []));
-  const isGitlawb = () => (gitlawbArms.length ? db`(${gitlawbArms.reduce((a, c) => db`${a} OR ${c}`)})` : db`false`);
+  // GITLAWB has a different address per chain (and none on Arc): the same chain-scoped match
+  const isGitlawb = () => quoteArms("gitlawb");
   if (opts.filter === "gitlawb") conds.push(db`${isGitlawb()}`);
   if (opts.filter === "today") conds.push(db`l.block_time > now() - interval '24 hours'`);
   const where = conds.length ? db`WHERE ${conds.reduce((a, c) => db`${a} AND ${c}`)}` : db``;

@@ -39,7 +39,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ s
               <PostsFeed initial={posts} compact />
               <section aria-labelledby="free-heading" className="rounded-2xl border border-line bg-paper p-4">
                 <h2 id="free-heading" className="text-sm font-semibold text-ink">Why it&apos;s free</h2>
-                <p className="mt-2 text-pretty text-xs leading-relaxed text-muted">No fee address in the factory. No platform cut in the locker. On either chain.</p>
+                <p className="mt-2 text-pretty text-xs leading-relaxed text-muted">No fee address in the factory. No platform cut in the locker. On every chain.</p>
                 <dl className="mt-4 divide-y divide-line border-y border-line text-xs">
                   <div className="flex items-center justify-between gap-3 py-2.5"><dt className="text-muted">Platform fee</dt><dd className="font-mono font-bold text-up tnum">$0</dd></div>
                   <div className="flex items-center justify-between gap-3 py-2.5"><dt className="text-muted">Trading fee</dt><dd className="font-mono text-ink tnum">0 / 1 / 3%</dd></div>

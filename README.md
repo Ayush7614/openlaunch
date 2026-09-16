@@ -73,7 +73,7 @@ Details, invariants and the deploy steps: [`contracts/docs/LAUNCHPAD.md`](contra
 
 | | |
 |---|---|
-| [`contracts/`](contracts) | `LaunchFactory`, `LaunchLocker`, `LaunchToken` (Foundry). 47 tests: unit, live-fork on both chains, an adversarial "try to rug it" suite, and a tokenized-stock quote suite. Slither clean. |
+| [`contracts/`](contracts) | `LaunchFactory`, `LaunchLocker`, `LaunchToken` (Foundry). Unit tests, live-fork suites on every chain, an adversarial "try to rug it" suite, and a tokenized-stock quote suite. Slither clean. |
 | [`app/`](app) | The site: Next.js 16, React 19, wagmi 3 / viem 2, Postgres indexer for launches, swaps, fees, transfers and holders. 80+ unit tests plus a smoke suite that runs after every deploy. |
 | [`brand/`](brand) | Logo tile, OG image and social assets. |
 
@@ -97,7 +97,7 @@ npm run dev                       # http://localhost:3000
 npm test                          # unit tests (tsx + node --test)
 ```
 
-`app/README.md` covers local development against anvil forks of both chains; `app/LAUNCH.md` is the
+`app/README.md` covers local development against anvil forks of the chains; `app/LAUNCH.md` is the
 production runbook (deploy, backups, restore). Deploying your own instance: change the app name in
 `app/fly.toml`, put production values in `app/.env.production`, run `scripts/fly-secrets.sh`, then `fly deploy`
 with the four `NEXT_PUBLIC_LAUNCH_*` build args (see the top of `app/fly.toml`).

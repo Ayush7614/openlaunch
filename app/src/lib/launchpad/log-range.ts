@@ -4,7 +4,8 @@
  * exceeded"). Pure, so node --test loads it directly.
  */
 
-const TOO_LARGE = /range too large|max allowed range|exceeds max results|more than \d+ results|response size exceeded|too many (results|logs)|query timeout/i;
+// deliberately not "query timeout": an overloaded node times out on every range, and bisecting it 2000 → 1 would only multiply the calls
+const TOO_LARGE = /range too large|max allowed range|exceeds max results|more than \d+ results|response size exceeded|too many (results|logs)/i;
 
 /** True when the node refused the query for its size (as opposed to failing outright). */
 export function isRangeTooLarge(err: unknown): boolean {

@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export default function MePage() {
   return (
     <main className={shell.page}>
-      <SectionIntro eyebrow="Your dashboard" title="A space for your next move." description="Your launches, the fees they earn, and everything you trade. One wallet across Base and Robinhood Chain." />
+      <SectionIntro eyebrow="Your dashboard" title="A space for your next move." description="Your launches, the fees they earn, and everything you trade. One wallet across Base, Robinhood Chain and Arc." />
       <MeDashboard />
     </main>
   );

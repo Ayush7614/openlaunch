@@ -7,7 +7,7 @@ import { LAUNCH_FACTORY_ABI, LAUNCH_LOCKER_ABI, POOL_MANAGER_ABI, ERC20_MIN_ABI,
 import { CONFIGURED_CHAINS, launchpad } from "./config";
 import { DEAD_ADDR, ZERO_ADDR } from "./holders";
 import { SYNC_CHUNK_BLOCKS, SYNC_MAX_CHUNKS_PER_CALL, syncOverlapBlocks } from "@/lib/config";
-import { fetchLogsSplit } from "./log-range";
+import { fetchLogsSplit, isRangeTooLarge } from "./log-range";
 
 /**
  * Launchpad chain → Postgres indexer.
@@ -279,7 +279,18 @@ export function systemAddresses(chain: ChainKey): string[] {
 async function applyTransfers(db: Db, chain: ChainKey, tokens: string[], from: bigint, to: bigint): Promise<number> {
   const client = publicClient(chain);
   const cid = chainIdOf(chain);
-  const logs = (await fetchLogsSplit((f, t) => client.getLogs({ address: tokens as Address[], event: ERC20_TRANSFER_EVENT, fromBlock: f, toBlock: t }), from, to)) as TransferLog[];
+  // one address list for every launched token; when even a single block is over the node's result cap (an airdrop of
+  // thousands of transfers in one block), the token list is halved instead of the cursor wedging on that block forever
+  const fetchTransfers = async (addrs: string[], f: bigint, t: bigint): Promise<TransferLog[]> => {
+    try {
+      return (await fetchLogsSplit((a, b) => client.getLogs({ address: addrs as Address[], event: ERC20_TRANSFER_EVENT, fromBlock: a, toBlock: b }), f, t)) as TransferLog[];
+    } catch (err) {
+      if (addrs.length <= 1 || !isRangeTooLarge(err)) throw err;
+      const mid = Math.ceil(addrs.length / 2);
+      return [...(await fetchTransfers(addrs.slice(0, mid), f, t)), ...(await fetchTransfers(addrs.slice(mid), f, t))];
+    }
+  };
+  const logs = await fetchTransfers(tokens, from, to);
   if (logs.length === 0) return 0;
   const rows = logs.map((l) => ({
     chain_id: cid,

@@ -67,7 +67,7 @@ test("no source branches on a chain name or hardcodes a chain id outside the reg
   for (const file of files) {
     const rel = path.relative(root, file);
     readFileSync(file, "utf8").split("\n").forEach((line, i) => {
-      const code = line.replace(/^\s*(\*|\/\/).*$/, "");
+      const code = line.replace(/^\s*\*.*$/, "").replace(/\/\*.*?\*\//g, "").replace(/\/\/.*$/, ""); // comments (and anything after // such as a URL) do not count
       const branch = /[!=]==\s*"(base|robinhood|arc)"|"(base|robinhood|arc)"\s*[!=]==|\?\?\s*"(base|robinhood|arc)"/.test(code);
       const id = /\b(8453|4663|5042)\b/.test(code) && !/^(lib\/chainKeys\.ts|lib\/chainPublic\.ts|lib\/chain-mock\.ts|lib\/launchpad\/stocks\.ts|app\/rules\/page\.tsx|app\/llms\.txt\/route\.ts)$/.test(rel);
       if (!branch && !id) return;

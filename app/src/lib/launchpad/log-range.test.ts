@@ -10,6 +10,7 @@ test("isRangeTooLarge recognises the size refusals of Arc and Alchemy, through v
   assert.equal(isRangeTooLarge({ message: "HTTP request failed.", details: "requested range too large" }), true);
   assert.equal(isRangeTooLarge(new Error("fetch failed")), false);
   assert.equal(isRangeTooLarge(new Error("rate limited")), false);
+  assert.equal(isRangeTooLarge(new Error("query timeout of 10 seconds exceeded")), false, "an overloaded node is not bisected");
   assert.equal(isRangeTooLarge(null), false);
   const loop: { message: string; cause?: unknown } = { message: "x" };
   loop.cause = loop;

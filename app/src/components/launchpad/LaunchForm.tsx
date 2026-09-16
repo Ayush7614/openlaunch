@@ -283,8 +283,8 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
   if (initialBuyRaw && buyBalance !== undefined && initialBuyRaw + reserveInQuote > buyBalance)
     errors.push(reserveInQuote > 0n ? `First buy: not enough ${quote.symbol} (leave a little for gas).` : `First buy: not enough ${quote.symbol} in this wallet.`);
   // an ERC-20 first buy still pays gas (and its approvals) in the native asset: the token balance alone is not enough
-  if (initialBuyRaw && quote.key !== "eth" && address && nativeBalance === undefined) errors.push(ethBal.isError ? `First buy: could not read your ${NATIVE_SYMBOL} balance for gas. Retry, or clear the amount.` : `First buy: checking your ${NATIVE_SYMBOL} balance for gas…`);
-  if (initialBuyRaw && quote.key !== "eth" && nativeBalance !== undefined && nativeBalance < gasReserve) errors.push(`First buy: not enough ${NATIVE_SYMBOL} for gas (the launch, the approval and the buy each need a little ${NATIVE_SYMBOL}).`);
+  if (initialBuyRaw && quote.key !== "eth" && !sharedGas && address && nativeBalance === undefined) errors.push(ethBal.isError ? `First buy: could not read your ${NATIVE_SYMBOL} balance for gas. Retry, or clear the amount.` : `First buy: checking your ${NATIVE_SYMBOL} balance for gas…`);
+  if (initialBuyRaw && quote.key !== "eth" && !sharedGas && nativeBalance !== undefined && nativeBalance < gasReserve) errors.push(`First buy: not enough ${NATIVE_SYMBOL} for gas (the launch, the approval and the buy each need a little ${NATIVE_SYMBOL}).`);
   const valid = errors.length === 0;
   const buyPreview = initialBuyRaw && startTick !== null ? initialBuyPreview({ startTick, amountInRaw: initialBuyRaw, lpFeePips: feePips, quoteDecimals: quote.decimals }) : null;
   const buyUsd = initialBuyRaw && quoteUsd ? units(initialBuyRaw, quote.decimals) * quoteUsd : null;

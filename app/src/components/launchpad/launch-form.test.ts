@@ -35,7 +35,8 @@ test("launch merge retains chain-scoped marks and honest optional-buy copy", () 
   // a suggested buy is computed from a known, sufficient balance and can be cleared; a typed amount keeps the strict checks
   assert.match(source, /suggestFirstBuy\(\{ quote, connected: Boolean\(address\) && onChain, balance: buyBalance, nativeBalance, balanceFailed: buyBalanceFailed \|\| ethBal\.isError, gasReserve, sharesGasBalance: sharedGas, declined: buyDeclined \|\| Boolean\(typedBuy\)/);
   // an ERC-20 quote's typed buy is checked for native gas too, not only the token balance
-  assert.match(source, /initialBuyRaw && quote\.key !== "eth" && nativeBalance !== undefined && nativeBalance < gasReserve/);
+  // …and only for a quote that does not share the gas balance (Arc USDC already had the reserve applied above: one shortfall, one message)
+  assert.match(source, /initialBuyRaw && quote\.key !== "eth" && !sharedGas && nativeBalance !== undefined && nativeBalance < gasReserve/);
   assert.match(source, /const initialBuy = typedBuy \|\| suggestion\.amount \|\| ""/);
   // a typed amount is bound to the quote it was typed for, so a chain or quote switch drops it instead of re-reading it as another asset
   assert.match(source, /const quoteId = `\$\{chain\}:\$\{quote\.address\.toLowerCase\(\)\}`/);

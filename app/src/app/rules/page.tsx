@@ -120,7 +120,7 @@ export default function RulesPage() {
 
           <section className={shell.anchorSection} id="contracts" aria-labelledby="contracts-heading">
             <div className={styles.sectionHeading}><div><p className={styles.eyebrow}>05 / The source of truth</p><h2 id="contracts-heading">Don&apos;t take our word for it.</h2></div><FileCode2 size={28} className={styles.contractIcon} aria-hidden="true" /></div>
-            <p className={styles.contractIntro}>Contracts, addresses and source verification. The same contract design on both chains, with chain-specific Uniswap deployments.</p>
+            <p className={styles.contractIntro}>Contracts, addresses and source verification. The same contract design on every chain, with chain-specific Uniswap deployments.</p>
             <div className={styles.registry}>
               {CHAIN_KEYS.map((chain) => {
                 const config = launchpad(chain);

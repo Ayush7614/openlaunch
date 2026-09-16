@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import LaunchForm from "@/components/launchpad/LaunchForm";
 import { ethUsd } from "@/lib/launchpad/ethPrice";
 import { gitlawbUsd } from "@/lib/launchpad/gitlawbServer";
-import { DEFAULT_CHAIN, chainKeyOr } from "@/lib/chainPublic";
+import { DEFAULT_CHAIN, chainKeyOr, type ChainKey } from "@/lib/chainPublic";
+import { CONFIGURED_CHAINS, launchpad } from "@/lib/launchpad/config";
 
 export const metadata: Metadata = {
   title: "Launch a token for free",
@@ -10,6 +11,12 @@ export const metadata: Metadata = {
 };
 
 export const dynamic = "force-dynamic";
+
+/** The requested chain, unless it has no contracts here: then the first configured one (the default in development, where none may be). */
+function initialChainFor(param: string | undefined): ChainKey {
+  const wanted = chainKeyOr(param, DEFAULT_CHAIN);
+  return launchpad(wanted).configured ? wanted : (CONFIGURED_CHAINS[0] ?? wanted);
+}
 
 export default async function LaunchPage({ searchParams }: { searchParams: Promise<{ chain?: string }> }) {
   const sp = await searchParams;
@@ -21,7 +28,7 @@ export default async function LaunchPage({ searchParams }: { searchParams: Promi
           <h1 className="font-display font-bold tracking-[-0.02em] text-ink text-3xl sm:text-4xl">Launch a token</h1>
           <p className="mt-2 text-base text-body">Pick a chain, fill this in, sign once, done. No platform fee. You only pay gas.</p>
         </header>
-        <LaunchForm ethUsd={usd} gitlawbUsd={gitlawb} initialChain={chainKeyOr(sp.chain, DEFAULT_CHAIN)} />
+        <LaunchForm ethUsd={usd} gitlawbUsd={gitlawb} initialChain={initialChainFor(sp.chain)} />
       </main>
     </>
   );
