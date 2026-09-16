@@ -15,6 +15,7 @@ import styles from "./WalletMenu.module.css";
 const NETWORK_LOGOS: Record<ChainKey, { light: string; dark?: string; width: number; height: number }> = {
   base: { light: "/brand/base.svg", width: 22, height: 22 },
   robinhood: { light: "/brand/robinhood-black.svg", dark: "/brand/robinhood-white.svg", width: 16, height: 21 },
+  arc: { light: "/brand/arc.svg", width: 21, height: 22 },
 };
 
 function NetworkLogo({ chain }: { chain: ChainKey }) {

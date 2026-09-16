@@ -1,7 +1,7 @@
 import "server-only";
 import { maybeDb } from "@/lib/db";
 import { CHAIN_KEYS, DEFAULT_CHAIN, chainIdOf, chainKeyOf, type ChainKey } from "@/lib/chainPublic";
-import { quoteInfo as staticQuoteInfo, quoteUsdOf, type Quote } from "./config";
+import { quoteInfo as staticQuoteInfo, quoteUsdOf, type Quote, fixedUsdQuotes, quotesWithKey } from "./config";
 import { ensureRegistry, stockByAddress, stockUsdInUse } from "./stocksServer";
 import { gitlawbUsd } from "./gitlawbServer";
 import { GITLAWB_ADDRESSES } from "./gitlawb";
@@ -202,7 +202,6 @@ export function parseSort<F extends LaunchSort | null>(raw: string | null | unde
 export const VOLUME_WINDOWS: VolumeWindow[] = ["1h", "24h", "all"];
 
 export type ListOpts = { sort?: LaunchSort; window?: VolumeWindow; chain?: ChainKey | null; filter?: LaunchFilter | null; limit?: number; offset?: number; launcher?: string; ethUsd?: number | null };
-const USDG_ADDR = "0x5fc5360d0400a0fd4f2af552add042d716f1d168";
 const NATIVE_ADDR = "0x0000000000000000000000000000000000000000";
 const DEAD_ADDR = "0x000000000000000000000000000000000000dead";
 
@@ -237,20 +236,29 @@ export async function listLaunchesPage(opts: ListOpts = {}): Promise<ListPage> {
   if (opts.launcher) conds.push(db`l.launcher = ${opts.launcher.toLowerCase()}`);
   if (opts.filter === "fee0") conds.push(db`l.lp_fee = 0`);
   if (opts.filter === "burn") conds.push(db`l.lp_fee > 0 AND jsonb_array_length(l.recipients) = 1 AND lower(l.recipients->0->>'payout') = ${DEAD_ADDR}`);
-  if (opts.filter === "usdg") conds.push(db`l.quote = ${USDG_ADDR}`);
+  // a fixed quote (USDG, USDC) is matched per chain: the same address elsewhere is some other token
+  const quoteArms = (key: Quote["key"]) => {
+    const arms = quotesWithKey(key).map(({ chain, address }) => db`(l.chain_id = ${chainIdOf(chain)} AND l.quote = ${address})`);
+    return arms.length ? db`(${arms.reduce((a, c) => db`${a} OR ${c}`)})` : db`false`;
+  };
+  if (opts.filter === "usdg" || opts.filter === "usdc") conds.push(db`${quoteArms(opts.filter)}`);
   // GITLAWB has a different address per chain; each match is chain-scoped so a same-address token elsewhere is never GITLAWB
   const gitlawbArms = CHAIN_KEYS.flatMap((k) => (GITLAWB_ADDRESSES[k] ? [db`(l.chain_id = ${chainIdOf(k)} AND l.quote = ${GITLAWB_ADDRESSES[k]})`] : []));
   const isGitlawb = () => (gitlawbArms.length ? db`(${gitlawbArms.reduce((a, c) => db`${a} OR ${c}`)})` : db`false`);
   if (opts.filter === "gitlawb") conds.push(db`${isGitlawb()}`);
   if (opts.filter === "today") conds.push(db`l.block_time > now() - interval '24 hours'`);
   const where = conds.length ? db`WHERE ${conds.reduce((a, c) => db`${a} AND ${c}`)}` : db``;
-  // per-row USD factor and quote decimals (USDG is the only non-18-dec quote we list)
+  // per-row USD factor and quote decimals (the stables, USDG and USDC, are the only fixed-price and non-18-dec quotes we list)
   const stockCase = stockEntries.length ? stockEntries.map(([a, v]) => db`WHEN l.quote = ${a} THEN ${v}::double precision`).reduce((acc, c) => db`${acc} ${c}`) : db``;
   const gitlawbFactor = gitlawbUsdNow !== null && gitlawbUsdNow > 0 ? gitlawbUsdNow : 0; // unknown → 0 weight, like an unknown stock
-  const usdPerUnit = db`(CASE WHEN l.quote = ${USDG_ADDR} THEN 1.0 ${stockCase} WHEN ${isGitlawb()} THEN ${gitlawbFactor}::double precision WHEN l.quote = ${NATIVE_ADDR} THEN ${ethFactor}::double precision ELSE 0.0 END)`;
+  const stables = fixedUsdQuotes();
+  const stableCase = stables.length ? stables.map((s) => db`WHEN (l.chain_id = ${chainIdOf(s.chain)} AND l.quote = ${s.address}) THEN ${s.usd}::double precision`).reduce((acc, c) => db`${acc} ${c}`) : db``;
+  const usdPerUnit = db`(CASE ${stableCase} ${stockCase} WHEN ${isGitlawb()} THEN ${gitlawbFactor}::double precision WHEN l.quote = ${NATIVE_ADDR} THEN ${ethFactor}::double precision ELSE 0.0 END)`;
   const stockDec = stockEntries.map(([a]) => [a, CHAIN_KEYS.map((k) => stockByAddress(k, a)?.decimals).find((d) => d !== undefined) ?? 18] as [string, number]).filter(([, d]) => d !== 18);
   const decCase = stockDec.length ? stockDec.map(([a, d]) => db`WHEN l.quote = ${a} THEN ${d}`).reduce((acc, c) => db`${acc} ${c}`) : db``;
-  const qd = db`(CASE WHEN l.quote = ${USDG_ADDR} THEN 6 ${decCase} ELSE 18 END)`;
+  const stableDec = stables.filter((s) => s.decimals !== 18);
+  const stableDecCase = stableDec.length ? stableDec.map((s) => db`WHEN (l.chain_id = ${chainIdOf(s.chain)} AND l.quote = ${s.address}) THEN ${s.decimals}`).reduce((acc, c) => db`${acc} ${c}`) : db``;
+  const qd = db`(CASE ${stableDecCase} ${decCase} ELSE 18 END)`;
   const volCol = win === "1h" ? db`w1.v::numeric` : win === "24h" ? db`w24.v::numeric` : db`l.volume_quote`;
   const volUsd = db`(${volCol} / power(10, ${qd}) * ${usdPerUnit})`;
   // quote per token = 1 / (1.0001^tick · 10^(qd-18)); mcap = that · supply/1e18 · usd
@@ -384,7 +392,7 @@ export type LaunchTotals = {
    * bridged across two chains, so one figure and no per-chain split. Shown as an amount, never in USD.
    */
   gitlawb_burned: string;
-  by_chain: Record<ChainKey, { launches: number; trades: number; volume_quote_eth: string; volume_quote_usdg: string; volume_quote_gitlawb: string }>;
+  by_chain: Record<ChainKey, { launches: number; trades: number; volume_quote_eth: string; volume_quote_usdg: string; volume_quote_usdc: string; volume_quote_gitlawb: string }>;
 };
 
 export async function getLaunchTotals(ethUsd: number | null = null): Promise<LaunchTotals> {
@@ -396,7 +404,7 @@ export async function getLaunchTotals(ethUsd: number | null = null): Promise<Lau
     fees_to_creators_usd: 0,
     usd_partial: false,
     gitlawb_burned: "0",
-    by_chain: Object.fromEntries(CHAIN_KEYS.map((k) => [k, { launches: 0, trades: 0, volume_quote_eth: "0", volume_quote_usdg: "0", volume_quote_gitlawb: "0" }])) as LaunchTotals["by_chain"],
+    by_chain: Object.fromEntries(CHAIN_KEYS.map((k) => [k, { launches: 0, trades: 0, volume_quote_eth: "0", volume_quote_usdg: "0", volume_quote_usdc: "0", volume_quote_gitlawb: "0" }])) as LaunchTotals["by_chain"],
   });
   const db = maybeDb();
   if (!db) return empty();
@@ -427,6 +435,7 @@ export async function getLaunchTotals(ethUsd: number | null = null): Promise<Lau
     bc.trades += Number(r.trades);
     if (q.address.toLowerCase() === NATIVE_ADDR) bc.volume_quote_eth = add(bc.volume_quote_eth, r.volume);
     else if (q.key === "usdg") bc.volume_quote_usdg = add(bc.volume_quote_usdg, r.volume);
+    else if (q.key === "usdc") bc.volume_quote_usdc = add(bc.volume_quote_usdc, r.volume);
     else if (q.key === "gitlawb") {
       bc.volume_quote_gitlawb = add(bc.volume_quote_gitlawb, r.volume);
       // GITLAWB is only ever the quote side (never a launched token), so the quote-fee burn is the whole GITLAWB burn

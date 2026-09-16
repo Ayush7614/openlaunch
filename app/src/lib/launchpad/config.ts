@@ -16,12 +16,14 @@ export const BPS = 10_000;
 /** Locker limit on beneficiaries per launch (LaunchLocker.MAX_RECIPIENTS); recipients.test.ts keeps the two in sync. */
 export const MAX_RECIPIENTS = 7;
 
-export type Quote = { key: "eth" | "usdg" | "gitlawb" | "stock"; address: Address; symbol: string; decimals: number; usd: number | null /* fixed USD price (stables); live for stocks + GITLAWB (server-filled) */; name?: string; logo?: string | null };
+export type Quote = { key: "eth" | "usdg" | "usdc" | "gitlawb" | "stock"; address: Address; symbol: string; decimals: number; usd: number | null /* fixed USD price (stables); live for stocks + GITLAWB (server-filled) */; name?: string; logo?: string | null };
 export type V4 = { poolManager: Address; positionManager: Address; stateView: Address; quoter: Address; universalRouter: Address; permit2: Address; swapLayout: "v1" | "v2" };
 export type ChainLaunchpad = { key: ChainKey; factory: Address | null; locker: Address | null; v4: V4; quotes: Quote[]; configured: boolean };
 
 const ETH: Quote = { key: "eth", address: NATIVE, symbol: "ETH", decimals: 18, usd: null };
 const USDG: Quote = { key: "usdg", address: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168", symbol: "USDG", decimals: 6, usd: 1 };
+/** USDC on Arc: the ERC-20 face of the chain's gas token (same balance as the native asset, 6 decimals here vs 18 natively). */
+const USDC_ARC: Quote = { key: "usdc", address: "0x3600000000000000000000000000000000000000", symbol: "USDC", decimals: 6, usd: 1 };
 /** GITLAWB: usd is null here (client-safe static); the server fills the live price (gitlawbServer.ts). Robinhood's is the LayerZero OFT of the Base token. */
 const GITLAWB: Quote = { key: "gitlawb", address: GITLAWB_ADDRESS as Address, symbol: GITLAWB_SYMBOL, decimals: GITLAWB_DECIMALS, usd: null, name: GITLAWB_NAME, logo: GITLAWB_LOGO_PATH };
 const GITLAWB_RH: Quote = { ...GITLAWB, address: GITLAWB_ADDRESS_ROBINHOOD as Address };
@@ -46,9 +48,51 @@ const V4_BY_CHAIN: Record<ChainKey, V4> = {
     permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
     swapLayout: "v2", // newer router build: ExactInputSingleParams carries minHopPriceX36 (verified on a fork)
   },
+  // Uniswap/contracts deployments/5042.md (Universal Router v2.1.1, the same generation as Robinhood's). No wrapped native on Arc.
+  arc: {
+    poolManager: "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+    positionManager: "0x6049c9a0e26405c0985f9e3685c87d0ae917f82b",
+    stateView: "0xf3334192d15450cdd385c8b70e03f9a6bd9e673b",
+    quoter: "0x8dc178efb8111bb0973dd9d722ebeff267c98f94",
+    universalRouter: "0x4fca4a51ab4f23a7447b3284fbd7d73289a89fb1",
+    permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+    swapLayout: "v2", // router v2.1.1, same ExactInputSingleParams as Robinhood (verified on a fork: test/LaunchFactory.arc.fork.t.sol)
+  },
 };
 /** Quote assets offered per chain, first = default. */
-const QUOTES_BY_CHAIN: Record<ChainKey, Quote[]> = { base: [ETH, GITLAWB], robinhood: [USDG, ETH, GITLAWB_RH] };
+const QUOTES_BY_CHAIN: Record<ChainKey, Quote[]> = { base: [ETH, GITLAWB], robinhood: [USDG, ETH, GITLAWB_RH], arc: [USDC_ARC] };
+
+/** Every chain that offers a fixed-price quote (a stable), for SQL that prices rows without a feed. */
+export function fixedUsdQuotes(): { chain: ChainKey; key: Quote["key"]; address: string; decimals: number; usd: number }[] {
+  return CHAIN_KEYS.flatMap((chain) => QUOTES_BY_CHAIN[chain].flatMap((q) => (q.usd !== null ? [{ chain, key: q.key, address: q.address.toLowerCase(), decimals: q.decimals, usd: q.usd }] : [])));
+}
+/** Where a fixed quote key is offered: (chain, address) pairs, so a filter never matches a same-address token on another chain. */
+export function quotesWithKey(key: Quote["key"]): { chain: ChainKey; address: string }[] {
+  return CHAIN_KEYS.flatMap((chain) => QUOTES_BY_CHAIN[chain].flatMap((q) => (q.key === key ? [{ chain, address: q.address.toLowerCase() }] : [])));
+}
+
+/**
+ * Native amount (18-dec wei) kept back from a first buy: the launch transaction pays its own gas first, then the buy
+ * and, for an ERC-20 quote, its approvals. Generous for each chain's gas prices.
+ */
+export const GAS_RESERVE_WEI: Record<ChainKey, bigint> = {
+  base: 1_500_000_000_000_000n, // 0.0015 ETH: deploy + pool init + position mint, then approvals + swap
+  robinhood: 1_500_000_000_000_000n, // 0.0015 ETH
+  arc: 100_000_000_000_000_000n, // 0.1 USDC: a launch is ~2.5M gas at Arc's flat 20 gwei (≈ 0.05 USDC), plus approvals and the buy
+};
+/** The ERC-20 face of the chain's gas token where one exists (Arc: USDC). A buy paid in it draws on the gas balance. */
+export const NATIVE_ERC20: Record<ChainKey, Address | null> = { base: null, robinhood: null, arc: USDC_ARC.address };
+export function sharesGasBalance(chain: ChainKey, quote: Pick<Quote, "address">): boolean {
+  const n = NATIVE_ERC20[chain];
+  return n !== null && n.toLowerCase() === quote.address.toLowerCase();
+}
+
+/**
+ * Where a chain's tokenized stocks come from: Coinbase's static B20 list (Base), Robinhood's registry (Robinhood Chain),
+ * or none (Arc: the form offers no Stock quote). Explicit per chain so a new chain never inherits another chain's registry.
+ */
+export type StockSource = "coinbase-b20" | "robinhood-registry" | null;
+export const STOCK_SOURCE: Record<ChainKey, StockSource> = { base: "coinbase-b20", robinhood: "robinhood-registry", arc: null };
 
 function addr(v: string | undefined): Address | null {
   const raw = (v ?? "").trim();
@@ -70,6 +114,14 @@ const CFG: Record<ChainKey, ChainLaunchpad> = {
     locker: addr(process.env.NEXT_PUBLIC_LAUNCH_LOCKER_ROBINHOOD),
     v4: V4_BY_CHAIN.robinhood,
     quotes: QUOTES_BY_CHAIN.robinhood,
+    configured: false,
+  },
+  arc: {
+    key: "arc",
+    factory: addr(process.env.NEXT_PUBLIC_LAUNCH_FACTORY_ARC),
+    locker: addr(process.env.NEXT_PUBLIC_LAUNCH_LOCKER_ARC),
+    v4: V4_BY_CHAIN.arc,
+    quotes: QUOTES_BY_CHAIN.arc,
     configured: false,
   },
 };
@@ -106,14 +158,15 @@ export const FEE_PRESETS = [
 ] as const;
 
 /** Starting market cap presets per quote (fully diluted, in quote units). */
-export const MCAP_PRESETS: Record<Quote["key"], number[]> = { eth: [1, 5, 10, 25], usdg: [5_000, 10_000, 25_000, 100_000], gitlawb: [] /* derived from the live price */, stock: [] /* derived from the live price */ };
+export const MCAP_PRESETS: Record<Quote["key"], number[]> = { eth: [1, 5, 10, 25], usdg: [5_000, 10_000, 25_000, 100_000], usdc: [5_000, 10_000, 25_000, 100_000], gitlawb: [] /* derived from the live price */, stock: [] /* derived from the live price */ };
 /** Buy amount presets per quote. */
-export const BUY_PRESETS: Record<Quote["key"], string[]> = { eth: ["0.01", "0.05", "0.1", "0.5"], usdg: ["5", "25", "100", "500"], gitlawb: ["100000", "500000", "1000000", "5000000"], stock: ["0.1", "0.5", "1", "5"] };
+export const BUY_PRESETS: Record<Quote["key"], string[]> = { eth: ["0.01", "0.05", "0.1", "0.5"], usdg: ["5", "25", "100", "500"], usdc: ["5", "25", "100", "500"], gitlawb: ["100000", "500000", "1000000", "5000000"], stock: ["0.1", "0.5", "1", "5"] };
 
 // NEXT_PUBLIC_* must be read as literal `process.env.X` expressions: Next inlines them at build time.
 const DEV_RPC: Record<ChainKey, string | undefined> = {
   base: process.env.NEXT_PUBLIC_RPC_URL_BASE,
   robinhood: process.env.NEXT_PUBLIC_RPC_URL_ROBINHOOD,
+  arc: process.env.NEXT_PUBLIC_RPC_URL_ARC,
 };
 
 /** Browser RPC: dev override per chain, else our same-origin proxy (→ Alchemy/public, key stays server-side). */
@@ -125,6 +178,7 @@ export function browserRpc(key: ChainKey): string {
 export const SWAP_SITES: Record<ChainKey, { name: string; url: (token: string) => string }> = {
   base: { name: "Uniswap", url: (t) => `https://app.uniswap.org/swap?chain=base&outputCurrency=${t}` },
   robinhood: { name: "pools.trade", url: (t) => `https://pools.trade/token/${t}` },
+  arc: { name: "Uniswap", url: (t) => `https://app.uniswap.org/swap?chain=arc&outputCurrency=${t}` },
 };
 
 export function uniswapSwapUrl(key: ChainKey, token: string): string {

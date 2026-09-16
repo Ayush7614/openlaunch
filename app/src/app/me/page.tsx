@@ -3,7 +3,7 @@ import MeDashboard from "@/components/launchpad/MeDashboard";
 import SectionIntro from "@/components/sections/SectionIntro";
 import shell from "@/components/sections/SectionShell.module.css";
 
-export const metadata: Metadata = { title: "Me", description: "Your launches, fees, holdings and trades on Base and Robinhood Chain." };
+export const metadata: Metadata = { title: "Me", description: "Your launches, fees, holdings and trades on Base, Robinhood Chain and Arc." };
 export const dynamic = "force-dynamic";
 
 export default function MePage() {

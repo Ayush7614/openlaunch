@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { b20RpcUrl, rpcUrl } from "@/lib/chain";
 import { responseHasB20Error } from "@/lib/launchpad/baseStocks";
 import { CHAINS, DEFAULT_CHAIN, isChainKey } from "@/lib/chainPublic";
-import { arc } from "@/lib/bridge/chains";
 import { upstreamStatus } from "@/lib/rpc-proxy";
 
 export const runtime = "nodejs";
@@ -64,11 +63,10 @@ function safeJson(text: string): unknown {
 
 export async function POST(req: Request) {
   const c = new URL(req.url).searchParams.get("chain") ?? DEFAULT_CHAIN;
-  // Arc is a bridge-only network: same read allowlist and per-IP bucket, its own
-  // upstream (ARC_RPC_URL, else the official public node) so browsers never hit
-  // a public RPC directly and the API key stays server-side.
-  if (!isChainKey(c) && c !== "arc") return NextResponse.json({ error: "bad chain" }, { status: 400 });
-  const upstream = c === "arc" ? process.env.ARC_RPC_URL?.trim() || arc.rpcUrls.default.http[0] : rpcUrl(c) ?? CHAINS[c].rpcUrls.default.http[0];
+  // every chain: the same read allowlist and per-IP bucket, its own upstream (the keyed *_RPC_URL, else the chain's
+  // official public node) so browsers never hit a public RPC directly and the API key stays server-side
+  if (!isChainKey(c)) return NextResponse.json({ error: "bad chain" }, { status: 400 });
+  const upstream = rpcUrl(c) ?? CHAINS[c].rpcUrls.default.http[0];
   if (!upstream) return NextResponse.json({ error: "rpc unconfigured" }, { status: 503 });
   const ip = (req.headers.get("fly-client-ip") || req.headers.get("x-forwarded-for") || "").split(",")[0].trim() || "0.0.0.0";
   if (!take(ip)) return NextResponse.json({ error: "rate limited" }, { status: 429, headers: { "retry-after": "2" } });

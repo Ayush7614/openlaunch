@@ -2,7 +2,7 @@
   <a href="https://openlaunch.lol"><img src="brand/readme-banner.png" alt="OPENLAUNCH.LOL — Launch a token. Free. Open source. Liquidity locked forever." width="100%"></a>
 </p>
 
-<p align="center"><b>Launch a token. Free. Open source. On Base or Robinhood Chain.</b></p>
+<p align="center"><b>Launch a token. Free. Open source. On Base, Robinhood Chain or Arc.</b></p>
 
 <p align="center">
   <a href="https://openlaunch.lol">openlaunch.lol</a> ·
@@ -15,6 +15,7 @@
   <img alt="license MIT" src="https://img.shields.io/badge/license-MIT-0052FF">
   <img alt="Base" src="https://img.shields.io/badge/chain-Base-0052FF">
   <img alt="Robinhood Chain" src="https://img.shields.io/badge/chain-Robinhood%20Chain-15803d">
+  <img alt="Arc" src="https://img.shields.io/badge/chain-Arc-111111">
   <img alt="platform fee 0" src="https://img.shields.io/badge/platform%20fee-0-15803d">
   <img alt="contracts verified" src="https://img.shields.io/badge/contracts-verified%20on%20Basescan%20%2B%20Sourcify-0052FF">
 </p>
@@ -31,8 +32,8 @@ Creators choose a 0 / 1 / 3 % trading fee that is pushed **in full** to benefici
 - **Free by construction.** No fee parameter exists in the contracts, so there is nothing to raise later.
 - **Rug-proof liquidity.** The position NFT lives in a locker with no owner, no pause, no upgrade path and
   no transfer function. Proven with an adversarial fork suite against the live deployment.
-- **Two chains, one set of addresses.** Base and Robinhood Chain, same contracts, same rules.
-- **Any quote asset.** ETH, USDG, **GITLAWB** ([Gitlawb](https://gitlawb.com)'s token, on Base and bridged 1:1 to
+- **Three chains, one set of rules.** Base, Robinhood Chain and Arc (Circle's L1, where gas and quotes are USDC), same contracts.
+- **Any quote asset.** ETH, USDG, USDC on Arc, **GITLAWB** ([Gitlawb](https://gitlawb.com)'s token, on Base and bridged 1:1 to
   Robinhood Chain; priced from its Base Uniswap v4 WETH pool; fees paid or burned in GITLAWB), or a **tokenized stock**: Coinbase's B20 stocks on Base
   (NVDAc, AAPLc, TSLAc, …, priced from Chainlink on-chain feeds) and Robinhood Stock Tokens on Robinhood Chain.
 - **Trade in-page.** Buys and sells go straight to the Uniswap v4 pool through the Universal Router; the site
@@ -83,6 +84,7 @@ cd contracts && git submodule update --init --recursive
 forge test --match-path test/LaunchFactory.t.sol                       # unit
 FORK_TESTS=true forge test --match-contract LaunchLockerRugFork         # rug attempts vs live Base
 FORK_TESTS=true forge test --match-contract LaunchStockQuote            # AAPL-quoted launch on Robinhood Chain
+FOUNDRY_PROFILE=arc FORK_TESTS=true arc-forge test --match-contract LaunchFactoryArcFork   # USDC-quoted launch + Universal Router on Arc (needs circlefin/arc-foundry)
 ```
 
 ### App

@@ -35,7 +35,7 @@ import { clampSocial } from "@/lib/launchpad/ogcard";
 import { capDisplay } from "@/lib/launchpad/market-cap";
 
 /** Where GITLAWB lives, as said beside a GITLAWB-quoted pool. */
-const GITLAWB_ORIGIN: Record<ChainKey, string> = { base: " on Base", robinhood: " (bridged 1:1 from Base over LayerZero; one supply, two chains)" };
+const GITLAWB_ORIGIN: Record<ChainKey, string> = { base: " on Base", robinhood: " (bridged 1:1 from Base over LayerZero; one supply, two chains)", arc: "" /* not bridged to Arc */ };
 
 export const dynamic = "force-dynamic";
 

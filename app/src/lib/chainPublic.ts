@@ -16,7 +16,21 @@ export const robinhood: Chain = defineChain({
   blockExplorers: { default: { name: "Blockscout", url: "https://robinhoodchain.blockscout.com" } },
 });
 
-export const CHAINS: Record<ChainKey, Chain> = { base, robinhood };
+/**
+ * Arc (Circle's L1). Gas is USDC: the native asset is USDC with 18-decimal accounting, and the same balance is also
+ * an ERC-20 at 0x3600…0000 with 6 decimals (launchpad/config.ts NATIVE_ERC20). Every block is final (no reorgs).
+ * viem ships an `arc` chain without RPC URLs as of 2.55; this definition carries the public endpoint and explorer.
+ */
+export const arc: Chain = defineChain({
+  id: 5042,
+  name: "Arc",
+  nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 },
+  rpcUrls: { default: { http: ["https://rpc.mainnet.arc.io"] } },
+  blockExplorers: { default: { name: "Arc Explorer", url: "https://explorer.arc.io", apiUrl: "https://explorer.arc.io/api/v2" } },
+  contracts: { multicall3: { address: "0xcA11bde05977b3631167028862bE2a173976CA11", blockCreated: 0 } },
+});
+
+export const CHAINS: Record<ChainKey, Chain> = { base, robinhood, arc };
 
 export function chainIdOf(key: ChainKey): number {
   return CHAINS[key].id;

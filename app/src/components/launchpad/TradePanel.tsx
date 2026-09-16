@@ -10,7 +10,8 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/vendor/toggle-group";
 import { btn } from "@/components/ui";
 import { toast } from "./TxToasts";
 import { ERC20_MIN_ABI, PERMIT2_ABI, UNIVERSAL_ROUTER_ABI, V4_QUOTER_ABI } from "@/lib/launchpad/abi";
-import { BUY_PRESETS, launchpad, quoteUsdOf, type Quote } from "@/lib/launchpad/config";
+import { BUY_PRESETS, GAS_RESERVE_WEI, launchpad, quoteUsdOf, sharesGasBalance, type Quote } from "@/lib/launchpad/config";
+import { gasReserveInQuote } from "@/lib/launchpad/first-buy";
 import { fmtCompact, fmtQuoteUnits, fmtUsd, minOut, units, pipsToPct } from "@/lib/launchpad/math";
 import { encodeV4ExactInSingle, type PoolKey } from "@/lib/launchpad/swap";
 import { CHAINS, CHAIN_LABELS, BUILDER_DATA_SUFFIX, explorerTx, type ChainKey } from "@/lib/chainPublic";
@@ -22,7 +23,7 @@ import ConnectWallet from "@/components/ConnectWallet";
 
 /**
  * In-page buy / sell straight against the token's Uniswap v4 pool via the
- * Universal Router (V4_SWAP). Buys send ETH as value; sells go through Permit2
+ * Universal Router (V4_SWAP). Buys send the native asset as value; sells go through Permit2
  * (one-time ERC-20 approve to Permit2, then a 30-day Permit2 allowance to the
  * router). Quotes come from the V4 Quoter with a 400ms debounce; every send is
  * simulated first so reverts surface before a signature.
@@ -46,6 +47,9 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
   const V4 = launchpad(chain).v4;
   const configured = launchpad(chain).configured;
   const isNative = quote.key === "eth";
+  // Arc: the USDC quote is the gas token's ERC-20 face, so a buy for the whole balance would leave nothing for gas
+  const buyReserve = sharesGasBalance(chain, quote) ? gasReserveInQuote(GAS_RESERVE_WEI[chain], quote.decimals) : 0n;
+  const NATIVE_SYMBOL = CHAIN.nativeCurrency.symbol;
   const quoteUsd = quoteUsdOf(quote, ethUsd);
   const fmtQ = (raw: bigint) => `${fmtQuoteUnits(units(raw, quote.decimals), quote.decimals)} ${quote.symbol}`;
   const router = useRouter();
@@ -82,7 +86,7 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
   const onChain = chainId === CHAIN.id;
   const busy = phase.k === "preparing" || phase.k === "approving" || phase.k === "signing" || phase.k === "sent";
   const balance = side === "buy" ? (isNative ? eth.data?.value : (qbal.data as bigint | undefined)) : (tok.data as bigint | undefined);
-  const insufficient = amountIn !== null && balance !== undefined && amountIn > balance;
+  const insufficient = amountIn !== null && balance !== undefined && amountIn + (side === "buy" ? buyReserve : 0n) > balance;
 
   const quoteKey = tradeQuoteKey(chain, token, side, amount);
   // A response can only be used for the exact chain/token/side/amount requested.
@@ -201,7 +205,7 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
       <div className="relative">
         <div className="rounded-xl border border-line bg-card px-4 pt-3 pb-4">
           <div className="flex items-center justify-between gap-2 text-[11px] text-muted"><label htmlFor={`amount-${chain}-${token}`}>{side === "buy" ? "You pay" : "You sell"}</label>
-            {balance !== undefined ? <button type="button" disabled={busy} className="max-w-[65%] truncate font-mono text-[10px] hover:text-ink" title="Use maximum available balance (reserve gas for ETH)" onClick={() => setAmount(side === "buy" ? (isNative ? formatEther(balance > parseEther("0.0005") ? balance - parseEther("0.0005") : 0n) : formatUnits(balance, quote.decimals)) : formatEther(balance))}>Bal {side === "buy" ? fmtQ(balance) : fmtCompact(Number(balance) / 1e18)}</button> : <Wallet size={12} aria-hidden />}
+            {balance !== undefined ? <button type="button" disabled={busy} className="max-w-[65%] truncate font-mono text-[10px] hover:text-ink" title={`Use maximum available balance (reserve gas for ${NATIVE_SYMBOL})`} onClick={() => setAmount(side === "buy" ? (isNative ? formatEther(balance > parseEther("0.0005") ? balance - parseEther("0.0005") : 0n) : formatUnits(balance > buyReserve ? balance - buyReserve : 0n, quote.decimals)) : formatEther(balance))}>Bal {side === "buy" ? fmtQ(balance) : fmtCompact(Number(balance) / 1e18)}</button> : <Wallet size={12} aria-hidden />}
           </div>
           <div className="mt-2 flex items-center gap-3">
             <input id={`amount-${chain}-${token}`} disabled={busy} className="min-w-0 w-full bg-transparent py-1 font-mono text-[30px] leading-tight text-ink outline-offset-4 placeholder:text-faint tnum" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.0" inputMode="decimal" autoComplete="off" aria-label={side === "buy" ? `${quote.symbol} amount` : `${symbol} amount`} />

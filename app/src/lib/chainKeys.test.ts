@@ -36,11 +36,12 @@ test("chain keys parse strictly and round-trip through chain ids", () => {
 });
 
 test("chainList and CHAIN_KEY_PATTERN name every chain", () => {
-  assert.equal(chainList(), "Base or Robinhood Chain");
-  assert.equal(chainList("&", CHAIN_SHORT), "Base & Robinhood");
-  assert.equal(CHAIN_KEY_PATTERN, "base|robinhood");
+  assert.equal(chainList(), "Base, Robinhood Chain or Arc");
+  assert.equal(chainList("&", CHAIN_SHORT), "Base, Robinhood & Arc");
+  assert.equal(CHAIN_KEY_PATTERN, "base|robinhood|arc");
   const re = new RegExp(`^token:(${CHAIN_KEY_PATTERN}):(0x[0-9a-f]{40})$`);
   assert.ok(re.test(`token:robinhood:0x${"a".repeat(40)}`));
+  assert.ok(re.test(`token:arc:0x${"a".repeat(40)}`));
   assert.ok(!re.test(`token:basex:0x${"a".repeat(40)}`));
 });
 
@@ -67,8 +68,8 @@ test("no source branches on a chain name or hardcodes a chain id outside the reg
     const rel = path.relative(root, file);
     readFileSync(file, "utf8").split("\n").forEach((line, i) => {
       const code = line.replace(/^\s*(\*|\/\/).*$/, "");
-      const branch = /[!=]==\s*"(base|robinhood)"|"(base|robinhood)"\s*[!=]==|\?\?\s*"(base|robinhood)"/.test(code);
-      const id = /\b(8453|4663)\b/.test(code) && !/^(lib\/chainKeys\.ts|lib\/chainPublic\.ts|lib\/chain-mock\.ts|lib\/launchpad\/stocks\.ts|app\/rules\/page\.tsx|app\/llms\.txt\/route\.ts)$/.test(rel);
+      const branch = /[!=]==\s*"(base|robinhood|arc)"|"(base|robinhood|arc)"\s*[!=]==|\?\?\s*"(base|robinhood|arc)"/.test(code);
+      const id = /\b(8453|4663|5042)\b/.test(code) && !/^(lib\/chainKeys\.ts|lib\/chainPublic\.ts|lib\/chain-mock\.ts|lib\/launchpad\/stocks\.ts|app\/rules\/page\.tsx|app\/llms\.txt\/route\.ts)$/.test(rel);
       if (!branch && !id) return;
       if (branch && /b20/i.test(code) && allowed.has(`${rel}:B20`)) return;
       offenders.push(`${rel}:${i + 1}: ${line.trim().slice(0, 120)}`);

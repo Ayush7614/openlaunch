@@ -6,7 +6,7 @@ import { DEFAULT_CHAIN, chainKeyOr } from "@/lib/chainPublic";
 
 export const metadata: Metadata = {
   title: "Launch a token for free",
-  description: "Deploy a token on Base or Robinhood Chain with 100% of supply locked as Uniswap v4 liquidity. No platform fee. Gas only.",
+  description: "Deploy a token on Base, Robinhood Chain or Arc with 100% of supply locked as Uniswap v4 liquidity. No platform fee. Gas only.",
 };
 
 export const dynamic = "force-dynamic";

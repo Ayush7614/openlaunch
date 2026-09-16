@@ -7,6 +7,7 @@ import { LAUNCH_FACTORY_ABI, LAUNCH_LOCKER_ABI, POOL_MANAGER_ABI, ERC20_MIN_ABI,
 import { CONFIGURED_CHAINS, launchpad } from "./config";
 import { DEAD_ADDR, ZERO_ADDR } from "./holders";
 import { SYNC_CHUNK_BLOCKS, SYNC_MAX_CHUNKS_PER_CALL, syncOverlapBlocks } from "@/lib/config";
+import { fetchLogsSplit } from "./log-range";
 
 /**
  * Launchpad chain → Postgres indexer.
@@ -35,15 +36,20 @@ export type LaunchSyncResult = {
 const DEPLOY_BLOCK_ENV: Record<ChainKey, () => string | undefined> = {
   base: () => process.env.LAUNCH_DEPLOY_BLOCK,
   robinhood: () => process.env.LAUNCH_DEPLOY_BLOCK_ROBINHOOD,
+  arc: () => process.env.LAUNCH_DEPLOY_BLOCK_ARC,
 };
 
 export function launchDeployBlock(chain: ChainKey): bigint {
   const raw = (DEPLOY_BLOCK_ENV[chain]() ?? "").trim();
   return /^\d+$/.test(raw) ? BigInt(raw) : 0n;
 }
-function confirmations(): bigint {
-  const raw = Number(process.env.LAUNCH_SYNC_CONFIRMATIONS ?? "2");
-  return BigInt(Number.isFinite(raw) && raw >= 0 ? Math.trunc(raw) : 2);
+/** Blocks left behind the head before a range is indexed. Arc finalizes every block (no reorgs), so none there. */
+const DEFAULT_CONFIRMATIONS: Record<ChainKey, number> = { base: 2, robinhood: 2, arc: 0 };
+/** LAUNCH_SYNC_CONFIRMATIONS_<CHAIN> overrides one chain, LAUNCH_SYNC_CONFIRMATIONS every chain, else the per-chain default. */
+function confirmations(chain: ChainKey): bigint {
+  const fallback = DEFAULT_CONFIRMATIONS[chain];
+  const raw = Number(process.env[`LAUNCH_SYNC_CONFIRMATIONS_${chain.toUpperCase()}`] ?? process.env.LAUNCH_SYNC_CONFIRMATIONS ?? fallback);
+  return BigInt(Number.isFinite(raw) && raw >= 0 ? Math.trunc(raw) : fallback);
 }
 
 function skipReason(chain: ChainKey): string | null {
@@ -236,16 +242,17 @@ async function applyRange(db: Db, chain: ChainKey, from: bigint, to: bigint): Pr
   let swaps = 0;
   let fees = 0;
 
-  const launchedLogs = await client.getLogs({ address: factory, event: LAUNCHED_EVENT, fromBlock: from, toBlock: to });
+  // every range goes through fetchLogsSplit: a node that caps results per call (Arc: 2000) gets the range halved until it answers
+  const launchedLogs = await fetchLogsSplit((f, t) => client.getLogs({ address: factory, event: LAUNCHED_EVENT, fromBlock: f, toBlock: t }), from, to);
   for (const l of launchedLogs) if (await applyLaunched(db, chain, l as Log & { args: Launched })) launches++;
 
   const { poolToToken, tokenIdToToken } = await poolMaps(db, chain);
   if (poolToToken.size > 0) {
     const ids = [...poolToToken.keys()] as Hex[];
-    const swapLogs = await client.getLogs({ address: pm, event: POOL_SWAP_EVENT, args: { id: ids }, fromBlock: from, toBlock: to });
+    const swapLogs = await fetchLogsSplit((f, t) => client.getLogs({ address: pm, event: POOL_SWAP_EVENT, args: { id: ids }, fromBlock: f, toBlock: t }), from, to);
     for (const l of swapLogs) if (await applySwap(db, chain, l as Log & { args: Swap }, poolToToken)) swaps++;
   }
-  const feeLogs = await client.getLogs({ address: locker, events: LOCKER_EVENTS, fromBlock: from, toBlock: to });
+  const feeLogs = await fetchLogsSplit((f, t) => client.getLogs({ address: locker, events: LOCKER_EVENTS, fromBlock: f, toBlock: t }), from, to);
   for (const l of feeLogs) if (await applyFee(db, chain, l as unknown as FeeLog, tokenIdToToken)) fees++;
   // holder balances: every Transfer of every launched token (idempotent; backfill covers history)
   const tokens = [...new Set([...poolToToken.values()])];
@@ -272,7 +279,7 @@ export function systemAddresses(chain: ChainKey): string[] {
 async function applyTransfers(db: Db, chain: ChainKey, tokens: string[], from: bigint, to: bigint): Promise<number> {
   const client = publicClient(chain);
   const cid = chainIdOf(chain);
-  const logs = (await client.getLogs({ address: tokens as Address[], event: ERC20_TRANSFER_EVENT, fromBlock: from, toBlock: to })) as TransferLog[];
+  const logs = (await fetchLogsSplit((f, t) => client.getLogs({ address: tokens as Address[], event: ERC20_TRANSFER_EVENT, fromBlock: f, toBlock: t }), from, to)) as TransferLog[];
   if (logs.length === 0) return 0;
   const rows = logs.map((l) => ({
     chain_id: cid,
@@ -496,7 +503,7 @@ async function run(chain: ChainKey): Promise<LaunchSyncResult> {
     await db`INSERT INTO bb_launch_sync_cursor (chain_id) VALUES (${cid}) ON CONFLICT DO NOTHING`;
     const [{ cursor_block }] = await db<{ cursor_block: bigint }[]>`SELECT cursor_block FROM bb_launch_sync_cursor WHERE chain_id = ${cid}`;
     const head = await publicClient(chain).getBlockNumber();
-    const confirmed = head - confirmations();
+    const confirmed = head - confirmations(chain);
     const deploy = launchDeployBlock(chain);
     let from = cursor_block > 0n ? cursor_block - syncOverlapBlocks() : deploy;
     if (from < deploy) from = deploy;

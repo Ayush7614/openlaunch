@@ -10,9 +10,9 @@ import { gitlawbUsd } from "@/lib/launchpad/gitlawbServer";
 export const dynamic = "force-dynamic";
 
 /**
- * GET /api/quotes?chain=<base|robinhood>[&q=AAPL] → quote assets the launch form may offer on that chain:
- * the fixed ones (ETH, USDG, GITLAWB — with GITLAWB's live USD) plus tokenized stocks from that chain's registry (with live USD):
- * Coinbase tokenized stocks on Base, Robinhood Stock Tokens on Robinhood Chain.
+ * GET /api/quotes?chain=<base|robinhood|arc>[&q=AAPL] → quote assets the launch form may offer on that chain:
+ * the fixed ones (ETH, USDG, USDC, GITLAWB — with GITLAWB's live USD) plus tokenized stocks from that chain's registry (with live USD):
+ * Coinbase tokenized stocks on Base, Robinhood Stock Tokens on Robinhood Chain, none on Arc.
  * Only registry addresses are ever labelled as stocks.
  */
 export async function GET(req: Request) {

@@ -22,7 +22,7 @@ let registry: Cache | null = null;
 let registryInflight: Promise<Cache | null> | null = null;
 const REGISTRY_TTL = 10 * 60_000;
 const prices = new Map<string, { at: number; usd: number | null }>(); // key: `${chain}:${address}`
-const PRICE_TTL: Record<ChainKey, number> = { robinhood: 30_000, base: 60_000 };
+const PRICE_TTL: Record<ChainKey, number> = { robinhood: 30_000, base: 60_000, arc: 60_000 /* no stocks there; never consulted */ };
 
 async function fetchRegistry(): Promise<Cache | null> {
   try {
@@ -54,12 +54,9 @@ export async function ensureRegistry(): Promise<Cache | null> {
   return registry;
 }
 
-/**
- * Where a chain's tokenized stocks come from: Coinbase's static B20 list (Base), Robinhood's registry (Robinhood Chain),
- * or none. Explicit per chain so a new chain never inherits another chain's registry.
- */
-export type StockSource = "coinbase-b20" | "robinhood-registry" | null;
-export const STOCK_SOURCE: Record<ChainKey, StockSource> = { base: "coinbase-b20", robinhood: "robinhood-registry" };
+/** Where a chain's tokenized stocks come from (client-safe, in config.ts so the form can hide the Stock quote where there are none). */
+import { STOCK_SOURCE } from "./config";
+export { STOCK_SOURCE, type StockSource } from "./config";
 
 /** Synchronous registry lookup for any chain (call ensureRegistry() first in the request for robinhood). */
 export function stockByAddress(chain: ChainKey, address: string): Stock | null {
