@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, type Address, type Hex } from "viem";
-import { activityAfterWalletChange, anchorQuoteExpiry, DISCARD_AFTER_MS, linkedTimeoutSignal, replacementSourceHash, transferCanDiscard, bridgeGasBudget, bridgeRequest, bridgeRequestKey, changeBridgeRoute, ERC20_DEPOSIT_ABI, ERC20_DEPOSIT_EVENT, hasMatchingDepositEvent, isMatchingSourceDeposit, isWalletRejection, mergeBridgeStatus, nativeSourceAmount, NATIVE_DEPOSIT_ABI, NATIVE_DEPOSIT_EVENT, parseBridgeAmount, parseStoredTransfer, RELAY_DEPOSITORY, serializeTransfer, submitBridgeDeposit, transferIsTerminal, validateBridgeQuote, validateBridgeStatus, type DepositDependencies, type TrackedBridgeTransfer } from "./client";
+import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, HttpRequestError, InsufficientFundsError, RpcRequestError, SwitchChainError, UnknownRpcError, UserRejectedRequestError, type Address, type Hex } from "viem";
+import { activityAfterWalletChange, anchorQuoteExpiry, bridgeErrorMessage, DISCARD_AFTER_MS, linkedTimeoutSignal, replacementSourceHash, transferCanDiscard, bridgeGasBudget, bridgeRequest, bridgeRequestKey, changeBridgeRoute, ERC20_DEPOSIT_ABI, ERC20_DEPOSIT_EVENT, hasMatchingDepositEvent, isMatchingSourceDeposit, isWalletRejection, mergeBridgeStatus, nativeSourceAmount, NATIVE_DEPOSIT_ABI, NATIVE_DEPOSIT_EVENT, parseBridgeAmount, parseStoredTransfer, RELAY_DEPOSITORY, serializeTransfer, submitBridgeDeposit, transferIsTerminal, validateBridgeQuote, validateBridgeStatus, type DepositDependencies, type TrackedBridgeTransfer } from "./client";
 import { bridgeStorageKey, createBridgeTransferStore } from "./client-storage";
 import { ARC_USDC, BASE_USDC, BRIDGE_CHAIN_IDS, type BridgeQuote, type BridgeQuoteRequest } from "./types";
 
@@ -578,4 +578,17 @@ test("a wallet change clears an in-flight quote lock but leaves wallet prompts u
     const activity = { key: "k", phase };
     assert.equal(activityAfterWalletChange(activity), activity);
   }
+});
+
+test("bridge error copy surfaces the provider's own text behind viem's generic wrappers", () => {
+  const rpc = (code: number, message: string) => new RpcRequestError({ body: {}, error: { code, message }, url: "http://wallet" });
+  assert.equal(bridgeErrorMessage(new UnknownRpcError(rpc(4902, "Unrecognized chain ID \"0x13b2\". Try adding the chain using wallet_addEthereumChain first.")), "x"), "Your wallet doesn't have this network yet. Add it in the wallet, then try again.");
+  assert.equal(bridgeErrorMessage(new UnknownRpcError(rpc(-32099, "node is syncing")), "x"), "An unknown RPC error occurred. node is syncing");
+  assert.match(bridgeErrorMessage(new UnknownRpcError(rpc(-32099, "y".repeat(300))), "x"), /^An unknown RPC error occurred\. y{160}…$/);
+  assert.equal(bridgeErrorMessage(new HttpRequestError({ url: "http://127.0.0.1:8545", details: "fetch failed" }), "x"), "HTTP request failed. fetch failed");
+  assert.equal(bridgeErrorMessage(new UserRejectedRequestError(new Error("User rejected the request.")), "x"), "You cancelled in your wallet.");
+  assert.equal(bridgeErrorMessage(new SwitchChainError(new UserRejectedRequestError(new Error("User rejected the request."))), "x"), "You cancelled in your wallet.");
+  assert.equal(bridgeErrorMessage(new InsufficientFundsError({ cause: new Error("insufficient funds for gas * price + value") }), "x", "USDC"), "Not enough USDC for this transaction plus gas.");
+  assert.equal(bridgeErrorMessage(new Error("plain"), "fallback"), "plain");
+  assert.equal(bridgeErrorMessage("string", "fallback"), "fallback");
 });

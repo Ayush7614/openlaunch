@@ -132,5 +132,5 @@ test("stuck records have a bounded discard path, and the hook avoids APIs missin
   assert.match(hook, /setActivity\(activityAfterWalletChange\)/);
   assert.match(hook, /error instanceof TransactionReceiptNotFoundError\) return null/);
   assert.match(hook, /replacementSourceHash\(current, status, receipt\.status === "fulfilled" && receipt\.value === null\)/);
-  assert.match(hook, /friendlyError\(error\)/);
+  assert.match(hook, /const messageOf = bridgeErrorMessage;/);
 });

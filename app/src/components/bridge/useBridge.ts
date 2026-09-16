@@ -4,11 +4,10 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { useAccount, useBalance, useConfig, useReadContract, useSwitchChain } from "wagmi";
 import { getAccount, getPublicClient, getWalletClient } from "wagmi/actions";
 import { estimateTotalFee } from "viem/op-stack";
-import { BaseError, erc20Abi, parseEther, TransactionReceiptNotFoundError, type Address } from "viem";
-import { friendlyError } from "@/lib/errors";
+import { erc20Abi, parseEther, TransactionReceiptNotFoundError, type Address } from "viem";
 import { BRIDGE_WALLET_CHAINS } from "@/lib/bridge/chains";
 import { BRIDGE_CHAINS, bridgeCurrency, defaultBridgeAsset, isBridgeAssetSupported, isBridgeChainId, type BridgeAsset, type BridgeChainId, type BridgeQuote } from "@/lib/bridge/types";
-import { activityAfterWalletChange, anchorQuoteExpiry, bridgeGasBudget, bridgeRequest, bridgeRequestKey, changeBridgeRoute, hasMatchingDepositEvent, isHash, isMatchingSourceDeposit, linkedTimeoutSignal, mergeBridgeStatus, nativeSourceAmount, RELAY_DEPOSITORY, replacementSourceHash, submitBridgeDeposit, transferCanDiscard, transferIsTerminal, transferPhase, validateBridgeQuote, validateBridgeStatus, type BridgeActivity, type BridgePhase, type BridgeRouteChange, type BridgeRouteInputs, type ProviderObservation, type TrackedBridgeTransfer } from "@/lib/bridge/client";
+import { activityAfterWalletChange, anchorQuoteExpiry, bridgeErrorMessage, bridgeGasBudget, bridgeRequest, bridgeRequestKey, changeBridgeRoute, hasMatchingDepositEvent, isHash, isMatchingSourceDeposit, linkedTimeoutSignal, mergeBridgeStatus, nativeSourceAmount, RELAY_DEPOSITORY, replacementSourceHash, submitBridgeDeposit, transferCanDiscard, transferIsTerminal, transferPhase, validateBridgeQuote, validateBridgeStatus, type BridgeActivity, type BridgePhase, type BridgeRouteChange, type BridgeRouteInputs, type ProviderObservation, type TrackedBridgeTransfer } from "@/lib/bridge/client";
 import { BRIDGE_STORAGE_PREFIX, createBridgeTransferStore } from "@/lib/bridge/client-storage";
 import { APPROVAL_STORAGE_PREFIX, approvalBlocksSubmission, approvalCanDiscard, createApprovalStore, hasMatchingApprovalEvent, isMatchingApprovalTransaction, reconcileApproval, submitExactApproval, validateApprovalMetadata, type ApprovalReceiptObservation } from "@/lib/bridge/approval";
 
@@ -20,14 +19,7 @@ const transfers = createBridgeTransferStore(() => window.localStorage);
 const approvals = createApprovalStore(() => window.localStorage);
 type QuoteEnvelope = { quote: BridgeQuote; key: string; walletChainId?: number; requestedAt: number };
 type Issue = { key: string; message: string } | null;
-/** Wallet and RPC errors go through the app's shared copy instead of raw viem dumps. */
-const messageOf = (error: unknown, fallback: string, gasSymbol = "ETH") => {
-  if (error instanceof BaseError) {
-    const message = friendlyError(error);
-    return /insufficient funds/i.test(error.shortMessage || error.message) ? `Not enough ${gasSymbol} for this transaction plus gas.` : message;
-  }
-  return error instanceof Error ? error.message : fallback;
-};
+const messageOf = bridgeErrorMessage;
 const transferLockName = (address: Address) => `openlaunch:bridge:${address.toLowerCase()}`;
 
 async function responseBody(response: Response): Promise<unknown> {

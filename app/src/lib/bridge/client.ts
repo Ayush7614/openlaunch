@@ -1,4 +1,5 @@
-import { decodeEventLog, decodeFunctionData, encodeFunctionData, isAddress, parseUnits, type Address, type Hex } from "viem";
+import { BaseError, decodeEventLog, decodeFunctionData, encodeFunctionData, InsufficientFundsError, isAddress, parseUnits, type Address, type Hex } from "viem";
+import { friendlyError } from "../errors";
 import { bridgeCurrency, defaultBridgeAsset, isBridgeAssetSupported, isBridgeChainId, type BridgeAsset, type BridgeChainId, type BridgeQuote, type BridgeQuoteRequest, type BridgeStatus, type BridgeStatusResponse } from "./types";
 
 export type BridgePhase = "idle" | "quoting" | "review" | "switching" | "confirming" | "pending" | "success" | "refund" | "failure" | "uncertain";
@@ -265,6 +266,26 @@ export function bridgeGasBudget(value: bigint, balance: bigint, gasEstimate: big
   const reserve = gas * maxFeePerGas + (additionalFeeReserve * 120n + 99n) / 100n;
   if (balance < value + reserve) throw new Error(`Not enough ${symbol} for this amount and network gas. Reduce the amount and request a new quote.`);
   return { gas, reserve };
+}
+
+const GENERIC_RPC_MESSAGE = /^(An unknown RPC error occurred\.|HTTP request failed\.|An internal error was received\.|The request took too long to respond\.)$/;
+
+/**
+ * Wallet and RPC errors go through the app's shared copy. viem's generic
+ * wrappers hide the provider's own text in `details`; surface it so a user
+ * (and support) can see "Unrecognized chain ID" rather than "unknown error".
+ */
+export function bridgeErrorMessage(error: unknown, fallback: string, gasSymbol = "ETH"): string {
+  if (error instanceof BaseError) {
+    const short = error.shortMessage || error.message;
+    const details = typeof error.details === "string" ? error.details.replace(/\s+/g, " ").trim() : "";
+    if (error.walk((e) => e instanceof InsufficientFundsError) || /insufficient funds/i.test(`${short} ${details}`)) return `Not enough ${gasSymbol} for this transaction plus gas.`;
+    if (/unrecognized chain|wallet_addEthereumChain|chain .* not (?:been )?added/i.test(details)) return "Your wallet doesn't have this network yet. Add it in the wallet, then try again.";
+    const message = friendlyError(error);
+    if (!GENERIC_RPC_MESSAGE.test(message) || !details) return message;
+    return `${message} ${details.length > 160 ? `${details.slice(0, 160)}…` : details}`;
+  }
+  return error instanceof Error ? error.message : fallback;
 }
 
 export function isWalletRejection(error: unknown): boolean {
