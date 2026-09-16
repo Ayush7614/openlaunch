@@ -23,13 +23,14 @@ ARC_POSM=0x6049c9a0e26405c0985f9e3685c87d0ae917f82b
 
 common=(--watch --compiler-version 0.8.26 --evm-version cancun --num-of-optimizations 200 --via-ir)
 
-verify_pair() { # <chain-id> <pm> <posm> <verifier args...>
+verify_pair() { # <chain-id> <pm> <posm> <verifier args...>   (FACTORY_SRC: the factory contract; Arc deploys LaunchFactoryArc)
   local chain=$1 pm=$2 posm=$3; shift 3
+  local src=${FACTORY_SRC:-src/LaunchFactory.sol:LaunchFactory}
   local fargs largs
   fargs=$(cast abi-encode "constructor(address,address,address)" "$pm" "$posm" "$PERMIT2")
   largs=$(cast abi-encode "constructor(address)" "$posm")
-  echo "== chain $chain: LaunchFactory"
-  forge verify-contract --chain "$chain" "$FACTORY" src/LaunchFactory.sol:LaunchFactory --constructor-args "$fargs" "${common[@]}" "$@" || true
+  echo "== chain $chain: ${src##*:}"
+  forge verify-contract --chain "$chain" "$FACTORY" "$src" --constructor-args "$fargs" "${common[@]}" "$@" || true
   echo "== chain $chain: LaunchLocker"
   forge verify-contract --chain "$chain" "$LOCKER" src/LaunchLocker.sol:LaunchLocker --constructor-args "$largs" "${common[@]}" "$@" || true
 }
@@ -48,5 +49,5 @@ if [[ $target == robinhood || $target == all ]]; then
 fi
 if [[ $target == arc || $target == all ]]; then
   echo "== Arc Blockscout (keyless)"
-  verify_pair 5042 "$ARC_PM" "$ARC_POSM" --verifier blockscout --verifier-url https://explorer.arc.io/api/
+  FACTORY_SRC=src/LaunchFactoryArc.sol:LaunchFactoryArc verify_pair 5042 "$ARC_PM" "$ARC_POSM" --verifier blockscout --verifier-url https://explorer.arc.io/api/
 fi

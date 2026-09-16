@@ -13,7 +13,7 @@ import {IV4Router} from "@uniswap/v4-periphery/src/interfaces/IV4Router.sol";
 import {Actions} from "@uniswap/v4-periphery/src/libraries/Actions.sol";
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
 
-import {LaunchFactory} from "src/LaunchFactory.sol";
+import {LaunchFactoryArc} from "src/LaunchFactoryArc.sol";
 import {LaunchLocker, IERC721Owner} from "src/LaunchLocker.sol";
 import {LaunchToken} from "src/LaunchToken.sol";
 
@@ -38,7 +38,7 @@ interface IUniversalRouter {
     function execute(bytes calldata commands, bytes[] calldata inputs, uint256 deadline) external payable;
 }
 
-/// Arc (Circle's L1, chain 5042): gas is USDC. The native asset is USDC at 18 decimals and the SAME balance is the
+/// Arc (Circle's L1, chain 5042), deploying LaunchFactoryArc (src/LaunchFactoryArc.sol): gas is USDC. The native asset is USDC at 18 decimals and the SAME balance is the
 /// 6-decimal ERC-20 at 0x3600…0000, which is the only quote the launchpad offers there. Against the LIVE Uniswap v4
 /// deployment on Arc this proves, before our factory is deployed there:
 ///   1. a USDC-quoted launch → buy → collect works on the real PoolManager / PositionManager / Permit2;
@@ -62,7 +62,7 @@ contract LaunchFactoryArcFork is Test {
     IPoolManager manager = IPoolManager(PM);
     IPositionManager posm = IPositionManager(POSM);
     PoolSwapTest swapRouter;
-    LaunchFactory factory;
+    LaunchFactoryArc factory;
     LaunchLocker locker;
     bool forked;
 
@@ -85,14 +85,14 @@ contract LaunchFactoryArcFork is Test {
         forked = true;
         assertEq(block.chainid, 5042, "rpc points at Arc mainnet");
         swapRouter = new PoolSwapTest(manager);
-        factory = new LaunchFactory(manager, posm, IAllowanceTransfer(PERMIT2));
+        factory = new LaunchFactoryArc(manager, posm, IAllowanceTransfer(PERMIT2));
         locker = factory.locker();
         // native USDC (18 dec) IS the ERC-20 balance (6 dec): fund the buyer once, in native units
         vm.deal(buyer, 1_000 ether);
         assertEq(alice.code.length + bob.code.length + buyer.code.length, 0, "test accounts are empty EOAs");
     }
 
-    function _params() internal view returns (LaunchFactory.LaunchParams memory p) {
+    function _params() internal view returns (LaunchFactoryArc.LaunchParams memory p) {
         LaunchLocker.Recipient[] memory r = new LaunchLocker.Recipient[](2);
         r[0] = LaunchLocker.Recipient(alice, 6_000);
         r[1] = LaunchLocker.Recipient(bob, 4_000);
@@ -128,7 +128,7 @@ contract LaunchFactoryArcFork is Test {
 
     function test_fork_arc_launchWithUsdcQuoteBuyCollect() public {
         vm.skip(!forked);
-        LaunchFactory.LaunchParams memory p = _params();
+        LaunchFactoryArc.LaunchParams memory p = _params();
         (address token, uint256 tokenId) = factory.launch(p);
         LaunchToken t = LaunchToken(token);
         assertEq(IERC721Owner(address(posm)).ownerOf(tokenId), address(locker), "real posm minted to locker");
@@ -162,7 +162,7 @@ contract LaunchFactoryArcFork is Test {
     /// otherwise every burn-mode launch's collect() would revert forever (LaunchLocker._burn).
     function test_fork_arc_burnModeSendsUsdcFeesToDead() public {
         vm.skip(!forked);
-        LaunchFactory.LaunchParams memory p = _params();
+        LaunchFactoryArc.LaunchParams memory p = _params();
         p.recipients = new LaunchLocker.Recipient[](0);
         p.symbol = "ARCB";
         (bytes32 salt,) =
@@ -303,7 +303,7 @@ contract LaunchFactoryArcFork is Test {
         vm.prank(IERC20Meta(USDC).blacklister());
         IERC20Meta(USDC).blacklist(blocked);
         assertTrue(IERC20Meta(USDC).isBlacklisted(blocked));
-        LaunchFactory.LaunchParams memory p = _params();
+        LaunchFactoryArc.LaunchParams memory p = _params();
         LaunchLocker.Recipient[] memory r = new LaunchLocker.Recipient[](1);
         r[0] = LaunchLocker.Recipient(blocked, 10_000);
         p.recipients = r;
@@ -335,9 +335,9 @@ contract LaunchFactoryArcFork is Test {
     function test_fork_arc_nativeQuotedPoolCannotSweepCreditedUsdc() public {
         vm.skip(!forked);
         uint256 credited = _creditedUsdcViaBlocklistedRecipient();
-        // a native-quoted pool paying the attacker: on Arc the factory must refuse it (LaunchFactory.NativeQuoteUnsupported)
+        // a native-quoted pool paying the attacker: on Arc the factory must refuse it (LaunchFactoryArc.NativeQuoteUnsupported)
         address attacker = makeAddr("launchpad-arc-attacker");
-        LaunchFactory.LaunchParams memory p = _params();
+        LaunchFactoryArc.LaunchParams memory p = _params();
         LaunchLocker.Recipient[] memory r = new LaunchLocker.Recipient[](1);
         r[0] = LaunchLocker.Recipient(attacker, 10_000);
         p.recipients = r;
@@ -345,7 +345,7 @@ contract LaunchFactoryArcFork is Test {
         p.symbol = "ARCN";
         p.startTick = 184_200;
         p.salt = keccak256("arc-native");
-        vm.expectRevert(LaunchFactory.NativeQuoteUnsupported.selector);
+        vm.expectRevert(LaunchFactoryArc.NativeQuoteUnsupported.selector);
         factory.launch(p);
         // the credited USDC is still exactly where the ledger says it is
         assertEq(IERC20Meta(USDC).balanceOf(address(locker)), credited);
@@ -360,7 +360,7 @@ contract LaunchFactoryArcFork is Test {
         vm.skip(!forked);
         uint256 credited = _creditedUsdcViaBlocklistedRecipient();
         address attacker = makeAddr("launchpad-arc-attacker");
-        LaunchFactory.LaunchParams memory p = _params();
+        LaunchFactoryArc.LaunchParams memory p = _params();
         LaunchLocker.Recipient[] memory r = new LaunchLocker.Recipient[](1);
         r[0] = LaunchLocker.Recipient(attacker, 10_000);
         p.recipients = r;

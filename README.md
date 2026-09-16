@@ -32,7 +32,7 @@ Creators choose a 0 / 1 / 3 % trading fee that is pushed **in full** to benefici
 - **Free by construction.** No fee parameter exists in the contracts, so there is nothing to raise later.
 - **Rug-proof liquidity.** The position NFT lives in a locker with no owner, no pause, no upgrade path and
   no transfer function. Proven with an adversarial fork suite against the live deployment.
-- **Three chains, one set of rules.** Base, Robinhood Chain and Arc (Circle's L1, where gas and quotes are USDC), same contracts; the Arc factory additionally refuses native-asset quotes (see `contracts/docs/LAUNCHPAD.md`).
+- **Three chains, one set of rules.** Base, Robinhood Chain and Arc (Circle's L1, where gas and quotes are USDC), same contracts; Arc runs `LaunchFactoryArc`, the same source plus a guard that refuses native-asset quotes (see `contracts/docs/LAUNCHPAD.md`).
 - **Any quote asset.** ETH, USDG, USDC on Arc, **GITLAWB** ([Gitlawb](https://gitlawb.com)'s token, on Base and bridged 1:1 to
   Robinhood Chain; priced from its Base Uniswap v4 WETH pool; fees paid or burned in GITLAWB), or a **tokenized stock**: Coinbase's B20 stocks on Base
   (NVDAc, AAPLc, TSLAc, …, priced from Chainlink on-chain feeds) and Robinhood Stock Tokens on Robinhood Chain.

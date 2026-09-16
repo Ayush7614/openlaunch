@@ -6,9 +6,11 @@ import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IPositionManager} from "@uniswap/v4-periphery/src/interfaces/IPositionManager.sol";
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
 import {LaunchFactory} from "src/LaunchFactory.sol";
+import {LaunchFactoryArc} from "src/LaunchFactoryArc.sol";
 
 /// Deploys the fee-free LaunchFactory (+ its LaunchLocker) against the canonical
 /// Uniswap v4 deployment of the current chain (Base 8453, Robinhood Chain 4663, Arc 5042).
+/// On Arc it deploys LaunchFactoryArc (src/LaunchFactoryArc.sol: the same contract plus the native-quote guard).
 /// There is nothing to configure: no fee recipient, no bps, no owner.
 ///
 /// Env:
@@ -38,7 +40,9 @@ contract DeployLaunchFactory is Script {
         return (address(0), address(0));
     }
 
-    function run() external returns (LaunchFactory factory) {
+    uint256 constant ARC_CHAIN_ID = 5042;
+
+    function run() external returns (address factory, address locker) {
         uint256 pk = vm.envUint("DEPLOYER_PRIVATE_KEY");
         (address pmDefault, address posmDefault) = _known(block.chainid);
         address pm = vm.envOr("POOL_MANAGER", pmDefault);
@@ -58,14 +62,21 @@ contract DeployLaunchFactory is Script {
         );
 
         vm.startBroadcast(pk);
-        factory = new LaunchFactory(IPoolManager(pm), IPositionManager(posm), IAllowanceTransfer(PERMIT2));
+        if (block.chainid == ARC_CHAIN_ID) {
+            LaunchFactoryArc f =
+                new LaunchFactoryArc(IPoolManager(pm), IPositionManager(posm), IAllowanceTransfer(PERMIT2));
+            (factory, locker) = (address(f), address(f.locker()));
+        } else {
+            LaunchFactory f = new LaunchFactory(IPoolManager(pm), IPositionManager(posm), IAllowanceTransfer(PERMIT2));
+            (factory, locker) = (address(f), address(f.locker()));
+        }
         vm.stopBroadcast();
 
         console.log("Chain ID:       ", block.chainid);
         console.log("PoolManager:    ", pm);
         console.log("PositionManager:", posm);
-        console.log("LaunchFactory:  ", address(factory));
-        console.log("LaunchLocker:   ", address(factory.locker()));
+        console.log(block.chainid == ARC_CHAIN_ID ? "LaunchFactoryArc:" : "LaunchFactory:  ", factory);
+        console.log("LaunchLocker:   ", locker);
         console.log("Platform fee:    none (no fee address exists)");
     }
 }

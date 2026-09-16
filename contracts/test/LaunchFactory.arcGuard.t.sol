@@ -2,12 +2,23 @@
 pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
-import {LaunchFactory} from "src/LaunchFactory.sol";
+import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
+import {IPositionManager} from "@uniswap/v4-periphery/src/interfaces/IPositionManager.sol";
+import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
+import {LaunchFactoryArc} from "src/LaunchFactoryArc.sol";
 
-/// The native-quote refusal is Arc-only: on any other chain id a native quote is still accepted (the launch itself is
-/// exercised by the other suites). The rejection happens before any state change or external call.
+/// LaunchFactoryArc refuses a native quote on Arc's chain id, before any state change or external call, and only there.
+/// No Uniswap deployment is needed: the guard sits ahead of everything that would touch one.
 contract LaunchFactoryArcGuard is Test {
-    function _nativeParams() internal pure returns (LaunchFactory.LaunchParams memory p) {
+    LaunchFactoryArc factory;
+
+    function setUp() public {
+        factory = new LaunchFactoryArc(
+            IPoolManager(address(0xA)), IPositionManager(address(0xB)), IAllowanceTransfer(address(0xC))
+        );
+    }
+
+    function _nativeParams() internal pure returns (LaunchFactoryArc.LaunchParams memory p) {
         p.name = "Guard";
         p.symbol = "GRD";
         p.quote = address(0);
@@ -16,32 +27,35 @@ contract LaunchFactoryArcGuard is Test {
     }
 
     function test_arcRefusesNativeQuoteBeforeAnythingElse() public {
-        // no v4 contracts here at all: on Arc's chain id the guard fires first, so nothing after it is reached
-        LaunchFactory factory = LaunchFactory(address(0xBEEF));
-        vm.etch(address(factory), address(new LaunchFactoryGuardOnly()).code);
         vm.chainId(5042);
-        vm.expectRevert(LaunchFactory.NativeQuoteUnsupported.selector);
+        vm.expectRevert(LaunchFactoryArc.NativeQuoteUnsupported.selector);
         factory.launch(_nativeParams());
     }
 
-    function test_otherChainsStillAcceptNativeQuote() public {
-        LaunchFactory factory = LaunchFactory(address(0xBEEF));
-        vm.etch(address(factory), address(new LaunchFactoryGuardOnly()).code);
+    function test_arcStillAcceptsErc20QuotesPastTheGuard() public {
+        vm.chainId(5042);
+        LaunchFactoryArc.LaunchParams memory p = _nativeParams();
+        p.quote = address(0x3600000000000000000000000000000000000000);
+        // past the guard the launch reaches the (absent) Uniswap contracts and fails there, never with the guard's error
+        try factory.launch(p) {
+            fail();
+        } catch (bytes memory err) {
+            assertTrue(
+                err.length < 4 || bytes4(err) != LaunchFactoryArc.NativeQuoteUnsupported.selector,
+                "an ERC-20 quote passes the guard"
+            );
+        }
+    }
+
+    function test_otherChainsStillAcceptNativeQuotePastTheGuard() public {
         vm.chainId(8453);
-        vm.expectRevert(LaunchFactoryGuardOnly.ReachedPastTheGuard.selector);
-        factory.launch(_nativeParams());
-    }
-}
-
-/// A factory whose launch() stops right after the guard, so the guard can be tested without a Uniswap deployment.
-contract LaunchFactoryGuardOnly {
-    error NativeQuoteUnsupported();
-    error ReachedPastTheGuard();
-
-    uint256 internal constant ARC_CHAIN_ID = 5042;
-
-    function launch(LaunchFactory.LaunchParams calldata p) external view returns (address, uint256) {
-        if (p.quote == address(0) && block.chainid == ARC_CHAIN_ID) revert NativeQuoteUnsupported();
-        revert ReachedPastTheGuard();
+        try factory.launch(_nativeParams()) {
+            fail();
+        } catch (bytes memory err) {
+            assertTrue(
+                err.length < 4 || bytes4(err) != LaunchFactoryArc.NativeQuoteUnsupported.selector,
+                "not Arc: the guard does not fire"
+            );
+        }
     }
 }
