@@ -58,8 +58,8 @@ export default function BridgeReview() {
     approval, approvalRequired: erc20Input && !approved, allowanceLoading: false, approvalBusy: false, approvalError: null,
     approve: async () => setScene("approval_pending"), retryApproval: () => { setApproved(true); setScene("approval_confirmed"); },
     recoverApproval: async () => { setApproved(true); setScene("approval_confirmed"); },
-    approvalCanBeDiscarded: scene === "approval_uncertain", discardApproval: () => { setApproved(false); setScene("idle"); },
-    canDiscard: scene === "uncertain", discard: () => setScene("idle"),
+    approvalCanBeDiscarded: scene === "approval_uncertain", discardApproval: async () => { setApproved(false); setScene("idle"); },
+    canDiscard: scene === "uncertain", discard: async () => setScene("idle"), discarding: false,
   };
   return (
     <main className="mx-auto max-w-3xl px-5 py-20">

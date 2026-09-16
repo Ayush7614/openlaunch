@@ -65,6 +65,7 @@ export function useBridge() {
   const [observation, setObservation] = useState<ProviderObservation | null>(null);
   const [approvalObservation, setApprovalObservation] = useState<ApprovalReceiptObservation | null>(null);
   const [now, setNow] = useState(0);
+  const [discarding, setDiscarding] = useState(false);
   const actionLock = useRef(false);
   const quoteSequence = useRef(0);
   const quoteAbort = useRef<AbortController | null>(null);
@@ -561,36 +562,75 @@ export function useBridge() {
   const canDiscard = transferCanDiscard(tracked, observation, now);
   const approvalCanBeDiscarded = approvalCanDiscard(approval, approvalObservation, now);
 
-  function discard() {
-    if (actionLock.current || sending || !address || !tracked || !canDiscard || !navigator.locks) return;
+  const receiptOrNull = (pub: NonNullable<ReturnType<typeof getPublicClient>>, hash: `0x${string}`) => pub.getTransactionReceipt({ hash }).catch((error: unknown) => {
+    if (error instanceof TransactionReceiptNotFoundError) return null;
+    throw error;
+  });
+
+  // Both discards re-read Relay and the source chain under the wallet lock. The
+  // observation that showed the button only decides visibility, never removal.
+  async function discard() {
+    if (actionLock.current || sending || discarding || !address || !tracked || !canDiscard || !navigator.locks) return;
     const requestId = tracked.requestId;
-    void navigator.locks.request(transferLockName(address), { ifAvailable: true }, (lock) => {
-      if (!lock) return;
-      try {
+    setDiscarding(true);
+    try {
+      await navigator.locks.request(transferLockName(address), { ifAvailable: true }, async (lock) => {
+        if (!lock) throw new Error("Another bridge action is in progress. Try again in a moment.");
         const current = transfers.read(address);
-        if (current?.requestId !== requestId || !transferCanDiscard(current, observation, Date.now())) return;
+        if (current?.requestId !== requestId || transferIsTerminal(current)) return;
+        const status = await fetch(`/api/bridge/status?requestId=${encodeURIComponent(requestId)}`, { cache: "no-store", signal: linkedTimeoutSignal(undefined, 15_000) }).then(responseBody).then(validateBridgeStatus);
+        let sourceMined = false;
+        if (current.sourceHash) {
+          const pub = getPublicClient(config, { chainId: current.originChainId });
+          if (!pub) throw new Error("Could not connect to the source network. Try again.");
+          const [chainId, receipt] = await Promise.all([pub.getChainId(), receiptOrNull(pub, current.sourceHash)]);
+          if (chainId !== current.originChainId) throw new Error("The source RPC reported a different network. Try again.");
+          sourceMined = receipt !== null;
+        }
+        const fresh = { requestId, status, sourceMined, observedAt: Date.now() };
+        setObservation(fresh);
+        if (!transferCanDiscard(current, fresh, Date.now())) throw new Error("This transfer now shows activity, so it was kept. Tracking continues.");
         transfers.remove(address);
         setObservation(null);
         invalidateQuote();
         setStatusIssue(null);
-      } catch { /* storage warning is exposed in the store */ }
-    });
+      });
+    } catch (error) {
+      setStatusIssue({ key: requestId, message: messageOf(error, "Could not verify the transfer before discarding it. Try again.") });
+    } finally {
+      setDiscarding(false);
+    }
   }
 
-  function discardApproval() {
-    if (actionLock.current || approvalSending || !address || !approval || !approvalCanBeDiscarded || !navigator.locks) return;
+  async function discardApproval() {
+    if (actionLock.current || approvalSending || discarding || !address || !approval || !approvalCanBeDiscarded || !navigator.locks) return;
     const createdAt = approval.createdAt;
-    void navigator.locks.request(transferLockName(address), { ifAvailable: true }, (lock) => {
-      if (!lock) return;
-      try {
+    setDiscarding(true);
+    try {
+      await navigator.locks.request(transferLockName(address), { ifAvailable: true }, async (lock) => {
+        if (!lock) throw new Error("Another bridge action is in progress. Try again in a moment.");
         const current = approvals.read(address);
-        if (current?.createdAt !== createdAt || !approvalCanDiscard(current, approvalObservation, Date.now())) return;
+        if (current?.createdAt !== createdAt || !approvalBlocksSubmission(current)) return;
+        let fresh: ApprovalReceiptObservation | null = null;
+        if (current.approvalHash) {
+          const pub = getPublicClient(config, { chainId: current.chainId });
+          if (!pub) throw new Error("Could not connect to the approval's network. Try again.");
+          const [chainId, receipt] = await Promise.all([pub.getChainId(), receiptOrNull(pub, current.approvalHash)]);
+          if (chainId !== current.chainId) throw new Error("The source RPC reported a different network. Try again.");
+          fresh = { createdAt, receiptFound: receipt !== null, observedAt: Date.now() };
+          setApprovalObservation(fresh);
+        }
+        if (!approvalCanDiscard(current, fresh, Date.now())) throw new Error("This approval now shows activity, so it was kept. Checking continues.");
         approvals.remove(address);
         setApprovalObservation(null);
         setApprovalIssue(null);
         invalidateQuote();
-      } catch { /* storage warning is exposed in the store */ }
-    });
+      });
+    } catch (error) {
+      setApprovalIssue({ key: address.toLowerCase(), message: messageOf(error, "Could not verify the approval before discarding it. Try again.") });
+    } finally {
+      setDiscarding(false);
+    }
   }
 
   const retryStatus = useCallback(() => setPollRevision((value) => value + 1), []);
@@ -609,7 +649,7 @@ export function useBridge() {
     approval, approvalRequired, allowanceLoading, approvalBusy: approvalSending,
     approvalError: approvalIssue?.key === walletKey ? approvalIssue.message : quote && allowanceResult?.key === quote.requestId ? allowanceResult.error : null,
     approve, retryApproval, recoverApproval, approvalCanBeDiscarded, discardApproval,
-    canDiscard, discard,
+    canDiscard, discard, discarding,
     statusError: statusIssue && statusIssue.key === trackedId ? statusIssue.message : null,
     retryStatus, storageError, busy: sending || approvalSending || approvalPending || activePhase === "quoting",
     canReset: !sending && !approvalSending && !approvalPending && (!tracked || transferIsTerminal(tracked)),

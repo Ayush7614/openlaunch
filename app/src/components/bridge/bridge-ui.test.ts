@@ -118,9 +118,12 @@ test("USDC selectors separate selected token units from native gas and disallow 
 test("stuck records have a bounded discard path, and the hook avoids APIs missing in older wallet browsers", () => {
   const hook = read("./useBridge.ts");
   assert.match(panel, /b\.canDiscard \? <details/);
-  assert.match(panel, /onClick=\{b\.discard\}>Discard this transfer/);
+  assert.match(panel, /disabled=\{b\.discarding\} onClick=\{b\.discard\}>/);
   assert.match(panel, /b\.approvalCanBeDiscarded \? <details/);
-  assert.match(panel, /onClick=\{b\.discardApproval\}>Discard this approval/);
+  assert.match(panel, /onClick=\{b\.discardApproval\}>/);
+  assert.match(hook, /const fresh = \{ requestId, status, sourceMined, observedAt: Date\.now\(\) \};/); // removal re-reads evidence under the lock
+  assert.match(hook, /if \(!transferCanDiscard\(current, fresh, Date\.now\(\)\)\) throw/);
+  assert.match(hook, /if \(!approvalCanDiscard\(current, fresh, Date\.now\(\)\)\) throw/);
   assert.match(panel, /Keep the Transfer ID below/);
   assert.match(panel, /Openlaunch does not operate Relay, holds no funds in transit, and is not responsible for delays, refunds or losses/);
   assert.doesNotMatch(hook, /AbortSignal\.(any|timeout)/);

@@ -250,7 +250,7 @@ function ApprovalProgress({ bridge: b }: { bridge: Bridge }) {
     {b.approvalCanBeDiscarded ? <details className={styles.approvalRecovery}>
       <summary>Still not confirmed after {DISCARD_AFTER_MS / 60_000} minutes?</summary>
       <p>{approvalChain.name} has no record of this approval. If your wallet shows it as dropped or cancelled, you can discard it and start over. If it confirms later it only grants this exact allowance; the next deposit re-checks it.</p>
-      <button type="button" className={styles.newTransfer} disabled={b.approvalBusy} onClick={b.discardApproval}>Discard this approval</button>
+      <button type="button" className={styles.newTransfer} disabled={b.approvalBusy || b.discarding} onClick={b.discardApproval}>{b.discarding ? "Checking the approval…" : "Discard this approval"}</button>
     </details> : null}
     <p className={styles.disclaimer}>You can close this panel. Reopen Bridge with this wallet to resume. If you stop after approval, the unspent allowance remains until used or revoked.</p>
   </div>;
@@ -298,7 +298,7 @@ export function Transfer({ bridge: b }: { bridge: Bridge }) {
       {b.canDiscard ? <details className={styles.approvalRecovery}>
         <summary>No deposit after {DISCARD_AFTER_MS / 60_000} minutes?</summary>
         <p>Relay has not seen a deposit for this transfer and nothing is confirmed on {origin.name}. If your wallet shows the transaction as dropped or cancelled, you can discard this record and start over. Keep the Transfer ID below in case you need Relay support.</p>
-        <button type="button" className={styles.newTransfer} onClick={b.discard}>Discard this transfer</button>
+        <button type="button" className={styles.newTransfer} disabled={b.discarding} onClick={b.discard}>{b.discarding ? "Checking the transfer…" : "Discard this transfer"}</button>
       </details> : null}
       <p className={styles.disclaimer}>Transfer ID <span className={styles.requestId}>{transfer.requestId}</span></p>
     </div>
