@@ -39,7 +39,8 @@ test("unknown networks stay unknown and never get an inferred explorer destinati
   assert.match(source, /const explorer = key \? explorerAddress\(key, address\) : bridgeNetwork \? `[\s\S]*` : null/);
   assert.match(source, /explorerName\(key\)/);
   assert.match(source, /This network isn’t supported\. Choose one below\./);
-  assert.match(source, /CHAIN_KEYS.map\(\(chain\) =>/);
+  // the switcher offers the chains the site has contracts on (every chain in development, where none may be configured)
+  assert.match(source, /VISIBLE_CHAINS.map\(\(chain\) =>/);
   assert.match(source, /aria-pressed=\{chain === key\}/);
   assert.doesNotMatch(source, /chainKeyOf\(chainId\)\s*(?:\|\||\?\?)\s*"base"|explorerAddress\("base"/);
 });

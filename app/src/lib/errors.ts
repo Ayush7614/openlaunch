@@ -24,7 +24,7 @@ export function friendlyError(err: unknown, opts: { slippagePct?: number } = {})
     if (name && slippage.test(name)) return `Price moved more than ${slippagePct}%. Try again.`; // decoded router error (e.g. V4TooLittleReceived)
     if (name) return `Reverted: ${name}`;
     const short = err.shortMessage || err.message;
-    if (/insufficient funds/i.test(short)) return "Not enough ETH for this transaction plus gas.";
+    if (/insufficient funds/i.test(short)) return "Not enough of the gas token (ETH, or USDC on Arc) for this transaction plus gas.";
     if (slippage.test(short)) return `Price moved more than ${slippagePct}%. Try again.`;
     return short.length > 200 ? `${short.slice(0, 200)}…` : short;
   }

@@ -174,7 +174,7 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
             <Link href="/#launches" className={styles.browseLink}>Just exploring? Browse launches<ArrowUpRight size={15} aria-hidden="true" /></Link>
           </div>
         </section>
-        <div className={styles.disclosure}><span>One wallet. Both chains.</span><p>This dashboard reads public on-chain activity. There is no separate openlaunch account.</p></div>
+        <div className={styles.disclosure}><span>One wallet. Every chain.</span><p>This dashboard reads public on-chain activity. There is no separate openlaunch account.</p></div>
       </div>
     );
   }

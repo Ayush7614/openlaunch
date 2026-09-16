@@ -9,9 +9,10 @@ cd "$(dirname "$0")/.."
 [ -f .env ] && set -a && . ./.env && set +a
 KEY="${ETHERSCAN_API_KEY:-${BASESCAN_API_KEY:-}}"
 
-# The addresses are the same on every chain (deployer nonce 0); override for a deployment that landed elsewhere.
-FACTORY=${FACTORY:-0x815542E8b392389A1389E22E588E4B62A67Ade72}
-LOCKER=${LOCKER:-0xcd1680D26922fcd9CabFbb8a56bA40C333fD842a}
+# The addresses are the same on every chain (deployer nonce 0). ARC_FACTORY / ARC_LOCKER override the Arc pair only, for an
+# Arc deployment that landed elsewhere; Base and Robinhood always verify the live pair.
+FACTORY=0x815542E8b392389A1389E22E588E4B62A67Ade72
+LOCKER=0xcd1680D26922fcd9CabFbb8a56bA40C333fD842a
 PERMIT2=0x000000000022D473030F116dDEE9F6B43aC78BA3
 # Uniswap v4 per chain (must match script/DeployLaunchFactory.s.sol)
 BASE_PM=0x498581fF718922c3f8e6A244956aF099B2652b2b
@@ -26,13 +27,14 @@ common=(--watch --compiler-version 0.8.26 --evm-version cancun --num-of-optimiza
 verify_pair() { # <chain-id> <pm> <posm> <verifier args...>   (FACTORY_SRC: the factory contract; Arc deploys LaunchFactoryArc)
   local chain=$1 pm=$2 posm=$3; shift 3
   local src=${FACTORY_SRC:-src/LaunchFactory.sol:LaunchFactory}
+  local factory=${VERIFY_FACTORY:-$FACTORY} locker=${VERIFY_LOCKER:-$LOCKER}
   local fargs largs
   fargs=$(cast abi-encode "constructor(address,address,address)" "$pm" "$posm" "$PERMIT2")
   largs=$(cast abi-encode "constructor(address)" "$posm")
   echo "== chain $chain: ${src##*:}"
-  forge verify-contract --chain "$chain" "$FACTORY" "$src" --constructor-args "$fargs" "${common[@]}" "$@" || true
+  forge verify-contract --chain "$chain" "$factory" "$src" --constructor-args "$fargs" "${common[@]}" "$@" || true
   echo "== chain $chain: LaunchLocker"
-  forge verify-contract --chain "$chain" "$LOCKER" src/LaunchLocker.sol:LaunchLocker --constructor-args "$largs" "${common[@]}" "$@" || true
+  forge verify-contract --chain "$chain" "$locker" src/LaunchLocker.sol:LaunchLocker --constructor-args "$largs" "${common[@]}" "$@" || true
 }
 
 target=${1:-all}
@@ -49,5 +51,5 @@ if [[ $target == robinhood || $target == all ]]; then
 fi
 if [[ $target == arc || $target == all ]]; then
   echo "== Arc Blockscout (keyless)"
-  FACTORY_SRC=src/LaunchFactoryArc.sol:LaunchFactoryArc verify_pair 5042 "$ARC_PM" "$ARC_POSM" --verifier blockscout --verifier-url https://explorer.arc.io/api/
+  VERIFY_FACTORY=${ARC_FACTORY:-} VERIFY_LOCKER=${ARC_LOCKER:-} FACTORY_SRC=src/LaunchFactoryArc.sol:LaunchFactoryArc verify_pair 5042 "$ARC_PM" "$ARC_POSM" --verifier blockscout --verifier-url https://explorer.arc.io/api/
 fi

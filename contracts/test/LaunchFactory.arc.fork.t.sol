@@ -13,6 +13,7 @@ import {IV4Router} from "@uniswap/v4-periphery/src/interfaces/IV4Router.sol";
 import {Actions} from "@uniswap/v4-periphery/src/libraries/Actions.sol";
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
 
+import {LaunchFactory} from "src/LaunchFactory.sol";
 import {LaunchFactoryArc} from "src/LaunchFactoryArc.sol";
 import {LaunchLocker, IERC721Owner} from "src/LaunchLocker.sol";
 import {LaunchToken} from "src/LaunchToken.sol";
@@ -353,14 +354,47 @@ contract LaunchFactoryArcFork is Test {
         assertEq(attacker.balance, 0, "nothing was swept");
     }
 
-    /// Why the guard exists, demonstrated: with the chain id cheated to anything but Arc the factory accepts a native
-    /// quote, and that pool's first collect pays the attacker the credited USDC of the other launch on top of its own fee,
-    /// leaving a reserved amount the locker no longer holds (every USDC collect below it would then underflow).
+    /// Why the guard exists, demonstrated with the plain LaunchFactory (the Base / Robinhood contract) on Arc: it accepts a
+    /// native quote, and that pool's first collect pays the attacker the credited USDC of the other launch on top of its
+    /// own fee, leaving a reserved amount the locker no longer holds (every USDC collect below it would then underflow).
     function test_fork_arc_withoutTheGuardCreditedUsdcWouldBeSwept() public {
         vm.skip(!forked);
-        uint256 credited = _creditedUsdcViaBlocklistedRecipient();
+        // the unguarded contract, with its own locker; credit USDC into THAT locker via a blocklisted payout
+        LaunchFactory plain = new LaunchFactory(manager, posm, IAllowanceTransfer(PERMIT2));
+        LaunchLocker plainLocker = plain.locker();
+        address blocked = makeAddr("launchpad-arc-blocked-2");
+        vm.prank(IERC20Meta(USDC).blacklister());
+        IERC20Meta(USDC).blacklist(blocked);
+        LaunchFactory.LaunchParams memory q;
+        q.name = "Arc Coin";
+        q.symbol = "ARCX";
+        q.metadataURI = "ipfs://arc";
+        q.quote = USDC;
+        q.startTick = USD_START_TICK;
+        q.lpFee = 10_000;
+        LaunchLocker.Recipient[] memory br = new LaunchLocker.Recipient[](1);
+        br[0] = LaunchLocker.Recipient(blocked, 10_000);
+        q.recipients = br;
+        (bytes32 qs,) =
+            plain.findSalt(address(this), keccak256("arc-blocked-2"), q.name, q.symbol, 0, q.metadataURI, USDC, 64);
+        q.salt = qs;
+        (address usdcToken, uint256 usdcId) = plain.launch(q);
+        vm.startPrank(buyer);
+        IERC20Meta(USDC).approve(address(swapRouter), 100e6);
+        swapRouter.swap(
+            plain.poolKeyOf(usdcToken),
+            SwapParams({
+                zeroForOne: true, amountSpecified: -int256(100e6), sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
+            }),
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            ""
+        );
+        vm.stopPrank();
+        (uint256 credited,) = plainLocker.collect(usdcId);
+        assertEq(plainLocker.reserved(USDC), credited, "credited USDC sits in the unguarded locker");
+
         address attacker = makeAddr("launchpad-arc-attacker");
-        LaunchFactoryArc.LaunchParams memory p = _params();
+        LaunchFactory.LaunchParams memory p = q;
         LaunchLocker.Recipient[] memory r = new LaunchLocker.Recipient[](1);
         r[0] = LaunchLocker.Recipient(attacker, 10_000);
         p.recipients = r;
@@ -368,10 +402,8 @@ contract LaunchFactoryArcFork is Test {
         p.symbol = "ARCN";
         p.startTick = 184_200;
         p.salt = keccak256("arc-native");
-        vm.chainId(1); // disable the Arc-only guard for this launch; the chain's USDC semantics are unchanged
-        (address token, uint256 tokenId) = factory.launch(p);
-        vm.chainId(5042);
-        PoolKey memory key = factory.poolKeyOf(token);
+        (address token, uint256 tokenId) = plain.launch(p); // accepted: no guard
+        PoolKey memory key = plain.poolKeyOf(token);
         vm.prank(buyer);
         swapRouter.swap{value: 1 ether}(
             key,
@@ -379,11 +411,11 @@ contract LaunchFactoryArcFork is Test {
             PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
             ""
         );
-        (uint256 paid,) = locker.collect(tokenId);
+        (uint256 paid,) = plainLocker.collect(tokenId);
         assertApproxEqRel(paid - credited * 1e12, 0.01 ether, 1e15, "own 1% fee on 1 USDC of volume");
         assertGt(paid, credited * 1e12, "plus the whole credited USDC of the other launch, swept as native");
-        assertEq(IERC20Meta(USDC).balanceOf(address(locker)), 0, "the locker's USDC is gone");
-        assertEq(locker.reserved(USDC), credited, "but still reserved: every smaller USDC collect now underflows");
+        assertEq(IERC20Meta(USDC).balanceOf(address(plainLocker)), 0, "the locker's USDC is gone");
+        assertEq(plainLocker.reserved(USDC), credited, "but still reserved: every smaller USDC collect now underflows");
     }
 
     function _v4SwapInput(bytes memory swapParams, PoolKey memory key, uint128 amountIn)

@@ -795,7 +795,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
           ) : suggestion.reason === "insufficient" ? (
             <p className={helper}>Suggested {fmtQuoteUnits(Number(defaultFirstBuy(quote)), quote.decimals)} {quote.symbol}, but this wallet holds only gas. The launch stays free; you can buy on the token page later.</p>
           ) : suggestion.reason === "no-gas" ? (
-            <p className={helper}>Suggested {fmtQuoteUnits(Number(defaultFirstBuy(quote)), quote.decimals)} {quote.symbol}, but this wallet has no ETH left for the buy&apos;s gas. The launch stays free; you can buy on the token page later.</p>
+            <p className={helper}>Suggested {fmtQuoteUnits(Number(defaultFirstBuy(quote)), quote.decimals)} {quote.symbol}, but this wallet has no {NATIVE_SYMBOL} left for the buy&apos;s gas. The launch stays free; you can buy on the token page later.</p>
           ) : suggestion.reason === "unknown-balance" ? (
             <p className={helper}>Could not read your balance, so nothing is suggested. The launch stays free; you can still type an amount.</p>
           ) : suggestion.reason === "declined" && !typedBuy ? (

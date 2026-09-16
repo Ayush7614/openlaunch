@@ -7,7 +7,7 @@ import { ethUsd } from "@/lib/launchpad/ethPrice";
 
 export const dynamic = "force-dynamic";
 
-/** GET /api/launch/list?chain=base|robinhood&sort=live|new|mcap|volume|gainers|holders&window=1h|24h|all&limit=50 — agent-friendly JSON ("trending" still accepted as an alias of live). */
+/** GET /api/launch/list?chain=base|robinhood|arc&sort=live|new|mcap|volume|gainers|holders&window=1h|24h|all&limit=50 — agent-friendly JSON ("trending" still accepted as an alias of live). */
 export async function GET(req: Request) {
   const u = new URL(req.url);
   const sort = parseSort(u.searchParams.get("sort"), "new");

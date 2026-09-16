@@ -5,8 +5,9 @@ import Image from "next/image";
 import { useRef, useState } from "react";
 import { Popover } from "@base-ui/react/popover";
 import { ArrowDownUp, ArrowRight, ArrowUpRight, Check, ChevronDown, Copy, LayoutDashboard, LogOut, X } from "lucide-react";
-import { CHAIN_KEYS, CHAIN_LABELS, CHAIN_SHORT, chainKeyOf, explorerAddress, explorerName, shortAddr, type ChainKey } from "@/lib/chainPublic";
+import { CHAIN_LABELS, CHAIN_SHORT, chainKeyOf, explorerAddress, explorerName, shortAddr, type ChainKey } from "@/lib/chainPublic";
 import { BRIDGE_CHAINS, isBridgeChainId } from "@/lib/bridge/types";
+import { VISIBLE_CHAINS } from "@/lib/launchpad/config";
 import WalletAvatar from "./WalletAvatar";
 import styles from "./WalletMenu.module.css";
 
@@ -146,7 +147,7 @@ function AccountMenu({ address, chainId, connectorName, block = false, switching
               <div className={styles.sectionLabel}><span>Network</span><ArrowDownUp size={13} aria-hidden /></div>
               {!key && !bridgeNetwork ? <p className={styles.unsupported}>This network isn’t supported. Choose one below.</p> : null}
               <div className={styles.networks} role="group" aria-label="Wallet network">
-                {CHAIN_KEYS.map((chain) => (
+                {VISIBLE_CHAINS.map((chain) => (
                   <button type="button" key={chain} className={styles.networkButton} aria-pressed={chain === key} disabled={busy} onClick={() => void runAction(chain)}>
                     <NetworkLogo chain={chain} />
                     <span>{CHAIN_SHORT[chain]}</span>

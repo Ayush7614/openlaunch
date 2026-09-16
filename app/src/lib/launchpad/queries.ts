@@ -247,7 +247,10 @@ export async function listLaunchesPage(opts: ListOpts = {}): Promise<ListPage> {
   if (opts.filter === "today") conds.push(db`l.block_time > now() - interval '24 hours'`);
   const where = conds.length ? db`WHERE ${conds.reduce((a, c) => db`${a} AND ${c}`)}` : db``;
   // per-row USD factor and quote decimals (the stables, USDG and USDC, are the only fixed-price and non-18-dec quotes we list)
-  const stockCase = stockEntries.length ? stockEntries.map(([a, v]) => db`WHEN l.quote = ${a} THEN ${v}::double precision`).reduce((acc, c) => db`${acc} ${c}`) : db``;
+  // a registry stock is matched per (chain, address) like every other arm: the address is only a stock on the chain whose registry lists it
+  const stockChains = (a: string) => CHAIN_KEYS.filter((k) => stockByAddress(k, a) !== null);
+  const stockArms = stockEntries.flatMap(([a, v]) => stockChains(a).map((k) => db`WHEN (l.chain_id = ${chainIdOf(k)} AND l.quote = ${a}) THEN ${v}::double precision`));
+  const stockCase = stockArms.length ? stockArms.reduce((acc, c) => db`${acc} ${c}`) : db``;
   const gitlawbFactor = gitlawbUsdNow !== null && gitlawbUsdNow > 0 ? gitlawbUsdNow : 0; // unknown → 0 weight, like an unknown stock
   const stables = fixedUsdQuotes();
   const stableCase = stables.length ? stables.map((s) => db`WHEN (l.chain_id = ${chainIdOf(s.chain)} AND l.quote = ${s.address}) THEN ${s.usd}::double precision`).reduce((acc, c) => db`${acc} ${c}`) : db``;
@@ -255,8 +258,8 @@ export async function listLaunchesPage(opts: ListOpts = {}): Promise<ListPage> {
   const ethNativeArms = CHAIN_KEYS.filter((k) => NATIVE_QUOTES[k].key === "eth").map((k) => db`WHEN (l.chain_id = ${chainIdOf(k)} AND l.quote = ${NATIVE_ADDR}) THEN ${ethFactor}::double precision`);
   const ethNativeCase = ethNativeArms.length ? ethNativeArms.reduce((acc, c) => db`${acc} ${c}`) : db``;
   const usdPerUnit = db`(CASE ${stableCase} ${stockCase} WHEN ${isGitlawb()} THEN ${gitlawbFactor}::double precision ${ethNativeCase} ELSE 0.0 END)`;
-  const stockDec = stockEntries.map(([a]) => [a, CHAIN_KEYS.map((k) => stockByAddress(k, a)?.decimals).find((d) => d !== undefined) ?? 18] as [string, number]).filter(([, d]) => d !== 18);
-  const decCase = stockDec.length ? stockDec.map(([a, d]) => db`WHEN l.quote = ${a} THEN ${d}`).reduce((acc, c) => db`${acc} ${c}`) : db``;
+  const stockDecArms = stockEntries.flatMap(([a]) => stockChains(a).flatMap((k) => { const d = stockByAddress(k, a)!.decimals; return d !== 18 ? [db`WHEN (l.chain_id = ${chainIdOf(k)} AND l.quote = ${a}) THEN ${d}`] : []; }));
+  const decCase = stockDecArms.length ? stockDecArms.reduce((acc, c) => db`${acc} ${c}`) : db``;
   const stableDec = stables.filter((s) => s.decimals !== 18);
   const stableDecCase = stableDec.length ? stableDec.map((s) => db`WHEN (l.chain_id = ${chainIdOf(s.chain)} AND l.quote = ${s.address}) THEN ${s.decimals}`).reduce((acc, c) => db`${acc} ${c}`) : db``;
   const qd = db`(CASE ${stableDecCase} ${decCase} ELSE 18 END)`;

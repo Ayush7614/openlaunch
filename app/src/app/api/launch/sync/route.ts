@@ -5,7 +5,7 @@ import { applyLaunchTx, pollAll } from "@/lib/launchpad/indexer";
 
 export const dynamic = "force-dynamic";
 
-/** POST /api/launch/sync?chain=base|robinhood&tx=0x…  → apply one receipt now. No tx → poll every configured chain. */
+/** POST /api/launch/sync?chain=base|robinhood|arc&tx=0x…  → apply one receipt now. No tx → poll every configured chain. */
 export async function POST(req: Request) {
   // Unauthenticated and the most expensive route in the app (a tx-less call
   // fans out over every configured chain: log ranges, heals and backfills),

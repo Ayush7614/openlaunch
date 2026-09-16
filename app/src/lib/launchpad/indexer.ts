@@ -48,7 +48,8 @@ const DEFAULT_CONFIRMATIONS: Record<ChainKey, number> = { base: 2, robinhood: 2,
 /** LAUNCH_SYNC_CONFIRMATIONS_<CHAIN> overrides one chain, LAUNCH_SYNC_CONFIRMATIONS every chain, else the per-chain default. */
 function confirmations(chain: ChainKey): bigint {
   const fallback = DEFAULT_CONFIRMATIONS[chain];
-  const raw = Number(process.env[`LAUNCH_SYNC_CONFIRMATIONS_${chain.toUpperCase()}`] ?? process.env.LAUNCH_SYNC_CONFIRMATIONS ?? fallback);
+  const env = (k: string) => process.env[k]?.trim() || undefined; // a blank value is unset, not 0
+  const raw = Number(env(`LAUNCH_SYNC_CONFIRMATIONS_${chain.toUpperCase()}`) ?? env("LAUNCH_SYNC_CONFIRMATIONS") ?? fallback);
   return BigInt(Number.isFinite(raw) && raw >= 0 ? Math.trunc(raw) : fallback);
 }
 
@@ -285,7 +286,17 @@ async function applyTransfers(db: Db, chain: ChainKey, tokens: string[], from: b
     try {
       return (await fetchLogsSplit((a, b) => client.getLogs({ address: addrs as Address[], event: ERC20_TRANSFER_EVENT, fromBlock: a, toBlock: b }), f, t)) as TransferLog[];
     } catch (err) {
-      if (addrs.length <= 1 || !isRangeTooLarge(err)) throw err;
+      if (!isRangeTooLarge(err)) throw err;
+      if (addrs.length <= 1) {
+        // one token, one block, still over the cap (a contract spamming Transfer events, ~0.6 USDC of gas on Arc): its holder
+        // balances for that block are skipped rather than the whole chain's indexing wedging on it; launches, swaps and fees are
+        // fetched separately and unaffected. `holders` for that token can be off until the backfill or a later transfer.
+        if (f === t) {
+          console.warn(`[launch-sync] ${chain}: Transfer logs of ${addrs[0]} in block ${f} exceed the node's result cap; skipping that block's holder update`);
+          return [];
+        }
+        throw err;
+      }
       const mid = Math.ceil(addrs.length / 2);
       return [...(await fetchTransfers(addrs.slice(0, mid), f, t)), ...(await fetchTransfers(addrs.slice(mid), f, t))];
     }

@@ -9,7 +9,8 @@ import { useLive } from "./LiveProvider";
 import { ToggleGroup, ToggleGroupItem } from "@/components/vendor/toggle-group";
 import { btn } from "@/components/ui";
 import type { LaunchRow as L, LaunchSort, VolumeWindow } from "@/lib/launchpad/queries";
-import { CHAIN_KEYS, CHAIN_SHORT, type ChainKey } from "@/lib/chainPublic";
+import { CHAIN_SHORT, type ChainKey } from "@/lib/chainPublic";
+import { VISIBLE_CHAINS } from "@/lib/launchpad/config";
 import { FILTERS, filterOnChain, isAddressQuery, matchesFilter, matchesQuery, normalizeQuery, rankHit, type LaunchFilter } from "@/lib/launchpad/search";
 import { launchKey, mergeLaunches, refreshInPlace } from "@/lib/launchpad/list-state";
 import { liveChip, liveTier } from "@/lib/launchpad/ranking";
@@ -28,7 +29,7 @@ const SORTS: { key: LaunchSort; label: string }[] = [
 const WINDOWS: VolumeWindow[] = ["1h", "24h", "all"];
 const CHAIN_FILTERS: { key: ChainKey | null; label: string }[] = [
   { key: null, label: "All chains" },
-  ...CHAIN_KEYS.map((key) => ({ key, label: CHAIN_SHORT[key] })),
+  ...VISIBLE_CHAINS.map((key) => ({ key, label: CHAIN_SHORT[key] })),
 ];
 const HL_NEW_MS = 60_000;
 const HL_TRADE_MS = 2_500;
@@ -256,7 +257,7 @@ export default function LaunchList({ initial, initialHasMore = false, initialSor
         </div>
       </div>
       <div role="status" className="flex min-h-9 items-center justify-between gap-2 border-t border-line px-4 text-[11px] text-muted">
-        <span className="inline-flex items-center gap-2">{updating || searching ? <><Spinner size={11} />{searching ? "Searching all launches…" : "Updating view…"}</> : nq ? <><span className="font-mono tnum">{shown.length}</span> matches</> : <><span className="font-mono tnum">{shown.length}</span> shown · {chain ? CHAIN_SHORT[chain] : "both chains"}</>}</span>
+        <span className="inline-flex items-center gap-2">{updating || searching ? <><Spinner size={11} />{searching ? "Searching all launches…" : "Updating view…"}</> : nq ? <><span className="font-mono tnum">{shown.length}</span> matches</> : <><span className="font-mono tnum">{shown.length}</span> shown · {chain ? CHAIN_SHORT[chain] : "all chains"}</>}</span>
         <span className="shrink-0">{holding ? "Order held while browsing" : "Updates every 5s"}</span>
       </div>
       <LaunchListHeader window={showWindow ? window_ : "all"} />

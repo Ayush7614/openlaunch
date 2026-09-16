@@ -153,6 +153,8 @@ export function launchpad(key: ChainKey): ChainLaunchpad {
 }
 export const CONFIGURED_CHAINS: ChainKey[] = CHAIN_KEYS.filter((k) => CFG[k].configured);
 export const LAUNCHPAD_CONFIGURED = CONFIGURED_CHAINS.length > 0;
+/** Chains offered in wallet switchers and list filters: the configured ones; every chain where none is (local development). */
+export const VISIBLE_CHAINS: ChainKey[] = CONFIGURED_CHAINS.length > 0 ? CONFIGURED_CHAINS : CHAIN_KEYS;
 
 /**
  * Quote metadata for an on-chain quote address. Unknown ERC20 → generic 18-dec, symbol "?", NEVER priced

@@ -20,7 +20,8 @@ import {LaunchLocker} from "./LaunchLocker.sol";
 ///      On Arc the native asset is USDC, and the same balance is also the ERC-20 at 0x3600…0000. LaunchLocker keeps
 ///      one ledger per currency (`reserved`, `claimable`), so a native-quoted position there would let a credited
 ///      ERC-20 share (a payout on Circle's blocklist) be read as native surplus by another launch's `collect` and
-///      swept. `launch` therefore refuses `quote = address(0)` on Arc; USDC pools use the ERC-20 face. Everything else,
+///      swept. `launch` therefore refuses `quote = address(0)`, unconditionally: this contract is only ever deployed on
+///      Arc. USDC pools use the ERC-20 face. Everything else,
 ///      and the locker it deploys, is byte-for-byte the Base / Robinhood Chain code. script/check-arc-factory.sh keeps
 ///      the two files in sync.
 ///
@@ -113,9 +114,6 @@ contract LaunchFactoryArc {
     error NoSaltFound();
     error NativeQuoteUnsupported();
 
-    /// Arc only: see the contract note. Native USDC and ERC-20 USDC are one balance the locker accounts twice.
-    uint256 internal constant ARC_CHAIN_ID = 5042;
-
     constructor(IPoolManager poolManager_, IPositionManager positionManager_, IAllowanceTransfer permit2_) {
         poolManager = poolManager_;
         positionManager = positionManager_;
@@ -128,7 +126,7 @@ contract LaunchFactoryArc {
         uint256 supply = p.supply == 0 ? DEFAULT_SUPPLY : p.supply;
         if (supply > type(uint128).max) revert BadSupply();
         if (p.lpFee > MAX_LP_FEE) revert BadFee();
-        if (p.quote == address(0) && block.chainid == ARC_CHAIN_ID) revert NativeQuoteUnsupported();
+        if (p.quote == address(0)) revert NativeQuoteUnsupported(); // Arc: see the contract note
 
         int24 tickLower = TickMath.minUsableTick(TICK_SPACING);
         if (
