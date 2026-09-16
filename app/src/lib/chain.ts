@@ -14,7 +14,9 @@ const RPC_ENV: Record<ChainKey, () => string | undefined> = {
 };
 
 export function rpcUrl(key: ChainKey): string | undefined {
-  return RPC_ENV[key]()?.trim() || undefined;
+  const getter = RPC_ENV[key];
+  if (typeof getter !== "function") return undefined;
+  return getter()?.trim() || undefined;
 }
 
 /**
