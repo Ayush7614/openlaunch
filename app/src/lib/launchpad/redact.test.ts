@@ -6,7 +6,7 @@ test("redactUrls removes every URL, keyed provider paths included, and leaves th
   const msg = "HTTP request failed.\n\nURL: https://arc-mainnet.g.alchemy.com/v2/abc123SECRET\nRequest body: {\"method\":\"eth_getLogs\"}\nDetails: fetch failed";
   const out = redactUrls(msg);
   assert.ok(!out.includes("abc123SECRET"));
-  assert.ok(!out.includes("alchemy.com"));
+  assert.doesNotMatch(out, /\b(?:https?|wss?):\/\/\S+/i);
   assert.match(out, /URL: <url>\nRequest body/);
   assert.match(out, /Details: fetch failed/);
   assert.equal(redactUrls("wss://host/ws?key=k and http://a.b/c"), "<url> and <url>");
