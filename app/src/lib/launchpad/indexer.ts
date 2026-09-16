@@ -267,6 +267,27 @@ async function applyRange(db: Db, chain: ChainKey, from: bigint, to: bigint): Pr
 
 // ── holders ──────────────────────────────────────────────────────────────────
 type TransferLog = Log & { args: { from: Address; to: Address; value: bigint } };
+
+type RawReceiptLog = { address: string; topics: Hex[]; data: Hex; blockNumber: Hex; transactionHash: Hex; logIndex: Hex; removed?: boolean };
+
+/**
+ * A token's Transfer logs in one block, read from the block's receipts (eth_getBlockReceipts is not subject to the
+ * per-call result cap that eth_getLogs has on some nodes). Null when the node does not offer the method.
+ */
+async function transfersFromBlockReceipts(chain: ChainKey, token: string, block: bigint): Promise<TransferLog[] | null> {
+  const client = publicClient(chain);
+  let receipts: { logs: RawReceiptLog[] }[];
+  try {
+    receipts = (await client.request({ method: "eth_getBlockReceipts" as never, params: [`0x${block.toString(16)}`] as never })) as { logs: RawReceiptLog[] }[];
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(receipts)) return null;
+  const want = token.toLowerCase();
+  const raw = receipts.flatMap((r) => r.logs ?? []).filter((l) => l.address.toLowerCase() === want && !l.removed);
+  const parsed = parseEventLogs({ abi: [ERC20_TRANSFER_EVENT], eventName: "Transfer", logs: raw.map((l) => ({ ...l, blockNumber: BigInt(l.blockNumber), logIndex: Number(l.logIndex) })) as unknown as Log[] });
+  return parsed as unknown as TransferLog[];
+}
 const SYNCED_FOREVER = 9223372036854775807n; // bigint max = "history fully scanned; the live loop keeps it current"
 
 /** System addresses that hold launched tokens on the protocol's behalf (never counted as holders): pool, position manager, locker, factory, plus router/Permit2 which keep swap dust. */
@@ -296,7 +317,11 @@ async function applyTransfers(db: Db, chain: ChainKey, tokens: string[], from: b
     } catch (err) {
       if (a !== b || !isRangeTooLarge(err)) throw err; // a range: let fetchLogsSplit halve the blocks
       if (addrs.length <= 1) {
-        console.error(`[alert] launch-sync ${chain}: Transfer logs of ${addrs[0]} in block ${a} exceed the node's result cap; that block's holder update for the token is skipped and its holder balances are off by it from now on`);
+        // one token, one block, over the cap: the block's receipts are not capped, so read the token's Transfer logs from
+        // them; only if the node has no receipts method is the block skipped (an alert, since the balances stay off by it)
+        const recovered = await transfersFromBlockReceipts(chain, addrs[0], a);
+        if (recovered !== null) return recovered;
+        console.error(`[alert] launch-sync ${chain}: Transfer logs of ${addrs[0]} in block ${a} exceed the node's result cap and eth_getBlockReceipts is unavailable; that block's holder update for the token is skipped and its holder balances are off by it from now on`);
         return [];
       }
       const mid = Math.ceil(addrs.length / 2);
