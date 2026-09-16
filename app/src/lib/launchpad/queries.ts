@@ -9,6 +9,7 @@ import { canonicalImageUrl } from "./images";
 import { GRACE_HOURS, LIVE_WINDOW_HOURS, rankTrending, type LiveTier } from "./ranking";
 import { SNIPER_BLOCKS } from "./holders";
 import { imagePublicBase } from "./imageStore";
+import { dropDust } from "./feed-dust";
 import { fdvQuote, quotePerToken, tickToTokensPerQuote, units } from "./math";
 import type { RawCandle } from "./candles";
 import { normalizeQuery, isAddressQuery, escapeLike, compareSearchHit, type LaunchFilter } from "./search";
@@ -331,6 +332,8 @@ export async function getLaunchFeed(limit = 24, ethUsd: number | null = null): P
   if (!db) return [];
   await withStocks();
   const n = Math.min(100, limit);
+  // Over-fetch swaps: dust (see feed-dust.ts) is dropped after pricing, and a burst of it must not empty the feed.
+  const swapN = 2 * n;
   const rows = await db<{ kind: "launch" | "swap"; chain_id: number; at: string; tx_hash: string; token: string; name: string; symbol: string; quote: string; who: string | null; lp_fee: number | null; is_buy: boolean | null; quote_wei: string | null; image_url: string | null; is_dev: boolean | null }[]>`
     SELECT * FROM (
       (SELECT 'launch'::text AS kind, l.chain_id, l.block_time AS at, l.tx_hash, l.token, l.name, l.symbol, l.quote, l.launcher AS who, l.lp_fee, NULL::boolean AS is_buy, NULL::numeric AS quote_wei, m.image_url, NULL::boolean AS is_dev
@@ -338,10 +341,10 @@ export async function getLaunchFeed(limit = 24, ethUsd: number | null = null): P
         ORDER BY l.block_time DESC LIMIT ${n})
       UNION ALL
       (SELECT 'swap', s.chain_id, s.block_time, s.tx_hash, s.token, l.name, l.symbol, l.quote, s.trader, NULL, s.is_buy, abs(s.amount0), m.image_url, (s.trader = l.launcher) AS is_dev
-        FROM (SELECT * FROM bb_launch_swaps ORDER BY block_time DESC LIMIT ${n}) s
+        FROM (SELECT * FROM bb_launch_swaps ORDER BY block_time DESC LIMIT ${swapN}) s
         JOIN bb_launches l ON l.chain_id = s.chain_id AND l.token = s.token LEFT JOIN bb_launch_meta m ON m.chain_id = l.chain_id AND m.token = l.token)
-    ) x ORDER BY at DESC LIMIT ${n}`; // each arm pre-limited on an indexed time column: the union never scans the whole swaps table
-  return rows.map((r) => {
+    ) x ORDER BY at DESC LIMIT ${n + swapN}`; // each arm pre-limited on an indexed time column: the union never scans the whole swaps table
+  const items = rows.map((r): FeedItem => {
     const chain = chainKeyOf(r.chain_id) ?? "base";
     if (r.kind === "launch") return { kind: "launch", chain, at: r.at, tx_hash: r.tx_hash, token: r.token, name: r.name, symbol: r.symbol, launcher: r.who ?? "", lp_fee: r.lp_fee ?? 0, quote_key: quoteInfo(chain, r.quote).key, image_url: canonicalImageUrl(r.image_url, imagePublicBase()) };
     const q = quoteInfo(chain, r.quote);
@@ -349,6 +352,7 @@ export async function getLaunchFeed(limit = 24, ethUsd: number | null = null): P
     const wei = r.quote_wei ?? "0";
     return { kind: "swap", chain, at: r.at, tx_hash: r.tx_hash, token: r.token, name: r.name, symbol: r.symbol, trader: r.who, is_buy: Boolean(r.is_buy), is_dev: Boolean(r.is_dev), quote_wei: wei, quote_key: q.key, quote_symbol: q.symbol, quote_decimals: q.decimals, usd: qu === null ? null : units(wei, q.decimals) * qu, image_url: canonicalImageUrl(r.image_url, imagePublicBase()) };
   });
+  return dropDust(items, n);
 }
 
 export type LaunchTotals = {
