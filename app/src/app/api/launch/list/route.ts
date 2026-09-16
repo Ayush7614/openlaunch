@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isChainKey } from "@/lib/chainPublic";
+import { visibleChainOr } from "@/lib/launchpad/config";
 import { isFilter } from "@/lib/launchpad/search";
 import { clampLimit, clampOffset } from "@/lib/launchpad/paging";
 import { VOLUME_WINDOWS, listLaunchesPage, parseSort, type VolumeWindow } from "@/lib/launchpad/queries";
@@ -13,7 +13,7 @@ export async function GET(req: Request) {
   const sort = parseSort(u.searchParams.get("sort"), "new");
   const window = (VOLUME_WINDOWS.includes((u.searchParams.get("window") ?? "") as VolumeWindow) ? u.searchParams.get("window") : "all") as VolumeWindow;
   const c = u.searchParams.get("chain");
-  const chain = isChainKey(c) ? c : null;
+  const chain = visibleChainOr(c);
   const f = u.searchParams.get("filter");
   const filter = isFilter(f) ? f : null;
   const limit = clampLimit(u.searchParams.get("limit"), 50);

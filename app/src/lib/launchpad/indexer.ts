@@ -8,6 +8,7 @@ import { CONFIGURED_CHAINS, launchpad } from "./config";
 import { DEAD_ADDR, ZERO_ADDR } from "./holders";
 import { SYNC_CHUNK_BLOCKS, SYNC_MAX_CHUNKS_PER_CALL, syncOverlapBlocks } from "@/lib/config";
 import { fetchLogsSplit, isRangeTooLarge } from "./log-range";
+import { redactUrls } from "./redact";
 
 /**
  * Launchpad chain → Postgres indexer.
@@ -45,11 +46,14 @@ export function launchDeployBlock(chain: ChainKey): bigint {
 }
 /** Blocks left behind the head before a range is indexed. Arc finalizes every block (no reorgs), so none there. */
 const DEFAULT_CONFIRMATIONS: Record<ChainKey, number> = { base: 2, robinhood: 2, arc: 0 };
-/** LAUNCH_SYNC_CONFIRMATIONS_<CHAIN> overrides one chain, LAUNCH_SYNC_CONFIRMATIONS every chain, else the per-chain default. */
+/**
+ * LAUNCH_SYNC_CONFIRMATIONS_<CHAIN> overrides one chain. LAUNCH_SYNC_CONFIRMATIONS overrides the chains that need a reorg
+ * margin at all; a chain whose default is 0 finalizes every block and keeps 0 regardless of the global setting.
+ */
 function confirmations(chain: ChainKey): bigint {
   const fallback = DEFAULT_CONFIRMATIONS[chain];
   const env = (k: string) => process.env[k]?.trim() || undefined; // a blank value is unset, not 0
-  const raw = Number(env(`LAUNCH_SYNC_CONFIRMATIONS_${chain.toUpperCase()}`) ?? env("LAUNCH_SYNC_CONFIRMATIONS") ?? fallback);
+  const raw = Number(env(`LAUNCH_SYNC_CONFIRMATIONS_${chain.toUpperCase()}`) ?? (fallback === 0 ? 0 : (env("LAUNCH_SYNC_CONFIRMATIONS") ?? fallback)));
   return BigInt(Number.isFinite(raw) && raw >= 0 ? Math.trunc(raw) : fallback);
 }
 
@@ -280,28 +284,25 @@ export function systemAddresses(chain: ChainKey): string[] {
 async function applyTransfers(db: Db, chain: ChainKey, tokens: string[], from: bigint, to: bigint): Promise<number> {
   const client = publicClient(chain);
   const cid = chainIdOf(chain);
-  // one address list for every launched token; when even a single block is over the node's result cap (an airdrop of
-  // thousands of transfers in one block), the token list is halved instead of the cursor wedging on that block forever
-  const fetchTransfers = async (addrs: string[], f: bigint, t: bigint): Promise<TransferLog[]> => {
+  // one address list for every launched token, bisected by block like every other fetch; only when a SINGLE block is over
+  // the node's result cap does the token list split, and one token still over the cap in one block (a contract spamming
+  // Transfer events, ~0.6 USDC of gas on Arc) has that block's holder update skipped rather than the chain's indexing
+  // wedging on it. Launches, swaps and fees are fetched separately and unaffected; `holders` for that token can be off
+  // until the backfill or a later transfer.
+  const oneBlockOrRange = async (addrs: string[], a: bigint, b: bigint): Promise<TransferLog[]> => {
     try {
-      return (await fetchLogsSplit((a, b) => client.getLogs({ address: addrs as Address[], event: ERC20_TRANSFER_EVENT, fromBlock: a, toBlock: b }), f, t)) as TransferLog[];
+      return (await client.getLogs({ address: addrs as Address[], event: ERC20_TRANSFER_EVENT, fromBlock: a, toBlock: b })) as TransferLog[];
     } catch (err) {
-      if (!isRangeTooLarge(err)) throw err;
+      if (a !== b || !isRangeTooLarge(err)) throw err; // a range: let fetchLogsSplit halve the blocks
       if (addrs.length <= 1) {
-        // one token, one block, still over the cap (a contract spamming Transfer events, ~0.6 USDC of gas on Arc): its holder
-        // balances for that block are skipped rather than the whole chain's indexing wedging on it; launches, swaps and fees are
-        // fetched separately and unaffected. `holders` for that token can be off until the backfill or a later transfer.
-        if (f === t) {
-          console.warn(`[launch-sync] ${chain}: Transfer logs of ${addrs[0]} in block ${f} exceed the node's result cap; skipping that block's holder update`);
-          return [];
-        }
-        throw err;
+        console.warn(`[launch-sync] ${chain}: Transfer logs of ${addrs[0]} in block ${a} exceed the node's result cap; skipping that block's holder update`);
+        return [];
       }
       const mid = Math.ceil(addrs.length / 2);
-      return [...(await fetchTransfers(addrs.slice(0, mid), f, t)), ...(await fetchTransfers(addrs.slice(mid), f, t))];
+      return [...(await oneBlockOrRange(addrs.slice(0, mid), a, b)), ...(await oneBlockOrRange(addrs.slice(mid), a, b))];
     }
   };
-  const logs = await fetchTransfers(tokens, from, to);
+  const logs = await fetchLogsSplit((a, b) => oneBlockOrRange(tokens, a, b), from, to);
   if (logs.length === 0) return 0;
   const rows = logs.map((l) => ({
     chain_id: cid,
@@ -546,7 +547,8 @@ async function run(chain: ChainKey): Promise<LaunchSyncResult> {
     return { status: "synced", from: from.toString(), to: to.toString(), head: head.toString(), ...totals, caught_up: from > confirmed };
   } catch (err) {
     const msg = errMessage(err);
-    await db`UPDATE bb_launch_sync_cursor SET last_run_at = now(), last_error = ${msg.slice(0, 500)} WHERE chain_id = ${cid}`.catch(() => {});
+    // the stored message reaches /api/health unauthenticated: never with the upstream URL (a keyed provider URL carries its API key)
+    await db`UPDATE bb_launch_sync_cursor SET last_run_at = now(), last_error = ${redactUrls(msg).slice(0, 500)} WHERE chain_id = ${cid}`.catch(() => {});
     throw err;
   }
 }

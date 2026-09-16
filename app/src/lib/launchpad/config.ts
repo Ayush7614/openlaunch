@@ -1,5 +1,5 @@
 import { isAddress, type Address } from "viem";
-import { CHAIN_KEYS, SITE_URL, type ChainKey } from "@/lib/chainPublic";
+import { CHAIN_KEYS, SITE_URL, isChainKey, type ChainKey } from "@/lib/chainPublic";
 import { GITLAWB_ADDRESS, GITLAWB_ADDRESS_ROBINHOOD, GITLAWB_DECIMALS, GITLAWB_LOGO_PATH, GITLAWB_NAME, GITLAWB_SYMBOL } from "./gitlawb";
 
 /**
@@ -155,6 +155,10 @@ export const CONFIGURED_CHAINS: ChainKey[] = CHAIN_KEYS.filter((k) => CFG[k].con
 export const LAUNCHPAD_CONFIGURED = CONFIGURED_CHAINS.length > 0;
 /** Chains offered in wallet switchers and list filters: the configured ones; every chain where none is (local development). */
 export const VISIBLE_CHAINS: ChainKey[] = CONFIGURED_CHAINS.length > 0 ? CONFIGURED_CHAINS : CHAIN_KEYS;
+/** A `?chain=` param the list may filter by: a visible chain, else null (all chains), so a link to a chain that is not live yet never shows an empty list. */
+export function visibleChainOr(v: unknown): ChainKey | null {
+  return isChainKey(v) && VISIBLE_CHAINS.includes(v) ? v : null;
+}
 
 /**
  * Quote metadata for an on-chain quote address. Unknown ERC20 → generic 18-dec, symbol "?", NEVER priced

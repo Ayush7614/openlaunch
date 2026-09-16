@@ -1,0 +1,23 @@
+{
+  "chainId": 5042,
+  "chain": "Arc",
+  "status": "pending deploy (LaunchFactoryArc: LaunchFactory plus the native-quote guard; same deployer at nonce 0, so the same addresses as Base and Robinhood Chain are expected)",
+  "deployedAt": null,
+  "deployBlock": null,
+  "deployTx": null,
+  "deployer": "0x63F300b7b21FbA52A8D874D90F7E1B301AE858c4",
+  "LaunchFactory": null,
+  "LaunchLocker": null,
+  "uniswapV4": {
+    "poolManager": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+    "positionManager": "0x6049c9a0e26405C0985f9E3685C87d0aE917f82B",
+    "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+    "stateView": "0xf3334192d15450cdd385c8b70e03f9a6bd9e673b",
+    "quoter": "0x8dc178efb8111bb0973dd9d722ebeff267c98f94",
+    "universalRouter": "0x4fca4a51ab4f23a7447b3284fbd7d73289a89fb1",
+    "universalRouterSwapLayout": "v2 (ExactInputSingleParams includes minHopPriceX36; Universal Router v2.1.1, verified on a fork)"
+  },
+  "quotes": { "USDC": "0x3600000000000000000000000000000000000000" },
+  "platformFee": "none",
+  "note": "USDC is also the gas token: the native balance is the same USDC at 18 decimals. Native quotes are refused by LaunchFactoryArc (contracts/docs/LAUNCHPAD.md)."
+}

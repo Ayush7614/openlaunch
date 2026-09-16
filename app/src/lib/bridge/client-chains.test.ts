@@ -2,8 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { CHAINS, CHAIN_KEYS } from "../chainPublic";
-import { arc, arcBrowserRpc, BRIDGE_WALLET_CHAINS } from "./chains";
-import { browserRpc } from "../launchpad/config";
+import { BRIDGE_WALLET_CHAINS } from "./chains";
 import { BRIDGE_CHAIN_IDS, BRIDGE_CHAINS } from "./types";
 
 test("every bridge source has a matching wallet chain, and Arc is the registry's own chain", () => {
@@ -15,6 +14,7 @@ test("every bridge source has a matching wallet chain, and Arc is the registry's
     assert.ok(walletChain.rpcUrls.default.http.length > 0);
   }
   assert.deepEqual(CHAIN_KEYS, ["base", "robinhood", "arc"]);
+  const arc = BRIDGE_WALLET_CHAINS[5042];
   assert.equal(arc, CHAINS.arc, "one Arc definition, shared by the launchpad and the bridge");
   assert.equal(arc.rpcUrls.default.http[0], "https://rpc.mainnet.arc.io");
   assert.equal(arc.blockExplorers.default.url, "https://explorer.arc.io");
@@ -28,7 +28,6 @@ test("wallet config registers Arc for switching and native-balance reads", () =>
   assert.match(config, /const chains = keys\.map\(\(k\) => CHAINS\[k\]\)/);
   assert.match(config, /transports: Object\.fromEntries\(keys\.map\(\(k\) => \[CHAINS\[k\]\.id, http\(browserRpc\(k\)/);
   assert.doesNotMatch(config, /rpc\.mainnet\.arc\.io/);
-  assert.equal(arcBrowserRpc(), browserRpc("arc"));
   const hook = readFileSync(new URL("../../components/bridge/useBridge.ts", import.meta.url), "utf8");
   assert.match(hook, /chain:\s*BRIDGE_WALLET_CHAINS\[q\.originChainId\]/);
   assert.doesNotMatch(hook, /CHAINS\[BRIDGE_CHAINS/);

@@ -28,7 +28,8 @@ test("hero metrics preserve shared live totals without inventing per-chain dolla
     assert.ok(metrics.includes(`t.${field}`), `missing live total: ${field}`);
   }
   // one launch count per chain, driven by the chain list so a new chain shows up without editing the hero
-  assert.match(metrics, /CHAIN_KEYS\.map\(\(k\) => [^\n]*t\.by_chain\[k\]\.launches/, "missing per-chain launch counts");
+  // null-safe: during a rolling deploy a poll can come from a machine that predates a chain, so its bucket may be missing
+  assert.match(metrics, /CHAIN_KEYS\.map\(\(k\) => [^\n]*t\.by_chain\[k\]\?\.launches \?\? 0/, "missing per-chain launch counts");
   // while any quote is unpriced the three dollar figures say "≈" with a tooltip instead of a confident undercount
   assert.match(metrics, /t\.usd_partial \? "≈" : ""/);
   for (const field of ["volume_usd", "fees_to_creators_usd", "fees_burned_usd"]) assert.ok(metrics.includes(`usd(t.${field}`), `${field} not routed through the ≈ guard`);

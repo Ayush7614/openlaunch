@@ -57,6 +57,8 @@ function AccountMenu({ address, chainId, connectorName, block = false, switching
   const popupRef = useRef<HTMLDivElement>(null);
   const key = chainKeyOf(chainId);
   const bridgeNetwork = isBridgeChainId(chainId) ? BRIDGE_CHAINS[chainId] : null;
+  // a registry chain the site has no contracts on yet (Arc before its factory is set) is bridge-only for now
+  const launchable = key !== null && VISIBLE_CHAINS.includes(key);
   const busy = switching || disconnecting || localBusy !== null;
   const network = key ? CHAIN_SHORT[key] : bridgeNetwork?.name ?? "Unsupported network";
   const explorer = key ? explorerAddress(key, address) : bridgeNetwork ? `${bridgeNetwork.explorer}/address/${address}` : null;
@@ -154,7 +156,7 @@ function AccountMenu({ address, chainId, connectorName, block = false, switching
                   </button>
                 ))}
               </div>
-              <p className={styles.networkNote}>{switching || (localBusy && localBusy !== "disconnect") ? "Confirm the network in your wallet…" : key ? `Connected to ${CHAIN_LABELS[key]}` : bridgeNetwork ? `Connected to ${network}. Use Bridge to move funds, or choose a launch network above.` : "A network switch needs wallet approval."}</p>
+              <p className={styles.networkNote}>{switching || (localBusy && localBusy !== "disconnect") ? "Confirm the network in your wallet…" : key && launchable ? `Connected to ${CHAIN_LABELS[key]}` : key || bridgeNetwork ? `Connected to ${network}. Use Bridge to move funds, or choose a launch network above.` : "A network switch needs wallet approval."}</p>
             </div>
             <Link href="/me" className={styles.workspace} onClick={() => { setOpen(false); onNavigate?.(); }}>
               <LayoutDashboard size={17} aria-hidden />
