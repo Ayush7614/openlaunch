@@ -584,6 +584,7 @@ test("bridge error copy surfaces the provider's own text behind viem's generic w
   const rpc = (code: number, message: string) => new RpcRequestError({ body: {}, error: { code, message }, url: "http://wallet" });
   assert.equal(bridgeErrorMessage(new UnknownRpcError(rpc(4902, "Unrecognized chain ID \"0x13b2\". Try adding the chain using wallet_addEthereumChain first.")), "x"), "Your wallet doesn't have this network yet. Add it in the wallet, then try again.");
   assert.equal(bridgeErrorMessage(new UnknownRpcError(rpc(-32099, "node is syncing")), "x"), "An unknown RPC error occurred. node is syncing");
+  assert.equal(bridgeErrorMessage(new UnknownRpcError(rpc(-32016, "over rate limit")), "x"), "The network is busy right now. Try again in a moment.");
   assert.match(bridgeErrorMessage(new UnknownRpcError(rpc(-32099, "y".repeat(300))), "x"), /^An unknown RPC error occurred\. y{160}…$/);
   assert.equal(bridgeErrorMessage(new HttpRequestError({ url: "http://127.0.0.1:8545", details: "fetch failed" }), "x"), "HTTP request failed. fetch failed");
   assert.equal(bridgeErrorMessage(new UserRejectedRequestError(new Error("User rejected the request.")), "x"), "You cancelled in your wallet.");

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { SECURITY_HEADERS, WALLET_CONNECT_SRC, BRIDGE_CONNECT_SRC, buildCsp, cspNonce, extraConnectOrigins, isOrigin } from "./security-headers.ts";
+import { SECURITY_HEADERS, WALLET_CONNECT_SRC, buildCsp, cspNonce, extraConnectOrigins, isOrigin } from "./security-headers.ts";
 
 const NONCE = "AAAAAAAAAAAAAAAAAAAAAA==";
 
@@ -38,8 +38,8 @@ test("connect-src covers the site and the wallet SDK, plus vetted extra origins 
   const connectSources = new Set(connect.split(/\s+/).slice(1));
   assert.ok(connect.startsWith("connect-src 'self' "));
   for (const origin of WALLET_CONNECT_SRC) assert.ok(connectSources.has(origin), `missing ${origin}`);
-  assert.deepEqual(BRIDGE_CONNECT_SRC, ["https://rpc.mainnet.arc.io"]);
-  assert.ok(connectSources.has("https://rpc.mainnet.arc.io"));
+  assert.ok(!connectSources.has("https://rpc.mainnet.arc.io")); // Arc reads go through /api/rpc, never a third-party origin
+  assert.deepEqual(extraConnectOrigins({ NEXT_PUBLIC_RPC_URL_ARC: "http://127.0.0.1:8547/" }), ["http://127.0.0.1:8547"]);
   assert.ok(!connectSources.has("https:"));
   assert.ok(connectSources.has("http://127.0.0.1:8545"));
   assert.ok(connectSources.has("https://openlaunch.lol"));

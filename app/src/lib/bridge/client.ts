@@ -281,6 +281,7 @@ export function bridgeErrorMessage(error: unknown, fallback: string, gasSymbol =
     const details = typeof error.details === "string" ? error.details.replace(/\s+/g, " ").trim() : "";
     if (error.walk((e) => e instanceof InsufficientFundsError) || /insufficient funds/i.test(`${short} ${details}`)) return `Not enough ${gasSymbol} for this transaction plus gas.`;
     if (/unrecognized chain|wallet_addEthereumChain|chain .* not (?:been )?added/i.test(details)) return "Your wallet doesn't have this network yet. Add it in the wallet, then try again.";
+    if (/rate limit|too many requests/i.test(`${short} ${details}`)) return "The network is busy right now. Try again in a moment.";
     const message = friendlyError(error);
     if (!GENERIC_RPC_MESSAGE.test(message) || !details) return message;
     return `${message} ${details.length > 160 ? `${details.slice(0, 160)}…` : details}`;

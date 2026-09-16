@@ -19,10 +19,6 @@ export const WALLET_CONNECT_SRC = [
   "wss://www.walletlink.org",
 ] as const;
 
-// Arc is registered for bridge balance/gas/receipt reads only. Quote and status
-// requests remain same-origin. Pin this one official RPC, never an arbitrary URL.
-export const BRIDGE_CONNECT_SRC = ["https://rpc.mainnet.arc.io"] as const;
-
 const NONCE_RE = /^[A-Za-z0-9+/]{16,}={0,2}$/;
 
 /** Base64 of at least 16 random bytes. Runs in Node and the browser runtime alike. */
@@ -58,7 +54,7 @@ export function isOrigin(value: string): boolean {
  */
 export function buildCsp(nonce: string, { dev = false, connectSrc = [] }: CspOptions = {}): string {
   if (!NONCE_RE.test(nonce)) throw new Error("csp nonce must be base64");
-  const connect = new Set<string>(["'self'", ...WALLET_CONNECT_SRC, ...BRIDGE_CONNECT_SRC, ...connectSrc.filter(isOrigin)]);
+  const connect = new Set<string>(["'self'", ...WALLET_CONNECT_SRC, ...connectSrc.filter(isOrigin)]);
   if (dev) for (const s of ["ws:", "http://localhost:*", "http://127.0.0.1:*"]) connect.add(s);
   const directives = [
     "default-src 'self'",
@@ -83,7 +79,7 @@ export function buildCsp(nonce: string, { dev = false, connectSrc = [] }: CspOpt
 /** Origins the browser must reach besides the page itself: the configured site URL and dev RPC overrides. */
 export function extraConnectOrigins(env: Record<string, string | undefined>): string[] {
   const out = new Set<string>();
-  for (const key of ["NEXT_PUBLIC_SITE_URL", "NEXT_PUBLIC_RPC_URL_BASE", "NEXT_PUBLIC_RPC_URL_ROBINHOOD"]) {
+  for (const key of ["NEXT_PUBLIC_SITE_URL", "NEXT_PUBLIC_RPC_URL_BASE", "NEXT_PUBLIC_RPC_URL_ROBINHOOD", "NEXT_PUBLIC_RPC_URL_ARC"]) {
     const value = env[key]?.trim();
     if (!value) continue;
     try {

@@ -1,5 +1,5 @@
 import { defineChain, type Chain } from "viem";
-import { CHAINS } from "../chainPublic";
+import { CHAINS, SITE_URL } from "../chainPublic";
 import type { BridgeChainId } from "./types";
 
 /** Wallet/RPC registration for bridging only; Arc is not a launchpad network. */
@@ -16,3 +16,13 @@ export const BRIDGE_WALLET_CHAINS: Record<BridgeChainId, Chain> = {
   4663: CHAINS.robinhood,
   5042: arc,
 };
+
+/**
+ * Browser reads for Arc go through the same-origin proxy (or a dev override),
+ * never straight to a public node: public Arc/Base RPCs rate-limit a single
+ * quote's burst of reads. The chain's own rpcUrls stay official so wallets
+ * add the network correctly.
+ */
+export function arcBrowserRpc(): string {
+  return process.env.NEXT_PUBLIC_RPC_URL_ARC?.trim() || `${SITE_URL}/api/rpc?chain=arc`;
+}

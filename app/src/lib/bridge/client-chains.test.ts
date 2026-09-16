@@ -24,7 +24,8 @@ test("every bridge source has a matching wallet chain without extending launch n
 test("wallet config registers Arc for switching and native-balance reads", () => {
   const config = readFileSync(new URL("../wagmi.ts", import.meta.url), "utf8");
   assert.match(config, /chains:\s*\[CHAINS\.base,\s*robinhood,\s*arc\]/);
-  assert.match(config, /\[arc\.id\]:\s*http\(arc\.rpcUrls\.default\.http\[0\]/);
+  assert.match(config, /\[arc\.id\]:\s*http\(arcBrowserRpc\(\)/); // proxied reads; the chain's own rpcUrls stay official for wallet_addEthereumChain
+  assert.doesNotMatch(config, /rpc\.mainnet\.arc\.io/);
   const hook = readFileSync(new URL("../../components/bridge/useBridge.ts", import.meta.url), "utf8");
   assert.match(hook, /chain:\s*BRIDGE_WALLET_CHAINS\[q\.originChainId\]/);
   assert.doesNotMatch(hook, /CHAINS\[BRIDGE_CHAINS/);
