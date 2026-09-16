@@ -56,6 +56,19 @@ test("pending actions are locked against duplicate requests and rejection is rec
   assert.match(source, /role="status" aria-live="polite"/);
 });
 
+test("network switcher uses official local logos with theme-correct Robinhood marks", () => {
+  for (const asset of ["base", "robinhood-black", "robinhood-white"]) {
+    assert.ok(source.includes(`src="/brand/${asset}.svg" alt=""`));
+    assert.match(readFileSync(new URL(`../../public/brand/${asset}.svg`, import.meta.url), "utf8"), /<svg\b/);
+  }
+  assert.match(source, /className=\{styles.networkLogo\} aria-hidden/);
+  assert.doesNotMatch(source, /\? "B" : "R"|styles\.networkGlyph/);
+  assert.match(css, /\.networkLogo img\s*\{[^}]*object-fit: contain/);
+  assert.match(css, /\.networkLogo \.darkLogo\s*\{\s*display: none/);
+  assert.match(css, /:global\(\.dark\) \.networkLogo \.lightLogo\s*\{\s*display: none/);
+  assert.match(css, /:global\(\.dark\) \.networkLogo \.darkLogo\s*\{\s*display: block/);
+});
+
 test("wallet shortcuts copy the full address and close the nested menu on navigation", () => {
   assert.match(source, /await navigator.clipboard.writeText\(address\)/);
   assert.match(source, /Address copied\./);

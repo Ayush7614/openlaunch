@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useRef, useState } from "react";
 import { Popover } from "@base-ui/react/popover";
 import { ArrowDownUp, ArrowRight, ArrowUpRight, Check, ChevronDown, Copy, LayoutDashboard, LogOut, X } from "lucide-react";
@@ -127,7 +128,12 @@ function AccountMenu({ address, chainId, connectorName, block = false, switching
               <div className={styles.networks} role="group" aria-label="Wallet network">
                 {CHAIN_KEYS.map((chain) => (
                   <button type="button" key={chain} className={styles.networkButton} aria-pressed={chain === key} disabled={busy} onClick={() => void runAction(chain)}>
-                    <span className={`${styles.networkGlyph} ${chain === "robinhood" ? styles.robinhood : ""}`} aria-hidden>{chain === "base" ? "B" : "R"}</span>
+                    <span className={styles.networkLogo} aria-hidden>
+                      {chain === "base" ? <Image src="/brand/base.svg" alt="" width={22} height={22} draggable={false} /> : <>
+                        <Image className={styles.lightLogo} src="/brand/robinhood-black.svg" alt="" width={16} height={21} draggable={false} />
+                        <Image className={styles.darkLogo} src="/brand/robinhood-white.svg" alt="" width={16} height={21} draggable={false} />
+                      </>}
+                    </span>
                     <span>{CHAIN_SHORT[chain]}</span>
                     {localBusy === chain ? <span className={styles.pendingDot} aria-label="Switching" /> : chain === key ? <Check size={14} className={styles.networkCheck} aria-hidden /> : null}
                   </button>
