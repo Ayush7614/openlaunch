@@ -5,6 +5,7 @@
 #   Blockscout (Robinhood/Base/Arc): keyless.
 # Usage: script/verify.sh [base|robinhood|arc|all]   (default: all)
 set -euo pipefail
+failed=0
 cd "$(dirname "$0")/.."
 [ -f .env ] && set -a && . ./.env && set +a
 KEY="${ETHERSCAN_API_KEY:-${BASESCAN_API_KEY:-}}"
@@ -32,9 +33,9 @@ verify_pair() { # <chain-id> <pm> <posm> <verifier args...>   (FACTORY_SRC: the 
   fargs=$(cast abi-encode "constructor(address,address,address)" "$pm" "$posm" "$PERMIT2")
   largs=$(cast abi-encode "constructor(address)" "$posm")
   echo "== chain $chain: ${src##*:}"
-  forge verify-contract --chain "$chain" "$factory" "$src" --constructor-args "$fargs" "${common[@]}" "$@" || true
+  forge verify-contract --chain "$chain" "$factory" "$src" --constructor-args "$fargs" "${common[@]}" "$@" || { echo "!! ${src##*:} on chain $chain NOT verified"; failed=$((failed + 1)); }
   echo "== chain $chain: LaunchLocker"
-  forge verify-contract --chain "$chain" "$locker" src/LaunchLocker.sol:LaunchLocker --constructor-args "$largs" "${common[@]}" "$@" || true
+  forge verify-contract --chain "$chain" "$locker" src/LaunchLocker.sol:LaunchLocker --constructor-args "$largs" "${common[@]}" "$@" || { echo "!! LaunchLocker on chain $chain NOT verified"; failed=$((failed + 1)); }
 }
 
 target=${1:-all}
@@ -53,3 +54,5 @@ if [[ $target == arc || $target == all ]]; then
   echo "== Arc Blockscout (keyless)"
   VERIFY_FACTORY=${ARC_FACTORY:-} VERIFY_LOCKER=${ARC_LOCKER:-} FACTORY_SRC=src/LaunchFactoryArc.sol:LaunchFactoryArc verify_pair 5042 "$ARC_PM" "$ARC_POSM" --verifier blockscout --verifier-url https://explorer.arc.io/api/
 fi
+if [ "$failed" -gt 0 ]; then echo "$failed verification(s) failed"; exit 1; fi
+echo "all verifications submitted"

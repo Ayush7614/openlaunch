@@ -429,7 +429,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
         <section className={`${card} p-5 space-y-4`}>
           <div className="flex items-baseline justify-between gap-3 flex-wrap">
             <h2 className="text-sm font-semibold text-ink">Chain</h2>
-            <span className="text-xs text-muted">same contracts, same rules, on every chain</span>
+            <span className="text-xs text-muted">same launch, same rules, on every chain</span>
           </div>
           <div className="grid sm:grid-cols-3 gap-2">
             {CHAIN_KEYS.map((k) => {
