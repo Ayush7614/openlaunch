@@ -1,7 +1,7 @@
 import "server-only";
 import { maybeDb } from "@/lib/db";
 import { CHAIN_KEYS, DEFAULT_CHAIN, chainIdOf, chainKeyOf, type ChainKey } from "@/lib/chainPublic";
-import { quoteInfo as staticQuoteInfo, quoteUsdOf, type Quote, fixedUsdQuotes, quotesWithKey } from "./config";
+import { quoteInfo as staticQuoteInfo, quoteUsdOf, type Quote, NATIVE_QUOTES, fixedUsdQuotes, quotesWithKey } from "./config";
 import { ensureRegistry, stockByAddress, stockUsdInUse } from "./stocksServer";
 import { gitlawbUsd } from "./gitlawbServer";
 import { GITLAWB_ADDRESSES } from "./gitlawb";
@@ -253,7 +253,10 @@ export async function listLaunchesPage(opts: ListOpts = {}): Promise<ListPage> {
   const gitlawbFactor = gitlawbUsdNow !== null && gitlawbUsdNow > 0 ? gitlawbUsdNow : 0; // unknown → 0 weight, like an unknown stock
   const stables = fixedUsdQuotes();
   const stableCase = stables.length ? stables.map((s) => db`WHEN (l.chain_id = ${chainIdOf(s.chain)} AND l.quote = ${s.address}) THEN ${s.usd}::double precision`).reduce((acc, c) => db`${acc} ${c}`) : db``;
-  const usdPerUnit = db`(CASE ${stableCase} ${stockCase} WHEN ${isGitlawb()} THEN ${gitlawbFactor}::double precision WHEN l.quote = ${NATIVE_ADDR} THEN ${ethFactor}::double precision ELSE 0.0 END)`;
+  // address(0) is ETH only where the chain's native asset is ETH; a native stable (Arc: USDC) is already in stableCase above
+  const ethNativeArms = CHAIN_KEYS.filter((k) => NATIVE_QUOTES[k].key === "eth").map((k) => db`WHEN (l.chain_id = ${chainIdOf(k)} AND l.quote = ${NATIVE_ADDR}) THEN ${ethFactor}::double precision`);
+  const ethNativeCase = ethNativeArms.length ? ethNativeArms.reduce((acc, c) => db`${acc} ${c}`) : db``;
+  const usdPerUnit = db`(CASE ${stableCase} ${stockCase} WHEN ${isGitlawb()} THEN ${gitlawbFactor}::double precision ${ethNativeCase} ELSE 0.0 END)`;
   const stockDec = stockEntries.map(([a]) => [a, CHAIN_KEYS.map((k) => stockByAddress(k, a)?.decimals).find((d) => d !== undefined) ?? 18] as [string, number]).filter(([, d]) => d !== 18);
   const decCase = stockDec.length ? stockDec.map(([a, d]) => db`WHEN l.quote = ${a} THEN ${d}`).reduce((acc, c) => db`${acc} ${c}`) : db``;
   const stableDec = stables.filter((s) => s.decimals !== 18);
@@ -433,9 +436,10 @@ export async function getLaunchTotals(ethUsd: number | null = null): Promise<Lau
     const bc = t.by_chain[chain];
     bc.launches += Number(r.launches);
     bc.trades += Number(r.trades);
-    if (q.address.toLowerCase() === NATIVE_ADDR) bc.volume_quote_eth = add(bc.volume_quote_eth, r.volume);
+    if (q.key === "eth") bc.volume_quote_eth = add(bc.volume_quote_eth, r.volume);
     else if (q.key === "usdg") bc.volume_quote_usdg = add(bc.volume_quote_usdg, r.volume);
-    else if (q.key === "usdc") bc.volume_quote_usdc = add(bc.volume_quote_usdc, r.volume);
+    // USDC volume is reported at 6 decimals; Arc's native USDC is the same asset at 18, so it is scaled down to join the bucket
+    else if (q.key === "usdc") bc.volume_quote_usdc = add(bc.volume_quote_usdc, q.decimals === 18 ? (BigInt(r.volume) / 10n ** 12n).toString() : r.volume);
     else if (q.key === "gitlawb") {
       bc.volume_quote_gitlawb = add(bc.volume_quote_gitlawb, r.volume);
       // GITLAWB is only ever the quote side (never a launched token), so the quote-fee burn is the whole GITLAWB burn

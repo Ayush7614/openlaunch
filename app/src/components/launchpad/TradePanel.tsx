@@ -10,7 +10,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/vendor/toggle-group";
 import { btn } from "@/components/ui";
 import { toast } from "./TxToasts";
 import { ERC20_MIN_ABI, PERMIT2_ABI, UNIVERSAL_ROUTER_ABI, V4_QUOTER_ABI } from "@/lib/launchpad/abi";
-import { BUY_PRESETS, GAS_RESERVE_WEI, launchpad, quoteUsdOf, sharesGasBalance, type Quote } from "@/lib/launchpad/config";
+import { BUY_PRESETS, GAS_RESERVE_WEI, NATIVE, launchpad, quoteUsdOf, sharesGasBalance, type Quote } from "@/lib/launchpad/config";
 import { gasReserveInQuote } from "@/lib/launchpad/first-buy";
 import { fmtCompact, fmtQuoteUnits, fmtUsd, minOut, units, pipsToPct } from "@/lib/launchpad/math";
 import { encodeV4ExactInSingle, type PoolKey } from "@/lib/launchpad/swap";
@@ -46,7 +46,7 @@ export default function TradePanel({ chain, token, symbol, poolKey, quote, ethUs
   const CHAIN_LABEL = CHAIN_LABELS[chain];
   const V4 = launchpad(chain).v4;
   const configured = launchpad(chain).configured;
-  const isNative = quote.key === "eth";
+  const isNative = quote.address.toLowerCase() === NATIVE; // the native asset, whatever the chain calls it (ETH, or USDC on Arc)
   // Arc: the USDC quote is the gas token's ERC-20 face, so a buy for the whole balance would leave nothing for gas
   const buyReserve = sharesGasBalance(chain, quote) ? gasReserveInQuote(GAS_RESERVE_WEI[chain], quote.decimals) : 0n;
   const NATIVE_SYMBOL = CHAIN.nativeCurrency.symbol;

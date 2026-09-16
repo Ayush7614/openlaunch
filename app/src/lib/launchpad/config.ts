@@ -62,13 +62,27 @@ const V4_BY_CHAIN: Record<ChainKey, V4> = {
 /** Quote assets offered per chain, first = default. */
 const QUOTES_BY_CHAIN: Record<ChainKey, Quote[]> = { base: [ETH, GITLAWB], robinhood: [USDG, ETH, GITLAWB_RH], arc: [USDC_ARC] };
 
-/** Every chain that offers a fixed-price quote (a stable), for SQL that prices rows without a feed. */
+/**
+ * What address(0) means on each chain. The factory is permissionless and documents address(0) as the native asset,
+ * so a pool quoted in it can exist on any chain whether or not the form offers it; the indexer lists it and it must
+ * price as that chain's native asset. On Arc that is USDC at 18 decimals and a fixed dollar, never ETH: priced at
+ * ETH, a $10k launch would rank as a multi-million-dollar one.
+ */
+const USDC_ARC_NATIVE: Quote = { key: "usdc", address: NATIVE, symbol: "USDC", decimals: 18, usd: 1 };
+export const NATIVE_QUOTES: Record<ChainKey, Quote> = { base: ETH, robinhood: ETH, arc: USDC_ARC_NATIVE };
+
+/** Every quote a chain can price without a feed (the stables, and a native asset that is one), for SQL pricing. */
 export function fixedUsdQuotes(): { chain: ChainKey; key: Quote["key"]; address: string; decimals: number; usd: number }[] {
-  return CHAIN_KEYS.flatMap((chain) => QUOTES_BY_CHAIN[chain].flatMap((q) => (q.usd !== null ? [{ chain, key: q.key, address: q.address.toLowerCase(), decimals: q.decimals, usd: q.usd }] : [])));
+  return CHAIN_KEYS.flatMap((chain) => allQuotes(chain).flatMap((q) => (q.usd !== null ? [{ chain, key: q.key, address: q.address.toLowerCase(), decimals: q.decimals, usd: q.usd }] : [])));
 }
-/** Where a fixed quote key is offered: (chain, address) pairs, so a filter never matches a same-address token on another chain. */
+/** Where a quote key is found: (chain, address) pairs, so a filter never matches a same-address token on another chain. */
 export function quotesWithKey(key: Quote["key"]): { chain: ChainKey; address: string }[] {
-  return CHAIN_KEYS.flatMap((chain) => QUOTES_BY_CHAIN[chain].flatMap((q) => (q.key === key ? [{ chain, address: q.address.toLowerCase() }] : [])));
+  return CHAIN_KEYS.flatMap((chain) => allQuotes(chain).flatMap((q) => (q.key === key ? [{ chain, address: q.address.toLowerCase() }] : [])));
+}
+/** The chain's offered quotes plus its native asset (already among them where the form offers it). */
+function allQuotes(chain: ChainKey): Quote[] {
+  const offered = QUOTES_BY_CHAIN[chain];
+  return offered.some((q) => q.address === NATIVE) ? offered : [...offered, NATIVE_QUOTES[chain]];
 }
 
 /**
@@ -140,7 +154,7 @@ export const LAUNCHPAD_CONFIGURED = CONFIGURED_CHAINS.length > 0;
  */
 export function quoteInfo(key: ChainKey, address: string): Quote {
   const a = address.toLowerCase();
-  return QUOTES_BY_CHAIN[key].find((q) => q.address.toLowerCase() === a) ?? { key: "stock", address: address as Address, symbol: "?", decimals: 18, usd: null };
+  return allQuotes(key).find((q) => q.address.toLowerCase() === a) ?? { key: "stock", address: address as Address, symbol: "?", decimals: 18, usd: null };
 }
 
 /** Quote key for a stored quote address: a fixed quote's key, else "stock" (= some ERC20, priced only if a registry knows it). */
