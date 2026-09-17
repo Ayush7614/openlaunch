@@ -62,7 +62,7 @@ GITLAWB (Robinhood, 18 dec): 0xd1b0d44E4f6ed940fcC7A9F59Bf30Daf62cCFe3D (LayerZe
 factory.launch((name, symbol, metadataURI, quote, supply=0, startTick, lpFee, salt, recipients))
 startTick 184200 ≈ 10 ETH FDV for 1B supply (raw price = 1.0001^tick token-wei per quote unit; for USDG or USDC use ~391400 ≈ $10k FDV).
 ERC20 quote: token must sort above the quote address → call factory.findSalt(launcher, baseSalt, name, symbol, 0, metadataURI, quote, 64) first.
-Optional metadata: POST ${SITE_URL}/api/launch/meta {chain, launcher, salt, name, symbol, description?, image_url?, website?, x_handle?} → {uri, token}; pass uri as metadataURI.
+Optional metadata: POST ${SITE_URL}/api/launch/meta {chain, launcher, salt, name, symbol, description?, image_url?, website?, x_handle?} → {uri, token}; pass uri as metadataURI. x_handle takes a handle (foo, @foo) or an x.com / twitter.com profile link; the bare handle is stored.
 Recommended: buy a little right after launch (a Universal Router swap on the new pool; the site's form suggests ≈ $25). A token with no
 holder and no price move reads as dead on screeners and sits under "quiet launches" on the home page until an outside wallet trades it.
 
