@@ -21,7 +21,7 @@ import { memo } from "@/lib/launchpad/memo";
 import { ago, nowMs } from "@/lib/launchpad/time";
 import { getLaunch, getSwaps } from "@/lib/launchpad/queries";
 import { ethUsd } from "@/lib/launchpad/ethPrice";
-import { NATIVE, SWAP_SITES, TICK_SPACING, quoteKeyOf, uniswapSwapUrl, type Quote } from "@/lib/launchpad/config";
+import { NATIVE, SWAP_SITES, TICK_SPACING, quoteKeyOf, type Quote } from "@/lib/launchpad/config";
 import { GITLAWB_SITE } from "@/lib/launchpad/gitlawb";
 import GitlawbBadge from "@/components/launchpad/GitlawbBadge";
 import { fmtCompact, fmtPrice, fmtQuote, fmtUsd, pipsToPct } from "@/lib/launchpad/math";
@@ -80,6 +80,7 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
 
   const supplyLabel = fmtCompact(Number(BigInt(l.supply)) / 1e18, 0);
   const feeRoute = mode === "free" ? "No trading fee" : `${pipsToPct(l.lp_fee)} trading fee → ${mode === "burn" ? "burned" : mode === "split" ? "beneficiaries" : "beneficiary"}`;
+  const swapSite = SWAP_SITES[chain];
   const utility = "inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-line px-2.5 text-xs text-muted hover:border-line-strong hover:text-ink";
 
   // Facts-only structured data (on-chain fields + creator metadata, no scores).
@@ -154,7 +155,7 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
                 <div className="mt-4 flex flex-wrap gap-2">
                   {l.website ? <a href={l.website} target="_blank" rel="noreferrer nofollow" className={utility}><Globe size={13} /> Website ↗</a> : null}
                   {l.x_handle ? <a href={`https://x.com/${l.x_handle}`} target="_blank" rel="noreferrer nofollow" className={utility}>@{l.x_handle} ↗</a> : null}
-                  <a href={uniswapSwapUrl(chain, l.token)} target="_blank" rel="noreferrer" className={utility}>Open in {SWAP_SITES[chain].name} ↗</a>
+                  {swapSite ? <a href={swapSite.url(l.token)} target="_blank" rel="noreferrer" className={utility}>Open in {swapSite.name} ↗</a> : null}
                 </div>
                 <dl className="mt-5 divide-y divide-line border-y border-line text-xs">
                   <Row k="Creator" v={<A href={explorerAddress(chain, l.launcher)}>{shortAddr(l.launcher)} ↗</A>} />
