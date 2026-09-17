@@ -17,5 +17,6 @@ test("the token page skips the outside swap link when the chain has none", () =>
   const page = readFileSync(new URL("../../app/t/[chain]/[token]/page.tsx", import.meta.url), "utf8");
   assert.match(page, /const swapSite = SWAP_SITES\[chain\];/);
   assert.match(page, /\{swapSite \? <a href=\{swapSite\.url\(l\.token\)\}/);
+  assert.match(page, /\{l\.website \|\| l\.x_handle \|\| swapSite \? <div/, "no empty links row");
   assert.doesNotMatch(page, /pools\.trade/);
 });

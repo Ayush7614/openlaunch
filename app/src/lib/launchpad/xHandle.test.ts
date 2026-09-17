@@ -55,7 +55,18 @@ test("parseXHandle: other hosts, lookalikes and non-web schemes are rejected", (
 });
 
 test("parseXHandle: links that are not a profile are rejected", () => {
-  for (const bad of ["https://x.com", "https://x.com/", "https://x.com/home", "https://x.com/i/communities/1", "https://x.com/intent/post?text=hi", "x.com/search?q=foo", "home", "@Intent"]) {
+  for (const bad of ["https://x.com", "https://x.com/", "x.com", "https://x.com/home", "https://x.com/i/communities/1", "https://x.com/Intent/post?text=hi", "x.com/search?q=foo"]) {
+    assert.equal(handle(bad), null, bad);
+  }
+});
+
+// Every handle the old validators accepted must still pass, or a saved token's edit sheet would refuse to open clean.
+test("parseXHandle: the page list applies to links only; a typed handle is never second-guessed", () => {
+  for (const ok of ["home", "@share", "i", "Search", "_", "a_b_c_d_e_f_g_h"]) assert.equal(handle(ok), ok.replace(/^@/, ""), ok);
+});
+
+test("parseXHandle: tricks that try to smuggle another host past the check", () => {
+  for (const bad of ["https://x.com\\@evil.com/foo", "https://x.com%2F@evil.com/foo", "https://evil.com/x.com/foo", "https://evil.com#x.com/foo", "https://x.com:8443@evil.com/foo", "//evil.com/foo", "https://x.com/%66oo", "https://x.com/foo bar"]) {
     assert.equal(handle(bad), null, bad);
   }
 });

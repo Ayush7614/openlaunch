@@ -7,7 +7,7 @@
  */
 const HANDLE = /^[A-Za-z0-9_]{1,15}$/;
 const HOSTS = new Set(["x.com", "twitter.com"]);
-/** First path segments on x.com that are pages, not profiles. */
+/** First path segments on x.com that are pages, not profiles. Checked on links only: a typed handle is taken as given. */
 const RESERVED = new Set(["home", "i", "intent", "share", "search", "explore", "settings", "hashtag", "messages", "notifications", "compose", "login", "signup"]);
 export const X_HANDLE_ERROR = "x: a handle or an x.com link";
 const MAX_INPUT = 200;
@@ -28,8 +28,7 @@ export function parseXHandle(input: unknown): { ok: true; handle: string } | { o
     if (u.protocol !== "https:" && u.protocol !== "http:") return bad;
     if (!HOSTS.has(u.hostname.toLowerCase().replace(/^(www|mobile|m)\./, ""))) return bad;
     handle = (u.pathname.split("/").find(Boolean) ?? "").replace(/^@/, "");
-    if (!HANDLE.test(handle)) return bad;
+    if (!HANDLE.test(handle) || RESERVED.has(handle.toLowerCase())) return bad;
   }
-  if (RESERVED.has(handle.toLowerCase())) return bad;
   return { ok: true, handle };
 }

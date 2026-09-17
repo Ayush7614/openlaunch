@@ -152,11 +152,11 @@ export default async function TokenPage({ params }: { params: Promise<{ chain: s
               about={<section className="p-5">
                 <h2 className="text-base font-semibold text-ink">Behind {l.symbol}</h2>
                 <p className="mt-2 max-w-xl whitespace-pre-wrap break-words text-sm leading-relaxed text-body text-pretty">{l.description || "The creator has not added a description yet. The contract details below are recorded on-chain."}</p>
-                <div className="mt-4 flex flex-wrap gap-2">
+                {l.website || l.x_handle || swapSite ? <div className="mt-4 flex flex-wrap gap-2">
                   {l.website ? <a href={l.website} target="_blank" rel="noreferrer nofollow" className={utility}><Globe size={13} /> Website ↗</a> : null}
                   {l.x_handle ? <a href={`https://x.com/${l.x_handle}`} target="_blank" rel="noreferrer nofollow" className={utility}>@{l.x_handle} ↗</a> : null}
                   {swapSite ? <a href={swapSite.url(l.token)} target="_blank" rel="noreferrer" className={utility}>Open in {swapSite.name} ↗</a> : null}
-                </div>
+                </div> : null}
                 <dl className="mt-5 divide-y divide-line border-y border-line text-xs">
                   <Row k="Creator" v={<A href={explorerAddress(chain, l.launcher)}>{shortAddr(l.launcher)} ↗</A>} />
                   <Row k="Token contract" v={<A href={explorerAddress(chain, l.token)}>{shortAddr(l.token)} ↗</A>} />
