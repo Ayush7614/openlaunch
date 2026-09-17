@@ -201,13 +201,8 @@ export function browserRpc(key: ChainKey): string {
   return DEV_RPC[key]?.trim() || `${SITE_URL}/api/rpc?chain=${key}`;
 }
 
-/** Where a token trades outside this site, per chain. */
-export const SWAP_SITES: Record<ChainKey, { name: string; url: (token: string) => string }> = {
+/** Where a token trades outside this site, per chain. A chain without an entry shows no outside link. */
+export const SWAP_SITES: Partial<Record<ChainKey, { name: string; url: (token: string) => string }>> = {
   base: { name: "Uniswap", url: (t) => `https://app.uniswap.org/swap?chain=base&outputCurrency=${t}` },
-  robinhood: { name: "pools.trade", url: (t) => `https://pools.trade/token/${t}` },
   arc: { name: "Uniswap", url: (t) => `https://app.uniswap.org/swap?chain=arc&outputCurrency=${t}` },
 };
-
-export function uniswapSwapUrl(key: ChainKey, token: string): string {
-  return SWAP_SITES[key].url(token);
-}
