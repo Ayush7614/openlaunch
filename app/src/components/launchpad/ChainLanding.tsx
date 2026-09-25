@@ -8,7 +8,7 @@ import shell from "@/components/sections/SectionShell.module.css";
 import { CHAIN_KEYS, CHAIN_LABELS, CHAINS, EXPLORERS, explorerAddress, type ChainKey } from "@/lib/chainPublic";
 import { BRAND } from "@/lib/brand";
 import { CHAIN_LANDING, chainLandingPath } from "@/lib/chainLanding";
-import { VISIBLE_CHAINS, launchpad } from "@/lib/launchpad/config";
+import { hasChainPage, launchpad } from "@/lib/launchpad/config";
 import { getLaunchTotals, listLaunchesPage } from "@/lib/launchpad/queries";
 import { PAGE_SIZE } from "@/lib/launchpad/paging";
 import { ethUsd } from "@/lib/launchpad/ethPrice";
@@ -26,8 +26,7 @@ export function chainLandingMetadata(chain: ChainKey): Metadata {
  * with a heading and facts that name the chain, so "launch a token on <chain>" has a page to rank.
  */
 export default async function ChainLanding({ chain }: { chain: ChainKey }) {
-  // a chain without contracts here would only show an empty list; production serves the configured ones
-  if (!VISIBLE_CHAINS.includes(chain)) notFound();
+  if (!hasChainPage(chain)) notFound();
   const c = CHAIN_LANDING[chain];
   const lp = launchpad(chain);
   const usd = await ethUsd();
@@ -36,7 +35,7 @@ export default async function ChainLanding({ chain }: { chain: ChainKey }) {
     getLaunchTotals(usd),
   ]);
   const launches = totals.by_chain[chain].launches;
-  const others = CHAIN_KEYS.filter((k) => k !== chain && VISIBLE_CHAINS.includes(k));
+  const others = CHAIN_KEYS.filter((k) => k !== chain && hasChainPage(k));
 
   return (
     <main className={shell.page}>

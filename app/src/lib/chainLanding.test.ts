@@ -33,16 +33,20 @@ test("landing pages canonicalise to themselves, not to / or ?chain=", () => {
   const comp = read("../components/launchpad/ChainLanding.tsx");
   assert.match(comp, /pageMetadata\(\{ path: chainLandingPath\(chain\)/);
   assert.doesNotMatch(comp, /id="launches-heading"/, "LaunchList already owns that id");
-  assert.match(comp, /notFound\(\)/, "an unconfigured chain 404s instead of rendering an empty list");
+  assert.match(comp, /if \(!hasChainPage\(chain\)\) notFound\(\);/, "a chain without contracts 404s instead of rendering an empty list");
+  assert.match(comp, /hasChainPage\(k\)/, "\"Also on\" links only chains that have a page");
+  assert.doesNotMatch(comp, /VISIBLE_CHAINS/, "VISIBLE_CHAINS falls back to every chain in development; pages follow CONFIGURED_CHAINS");
 });
 
 test("/t/<chain> moves permanently to the landing page", () => {
   const legacy = read("../app/t/[chain]/page.tsx");
-  assert.match(legacy, /if \(isChainKey\(chain\)\) permanentRedirect\(chainLandingPath\(chain\)\);/);
+  assert.match(legacy, /if \(!hasChainPage\(chain\)\) notFound\(\);\s*permanentRedirect\(chainLandingPath\(chain\)\);/, "no cached 308 to a 404");
   assert.doesNotMatch(legacy, /\/\?chain=/);
 });
 
-test("footer and about page link each chain's landing page", () => {
-  assert.match(read("../components/Footer.tsx"), /<Link href=\{chainLandingPath\(chain\)\}/);
-  assert.match(read("../app/about/page.tsx"), /<Link href=\{chainLandingPath\(chain\)\}/);
+test("footer and about page link a chain's landing page only when it has one", () => {
+  for (const file of ["../components/Footer.tsx", "../app/about/page.tsx"]) {
+    assert.match(read(file), /hasChainPage\(chain\) \? <Link href=\{chainLandingPath\(chain\)\}[^>]*>\{CHAIN_LABELS\[chain\]\}<\/Link> : CHAIN_LABELS\[chain\]/, file);
+  }
+  assert.match(read("../app/sitemap.ts"), /staticSitemapEntries\(SITE_URL, undefined, CONFIGURED_CHAINS\)/);
 });

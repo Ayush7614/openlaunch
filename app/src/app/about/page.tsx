@@ -7,6 +7,7 @@ import shell from "@/components/sections/SectionShell.module.css";
 import { BRAND, BRAND_DOMAIN, BRAND_GITHUB, BRAND_X, LEGACY_DOMAIN } from "@/lib/brand";
 import { CHAIN_KEYS, CHAIN_LABELS, CHAINS } from "@/lib/chainPublic";
 import { chainLandingPath } from "@/lib/chainLanding";
+import { hasChainPage } from "@/lib/launchpad/config";
 
 /**
  * The entity page: the one URL that answers "what is openlaunch" in plain words, names the
@@ -58,7 +59,7 @@ export default function AboutPage() {
         <dl className="mt-6 grid gap-3 sm:grid-cols-3">
           {CHAIN_KEYS.map((chain) => (
             <div key={chain} className="rounded-2xl border border-line bg-paper p-5">
-              <dt className="text-sm font-semibold text-ink"><Link href={chainLandingPath(chain)} className="hover:text-brand underline decoration-line-strong underline-offset-4">{CHAIN_LABELS[chain]}</Link></dt>
+              <dt className="text-sm font-semibold text-ink">{hasChainPage(chain) ? <Link href={chainLandingPath(chain)} className="hover:text-brand underline decoration-line-strong underline-offset-4">{CHAIN_LABELS[chain]}</Link> : CHAIN_LABELS[chain]}</dt>
               <dd className="mt-1 font-mono text-xs text-muted tnum">Chain ID {CHAINS[chain].id}</dd>
             </div>
           ))}

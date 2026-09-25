@@ -155,6 +155,14 @@ export const CONFIGURED_CHAINS: ChainKey[] = CHAIN_KEYS.filter((k) => CFG[k].con
 export const LAUNCHPAD_CONFIGURED = CONFIGURED_CHAINS.length > 0;
 /** Chains offered in wallet switchers and list filters: the configured ones; every chain where none is (local development). */
 export const VISIBLE_CHAINS: ChainKey[] = CONFIGURED_CHAINS.length > 0 ? CONFIGURED_CHAINS : CHAIN_KEYS;
+/**
+ * Chains with a landing page (/base, /robinhood, /arc): configured ones only, never the development fallback
+ * above. A page for a chain without contracts has nothing to launch, so every link to one, the sitemap entry
+ * and the /t/<chain> redirect go through this.
+ */
+export function hasChainPage(key: ChainKey): boolean {
+  return CONFIGURED_CHAINS.includes(key);
+}
 /** A `?chain=` param the list may filter by: a visible chain, else null (all chains), so a link to a chain that is not live yet never shows an empty list. */
 export function visibleChainOr(v: unknown): ChainKey | null {
   return isChainKey(v) && VISIBLE_CHAINS.includes(v) ? v : null;
