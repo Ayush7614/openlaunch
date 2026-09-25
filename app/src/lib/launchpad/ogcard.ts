@@ -39,7 +39,8 @@ export function shapeCard(l: CardInput, now: number): Card {
     title: l.name.slice(0, 28),
     symbol: l.symbol.slice(0, 12),
     chainLabel: CHAIN_LABELS[l.chain],
-    mcap: l.fdv_usd !== null ? `$${compact(l.fdv_usd)}` : `${compact(l.fdv_quote)} ${l.quote_symbol}`,
+    // an unknown cap is one dash, not "$—" or "— ETH"
+    mcap: l.fdv_usd !== null ? (Number.isFinite(l.fdv_usd) ? `$${compact(l.fdv_usd)}` : "—") : Number.isFinite(l.fdv_quote) ? `${compact(l.fdv_quote)} ${l.quote_symbol}` : "—",
     change: finitePct ? `${pct >= 0 ? "+" : ""}${Math.abs(pct) >= 1000 ? compact(pct) : pct.toFixed(Math.abs(pct) >= 10 ? 0 : 1)}%` : "—",
     up: finitePct ? pct >= 0 : null,
     fee: feeLabel(l.lp_fee, l.recipients),

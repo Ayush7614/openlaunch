@@ -161,3 +161,8 @@ test("custom market-cap entry clears the preset pick when sanitization rejects t
   assert.match(source, /if \(next\.clearPick\) setMcapPick\(null\)/);
   assert.match(source, /setCustomMcap\(next\.value\)/);
 });
+
+test("a rejected first-buy entry is ignored, never read as declining the first buy", () => {
+  assert.match(source, /const next = resolveFirstBuyInput\(e\.target\.value\); if \(next\.kind === "choose"\) chooseFirstBuy\(next\.value\); else if \(next\.kind === "decline"\) declineFirstBuy\(\);/);
+  assert.doesNotMatch(source, /sanitizeDecimalInput\(e\.target\.value\); if \(v\) chooseFirstBuy\(v\); else declineFirstBuy\(\)/);
+});

@@ -29,9 +29,11 @@ test("ageLabel counts seconds under a minute and rejects garbage dates", () => {
 
 test("shapeCard never renders NaN/Infinity market caps", () => {
   const now = Date.parse("2026-09-06T12:00:00Z");
-  assert.equal(shapeCard(input({ fdv_usd: Number.NaN }), now).mcap, "$—");
-  assert.equal(shapeCard(input({ fdv_usd: Infinity }), now).mcap, "$—");
-  assert.equal(shapeCard(input({ fdv_usd: null, fdv_quote: Number.NaN, quote_symbol: "ETH" }), now).mcap, "— ETH");
+  assert.equal(shapeCard(input({ fdv_usd: Number.NaN }), now).mcap, "—");
+  assert.equal(shapeCard(input({ fdv_usd: Infinity }), now).mcap, "—");
+  assert.equal(shapeCard(input({ fdv_usd: null, fdv_quote: Number.NaN, quote_symbol: "ETH" }), now).mcap, "—");
+  assert.equal(shapeCard(input({ fdv_usd: 12345 }), now).mcap, "$12.3K", "finite caps keep their format");
+  assert.equal(shapeCard(input({ fdv_usd: null, fdv_quote: 2.5, quote_symbol: "ETH" }), now).mcap, "2.50 ETH");
 });
 
 test("shapeCard renders a neutral dash for non-finite change, not NaN%/+—%", () => {

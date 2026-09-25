@@ -9,13 +9,14 @@
  *
  * This helper rejects scientific notation outright (returns "") instead of
  * corrupting it, strips grouping/currency/whitespace characters, and keeps at
- * most one decimal point. An exponent is an "e" right after a digit or dot
- * ("1e-7", "2.5E3", "1.e5"); a unit after a space ("0.5 ETH") is not one. Callers stay controlled inputs; an empty result
+ * most one decimal point. An exponent is an "e" after a digit or dot that
+ * does not start a word, spaces and grouping ignored ("1e-7", "2.5E3",
+ * "1.e5", "1 e-7", "1e"); a unit ("0.5 ETH", "1.5eth") is not one. Callers stay controlled inputs; an empty result
  * disables the submit path (amount parses to null) instead of trading a
  * wrong size.
  */
 export function sanitizeDecimalInput(raw: string): string {
-  if (/[\d.][eE]/.test(raw)) return "";
+  if (/[\d.][eE](?![a-zA-Z])/.test(raw.replace(/[\s,_]/g, ""))) return "";
   let out = "";
   let dot = false;
   for (const ch of raw) {
@@ -41,4 +42,16 @@ export function sanitizeDecimalInput(raw: string): string {
 export function resolveCustomMcapInput(raw: string): { value: string; clearPick: boolean } {
   const value = sanitizeDecimalInput(raw);
   return { value, clearPick: raw.trim() !== "" && value === "" };
+}
+
+/**
+ * First-buy field state transition (pure; unit-tested). A rejected entry
+ * (e.g. "1e-7") is ignored, so the field keeps the amount it showed and the
+ * launch buys exactly that; it must never read as "no first buy", which would
+ * launch with no buy at all. Only clearing the field declines.
+ */
+export function resolveFirstBuyInput(raw: string): { kind: "choose"; value: string } | { kind: "decline" } | { kind: "ignore" } {
+  const value = sanitizeDecimalInput(raw);
+  if (value) return { kind: "choose", value };
+  return raw.trim() === "" ? { kind: "decline" } : { kind: "ignore" };
 }
