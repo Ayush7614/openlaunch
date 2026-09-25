@@ -25,6 +25,9 @@ test("grouping, currency and whitespace are stripped; only the first dot survive
   assert.equal(sanitizeDecimalInput("1.2.3"), "1.23", "extra dots are dropped, digits kept");
   assert.equal(sanitizeDecimalInput("abc1.5"), "1.5");
   assert.equal(sanitizeDecimalInput("12 USD"), "12");
+  // "ETH" carries an E: a unit after a space is not an exponent, so the amount survives
+  assert.equal(sanitizeDecimalInput("0.5 ETH"), "0.5");
+  assert.equal(sanitizeDecimalInput("1.e5"), "", "an exponent right after the dot is still rejected");
 });
 
 test("resolveCustomMcapInput clears the preset pick when the entry sanitizes to empty", () => {

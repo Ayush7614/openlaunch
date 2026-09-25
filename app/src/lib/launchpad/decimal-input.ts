@@ -9,12 +9,13 @@
  *
  * This helper rejects scientific notation outright (returns "") instead of
  * corrupting it, strips grouping/currency/whitespace characters, and keeps at
- * most one decimal point. Callers stay controlled inputs; an empty result
+ * most one decimal point. An exponent is an "e" right after a digit or dot
+ * ("1e-7", "2.5E3", "1.e5"); a unit after a space ("0.5 ETH") is not one. Callers stay controlled inputs; an empty result
  * disables the submit path (amount parses to null) instead of trading a
  * wrong size.
  */
 export function sanitizeDecimalInput(raw: string): string {
-  if (/[eE]/.test(raw)) return "";
+  if (/[\d.][eE]/.test(raw)) return "";
   let out = "";
   let dot = false;
   for (const ch of raw) {
