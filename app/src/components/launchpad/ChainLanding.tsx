@@ -9,7 +9,7 @@ import { CHAIN_KEYS, CHAIN_LABELS, CHAINS, EXPLORERS, explorerAddress, type Chai
 import { BRAND } from "@/lib/brand";
 import { CHAIN_LANDING, chainLandingPath } from "@/lib/chainLanding";
 import { hasChainPage, launchpad } from "@/lib/launchpad/config";
-import { getLaunchTotals, listLaunchesPage } from "@/lib/launchpad/queries";
+import { getLaunchTotalsForRequest, listLaunchesPage } from "@/lib/launchpad/queries";
 import { PAGE_SIZE } from "@/lib/launchpad/paging";
 import { ethUsd } from "@/lib/launchpad/ethPrice";
 import { dbConfigured } from "@/lib/db";
@@ -32,7 +32,7 @@ export default async function ChainLanding({ chain }: { chain: ChainKey }) {
   const usd = await ethUsd();
   const [page, totals] = await Promise.all([
     listLaunchesPage({ sort: "live", window: "all", chain, filter: null, limit: PAGE_SIZE, ethUsd: usd }),
-    getLaunchTotals(usd),
+    getLaunchTotalsForRequest(usd), // the root layout already ran it this request: shared, not repeated
   ]);
   const launches = totals.by_chain[chain].launches;
   const others = CHAIN_KEYS.filter((k) => k !== chain && hasChainPage(k));

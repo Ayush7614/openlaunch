@@ -5,7 +5,7 @@ import Web3Provider from "@/components/Web3Provider";
 import Header from "@/components/Header";
 import TxToasts from "@/components/launchpad/TxToasts";
 import LiveProvider from "@/components/launchpad/LiveProvider";
-import { getLaunchFeed, getLaunchTotals } from "@/lib/launchpad/queries";
+import { getLaunchFeed, getLaunchTotalsForRequest } from "@/lib/launchpad/queries";
 import { ethUsd } from "@/lib/launchpad/ethPrice";
 import { SITE_URL } from "@/lib/chainPublic";
 import { BRAND, BRAND_DOMAIN, BRAND_GITHUB, BRAND_X, SITE_DESCRIPTION, SITE_TITLE, SOCIAL_DESCRIPTION } from "@/lib/brand";
@@ -40,7 +40,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // Minted per request in src/proxy.ts; next-themes' inline theme script must carry it to run under the CSP.
   const nonce = (await headers()).get("x-nonce") ?? undefined;
   const usd = await ethUsd();
-  const [feed, totals] = await Promise.all([getLaunchFeed(24, usd).catch(() => []), getLaunchTotals(usd)]);
+  const [feed, totals] = await Promise.all([getLaunchFeed(24, usd).catch(() => []), getLaunchTotalsForRequest(usd)]);
   // Organization + WebSite + WebApplication: the entity record search engines reconcile the brand word against.
   const siteJsonLd = siteJsonLdHtml({ siteUrl: SITE_URL, brand: BRAND, domain: BRAND_DOMAIN, description: SITE_DESCRIPTION, sameAs: [`https://x.com/${BRAND_X}`, BRAND_GITHUB] });
   return (

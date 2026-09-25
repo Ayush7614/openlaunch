@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { maybeDb } from "@/lib/db";
 import { CHAIN_KEYS, DEFAULT_CHAIN, chainIdOf, chainKeyOf, type ChainKey } from "@/lib/chainPublic";
 import { quoteInfo as staticQuoteInfo, quoteUsdOf, type Quote, NATIVE_QUOTES, fixedUsdQuotes, quotesWithKey } from "./config";
@@ -449,6 +450,14 @@ export async function getLaunchTotals(ethUsd: number | null = null): Promise<Lau
   }
   return t;
 }
+
+/**
+ * getLaunchTotals, shared per request: the root layout and a chain landing page both need the site totals,
+ * and this is one unfiltered aggregation over bb_launches. React's cache hands the second caller the first
+ * caller's result within a server render (same ethUsd argument; ethUsd() is memoized so both read the same
+ * price). Outside a render (route handlers) it simply calls through.
+ */
+export const getLaunchTotalsForRequest = cache(getLaunchTotals);
 
 export type FeeEventRow = { tx_hash: string; kind: string; currency: string | null; account: string | null; amount: string | null; quote_amount: string | null; token_amount: string | null; block_time: string };
 

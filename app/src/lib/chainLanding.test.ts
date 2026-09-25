@@ -50,3 +50,13 @@ test("footer and about page link a chain's landing page only when it has one", (
   }
   assert.match(read("../app/sitemap.ts"), /staticSitemapEntries\(SITE_URL, undefined, CONFIGURED_CHAINS\)/);
 });
+
+test("the chain page shares the layout's totals query instead of running it again", () => {
+  const layout = read("../app/layout.tsx");
+  const comp = read("../components/launchpad/ChainLanding.tsx");
+  assert.match(read("./launchpad/queries.ts"), /export const getLaunchTotalsForRequest = cache\(getLaunchTotals\);/);
+  for (const [name, src] of [["layout", layout], ["ChainLanding", comp]] as const) {
+    assert.match(src, /getLaunchTotalsForRequest\(usd\)/, `${name} uses the request-scoped getter`);
+    assert.doesNotMatch(src, /[^A-Za-z]getLaunchTotals\(/, `${name} must not call the uncached query`);
+  }
+});
