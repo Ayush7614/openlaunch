@@ -8,6 +8,7 @@ import { CONFIGURED_CHAINS, launchpad } from "@/lib/launchpad/config";
 export const metadata: Metadata = {
   title: "Launch a token for free",
   description: "Deploy a token on Base, Robinhood Chain or Arc with 100% of supply locked as Uniswap v4 liquidity. No platform fee. Gas only.",
+  alternates: { canonical: "/launch" },
 };
 
 export const dynamic = "force-dynamic";

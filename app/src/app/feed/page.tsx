@@ -6,7 +6,7 @@ import SectionIntro from "@/components/sections/SectionIntro";
 import styles from "@/components/sections/SectionShell.module.css";
 import { listFeed } from "@/lib/launchpad/postsServer";
 
-export const metadata: Metadata = { title: "Posts", description: "What people are saying about tokens launched on openlaunch.lol." };
+export const metadata: Metadata = { title: "Posts", description: "What people are saying about tokens launched on openlaunch.lol.", alternates: { canonical: "/feed" } };
 export const dynamic = "force-dynamic";
 
 export default async function FeedPage() {

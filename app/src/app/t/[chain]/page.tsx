@@ -1,17 +1,18 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound, permanentRedirect, redirect } from "next/navigation";
 import { isAddress } from "viem";
 import { DEFAULT_CHAIN, isChainKey } from "@/lib/chainPublic";
 import { findLaunchChain } from "@/lib/launchpad/queries";
+import { chainLandingPath } from "@/lib/chainLanding";
 
 export const dynamic = "force-dynamic";
 
 /**
- * /t/<chain>            → the launchpad filtered to that chain
+ * /t/<chain>            → /<chain>, the chain's landing page (308: search engines move any signal there)
  * /t/<token> (legacy)   → /t/<chain>/<token> (looked up; Base by default)
  */
 export default async function TokenOrChainPage({ params }: { params: Promise<{ chain: string }> }) {
   const { chain } = await params;
-  if (isChainKey(chain)) redirect(`/?chain=${chain}`);
+  if (isChainKey(chain)) permanentRedirect(chainLandingPath(chain));
   if (!isAddress(chain)) notFound();
   const found = (await findLaunchChain(chain)) ?? DEFAULT_CHAIN;
   redirect(`/t/${found}/${chain.toLowerCase()}`);

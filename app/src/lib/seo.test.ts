@@ -5,6 +5,10 @@ import {
   canonicalUrl,
   isCanonicalTokenPath,
   jsonLdHtml,
+  jsonLdScript,
+  siteJsonLd,
+  siteJsonLdHtml,
+  siteVerification,
   staticSitemapEntries,
   tokenCanonical,
   tokenJsonLd,
@@ -34,18 +38,26 @@ test("isCanonicalTokenPath rejects bad chains and addresses", () => {
   assert.equal(isCanonicalTokenPath("base", "0x123"), false);
 });
 
-test("static sitemap covers every public route and skips /admin", () => {
+test("static sitemap covers every indexable route and skips /admin and /me", () => {
   const paths = STATIC_SITEMAP_ROUTES.map((r) => r.path);
-  for (const p of ["/", "/launch", "/feed", "/rules", "/agents", "/me"]) {
+  for (const p of ["/", "/launch", "/base", "/robinhood", "/arc", "/feed", "/rules", "/about", "/agents"]) {
     assert.ok(paths.includes(p), `missing ${p}`);
   }
   assert.ok(!paths.includes("/admin"), "/admin must stay out of the sitemap");
+  assert.ok(!paths.includes("/me"), "/me is wallet-specific (noindex) and must stay out of the sitemap");
   const entries = staticSitemapEntries(SITE, "2026-09-06T00:00:00.000Z");
   assert.equal(entries.length, STATIC_SITEMAP_ROUTES.length);
   for (const entry of entries) {
     assert.equal(new URL(entry.url).origin, new URL(SITE).origin);
   }
   assert.equal(entries[0].url, `${SITE}/`);
+});
+
+test("static sitemap lists only the chain landing pages that are live on this deployment", () => {
+  const paths = staticSitemapEntries(SITE, undefined, ["base", "robinhood"]).map((e) => new URL(e.url).pathname);
+  assert.ok(paths.includes("/base") && paths.includes("/robinhood"));
+  assert.ok(!paths.includes("/arc"), "a chain without contracts 404s, so it stays out of the sitemap");
+  assert.ok(paths.includes("/about"), "non-chain routes are unaffected");
 });
 
 test("token sitemap skips invalid rows and keeps block_time", () => {
@@ -108,4 +120,46 @@ test("jsonLdHtml escapes < so creator input cannot break out of the script tag",
   assert.ok(!html.includes("<"), "no literal angle brackets remain");
   assert.ok(html.includes("\\u003c/script>"), "closing tag is unicode-escaped");
   assert.deepEqual(JSON.parse(html.replace(/\\u003c/g, "<")), JSON.parse(JSON.stringify(tokenJsonLd(input))), "escapes round-trip");
+});
+
+const SITE_INPUT = {
+  siteUrl: `${SITE}/`,
+  brand: "openlaunch",
+  domain: "openlaunch.lol",
+  description: "Launch a token in one transaction.",
+  sameAs: ["https://x.com/openlaunch_lol", "https://github.com/Gitlawb/openlaunch"],
+};
+
+test("site JSON-LD is an Organization + WebSite + WebApplication graph keyed on the brand word", () => {
+  const ld = siteJsonLd(SITE_INPUT);
+  const graph = ld["@graph"] as Record<string, unknown>[];
+  assert.deepEqual(graph.map((n) => n["@type"]), ["Organization", "WebSite", "WebApplication"]);
+  const [org, site, app] = graph;
+  assert.equal(org["name"], "openlaunch");
+  assert.equal(org["alternateName"], "openlaunch.lol");
+  assert.equal(org["url"], `${SITE}/`, "trailing slash on siteUrl is normalised");
+  assert.equal(org["@id"], `${SITE}/#organization`);
+  assert.deepEqual(org["sameAs"], SITE_INPUT.sameAs);
+  assert.deepEqual(site["publisher"], { "@id": `${SITE}/#organization` });
+  assert.equal(app["isAccessibleForFree"], true);
+  assert.deepEqual(app["offers"], { "@type": "Offer", price: "0", priceCurrency: "USD" });
+  const text = JSON.stringify(ld).toLowerCase();
+  assert.ok(!text.includes("openlaunchlol"), "never the squatted look-alike");
+  // Word-boundary match: "operatingSystem" contains "rating" but is not a rating.
+  for (const banned of ["rating", "review", "score", "audited"]) assert.ok(!new RegExp(`\\b${banned}`).test(text), `no ${banned}`);
+});
+
+test("jsonLdScript escapes < for every payload, site graph included", () => {
+  assert.equal(jsonLdScript({ a: "</script>" }), '{"a":"\\u003c/script>"}');
+  const html = siteJsonLdHtml({ ...SITE_INPUT, description: "a <b> c" });
+  assert.ok(!html.includes("<"));
+  assert.deepEqual(JSON.parse(html), siteJsonLd({ ...SITE_INPUT, description: "a <b> c" }));
+});
+
+test("siteVerification renders only the tags that are configured", () => {
+  assert.equal(siteVerification({}), undefined);
+  assert.equal(siteVerification({ GOOGLE_SITE_VERIFICATION: "  " }), undefined);
+  assert.deepEqual(siteVerification({ GOOGLE_SITE_VERIFICATION: "g123 " }), { google: "g123" });
+  assert.deepEqual(siteVerification({ BING_SITE_VERIFICATION: "b456" }), { other: { "msvalidate.01": "b456" } });
+  assert.deepEqual(siteVerification({ GOOGLE_SITE_VERIFICATION: "g", BING_SITE_VERIFICATION: "b" }), { google: "g", other: { "msvalidate.01": "b" } });
 });

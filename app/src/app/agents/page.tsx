@@ -8,7 +8,7 @@ import { launchpad } from "@/lib/launchpad/config";
 import { CHAIN_KEYS, CHAIN_LABELS, CHAINS, SITE_URL, explorerAddress } from "@/lib/chainPublic";
 import { BRAND_GITHUB } from "@/lib/brand";
 
-export const metadata: Metadata = { title: "Agents", description: "Launch and trade tokens from an agent: one contract call, plus a JSON API for the list, trades and metadata." };
+export const metadata: Metadata = { title: "Agents", description: "Launch and trade tokens from an agent: one contract call, plus a JSON API for the list, trades and metadata.", alternates: { canonical: "/agents" } };
 
 const sections = [
   { id: "launch", number: "01", label: "Launch a token" },

@@ -20,8 +20,8 @@ export function GET() {
   const a = launchpad("arc");
   const body = `# ${BRAND_DOMAIN}
 
-> Open-source (MIT: https://github.com/Gitlawb/openlaunch), zero-fee token launchpad on Base (8453), Robinhood Chain (4663) and Arc (5042). One transaction deploys a token and locks 100% of its supply as
-> Uniswap v4 liquidity, forever. No platform fee: the factory and locker have no fee address at all.
+> openlaunch (${BRAND_DOMAIN}) is an open-source (MIT: https://github.com/Gitlawb/openlaunch), zero-fee token launchpad on Base (8453), Robinhood Chain (4663) and Arc (5042). One transaction deploys a token and locks 100% of its supply as
+> Uniswap v4 liquidity, forever. No platform fee: the factory and locker have no fee address at all. About page: ${SITE_URL}/about
 
 ## Source verification
 ${verificationLine("Base (8453)", b, [

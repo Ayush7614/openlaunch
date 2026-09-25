@@ -8,7 +8,7 @@ import { launchpad } from "@/lib/launchpad/config";
 import { CHAINS, CHAIN_KEYS, CHAIN_LABELS, explorerAddress } from "@/lib/chainPublic";
 import { BRAND_GITHUB } from "@/lib/brand";
 
-export const metadata: Metadata = { title: "How it works", description: "What a launch does on-chain, what it costs (gas), and what can never happen to your liquidity." };
+export const metadata: Metadata = { title: "How it works", description: "What a launch does on-chain, what it costs (gas), and what can never happen to your liquidity.", alternates: { canonical: "/rules" } };
 
 const STEPS = [
   { title: "Your token is deployed", description: "A plain ERC-20 with EIP-2612 permit. Fixed supply, 1 billion by default. No mint, no pause, no blacklist, no transfer tax, no owner.", value: "1B", label: "default supply" },

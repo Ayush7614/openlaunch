@@ -3,7 +3,8 @@
  * callers pass `siteUrl` in so unit tests stay deterministic.
  */
 
-import { CHAIN_LABELS, isChainKey, type ChainKey } from "./chainKeys.ts";
+import { CHAIN_KEYS, CHAIN_LABELS, isChainKey, type ChainKey } from "./chainKeys.ts";
+import { chainLandingPath } from "./chainLanding.ts";
 
 export { isChainKey, type ChainKey };
 
@@ -39,16 +40,18 @@ export type StaticRoute = {
 
 /**
  * Static sitemap routes. Facts only: every path exists in src/app.
- * /admin is intentionally excluded (robots noindex + disallowed in robots.txt).
+ * /admin and /me are intentionally excluded (both noindex; /admin is also disallowed in robots.txt).
  */
 export const STATIC_SITEMAP_ROUTES: StaticRoute[] = [
   { path: "/", changeFrequency: "hourly", priority: 1 },
   { path: "/launch", changeFrequency: "weekly", priority: 0.8 },
+  ...CHAIN_KEYS.map((chain): StaticRoute => ({ path: chainLandingPath(chain), changeFrequency: "hourly", priority: 0.8 })),
   { path: "/feed", changeFrequency: "hourly", priority: 0.7 },
   { path: "/rules", changeFrequency: "monthly", priority: 0.6 },
+  { path: "/about", changeFrequency: "monthly", priority: 0.6 },
   { path: "/agents", changeFrequency: "monthly", priority: 0.6 },
-  { path: "/me", changeFrequency: "weekly", priority: 0.4 },
 ];
+// /me is wallet-specific (noindex) and /admin is moderation-only: neither belongs in the sitemap.
 
 export type SitemapEntry = {
   url: string;
@@ -57,8 +60,13 @@ export type SitemapEntry = {
   priority: number;
 };
 
-export function staticSitemapEntries(siteUrl: string, lastModified?: string): SitemapEntry[] {
-  return STATIC_SITEMAP_ROUTES.map((r) => ({
+/**
+ * `chains`: the chains with contracts on this deployment. A chain landing page 404s without them,
+ * and a sitemap must never advertise a 404.
+ */
+export function staticSitemapEntries(siteUrl: string, lastModified?: string, chains: readonly ChainKey[] = CHAIN_KEYS): SitemapEntry[] {
+  const hidden = new Set(CHAIN_KEYS.filter((k) => !chains.includes(k)).map(chainLandingPath));
+  return STATIC_SITEMAP_ROUTES.filter((r) => !hidden.has(r.path)).map((r) => ({
     url: canonicalUrl(siteUrl, r.path),
     ...(lastModified ? { lastModified } : {}),
     changeFrequency: r.changeFrequency,
@@ -139,11 +147,93 @@ export function tokenJsonLd(l: TokenJsonLdInput): Record<string, unknown> {
 }
 
 /**
- * Render JSON-LD for a `<script type="application/ld+json">` sink.
- * `name` / `description` are creator-supplied, so `<` is escaped to
- * `\u003c`: a literal `</script>` in a token name must never terminate
- * the script element (XSS). The JSON parses identically.
+ * Serialise any JSON-LD object for a `<script type="application/ld+json">` sink.
+ * `<` is escaped to `\u003c` so a literal `</script>` inside a string (token
+ * names are creator-supplied) can never terminate the script element (XSS).
+ * The JSON parses identically.
  */
+export function jsonLdScript(obj: Record<string, unknown>): string {
+  return JSON.stringify(obj).replace(/</g, "\\u003c");
+}
+
+/** Token-page JSON-LD, escaped (see jsonLdScript). */
 export function jsonLdHtml(l: TokenJsonLdInput): string {
-  return JSON.stringify(tokenJsonLd(l)).replace(/</g, "\\u003c");
+  return jsonLdScript(tokenJsonLd(l));
+}
+
+export type SiteJsonLdInput = {
+  siteUrl: string;
+  /** The bare brand word ("openlaunch"): the entity name search engines reconcile the query against. */
+  brand: string;
+  /** The domain ("openlaunch.lol"): how most people write the brand, kept as an alternate name. */
+  domain: string;
+  description: string;
+  /** Official profiles only (X, GitHub). Look-alike handles must never appear here. */
+  sameAs: string[];
+};
+
+/**
+ * Site-wide entity record: Organization + WebSite + WebApplication in one @graph.
+ * Facts only: names, URLs, official profiles, and that the app is free to use
+ * (there is no fee address in the contracts). No ratings, no claims.
+ */
+export function siteJsonLd(i: SiteJsonLdInput): Record<string, unknown> {
+  const siteUrl = i.siteUrl.replace(/\/$/, "");
+  const orgId = `${siteUrl}/#organization`;
+  const siteId = `${siteUrl}/#website`;
+  const logo = `${siteUrl}/icon.png`;
+  return {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": orgId,
+        name: i.brand,
+        alternateName: i.domain,
+        url: `${siteUrl}/`,
+        logo: { "@type": "ImageObject", url: logo, width: 512, height: 512 },
+        sameAs: i.sameAs,
+      },
+      {
+        "@type": "WebSite",
+        "@id": siteId,
+        name: i.brand,
+        alternateName: i.domain,
+        url: `${siteUrl}/`,
+        description: i.description,
+        inLanguage: "en",
+        publisher: { "@id": orgId },
+      },
+      {
+        "@type": "WebApplication",
+        name: i.brand,
+        url: `${siteUrl}/`,
+        description: i.description,
+        applicationCategory: "FinanceApplication",
+        operatingSystem: "Web",
+        browserRequirements: "Requires JavaScript and an Ethereum wallet",
+        isAccessibleForFree: true,
+        offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+        publisher: { "@id": orgId },
+        isPartOf: { "@id": siteId },
+      },
+    ],
+  };
+}
+
+/** Site JSON-LD, escaped for a script sink (see jsonLdScript). */
+export function siteJsonLdHtml(i: SiteJsonLdInput): string {
+  return jsonLdScript(siteJsonLd(i));
+}
+
+/**
+ * Search-engine ownership verification tags, read from the environment so a
+ * deploy can verify Search Console / Bing Webmaster without a DNS change.
+ * Returns undefined when nothing is set, so the tags never render empty.
+ */
+export function siteVerification(env: Record<string, string | undefined>): { google?: string; other?: Record<string, string> } | undefined {
+  const google = env.GOOGLE_SITE_VERIFICATION?.trim() || undefined;
+  const bing = env.BING_SITE_VERIFICATION?.trim() || undefined;
+  if (!google && !bing) return undefined;
+  return { ...(google ? { google } : {}), ...(bing ? { other: { "msvalidate.01": bing } } : {}) };
 }
