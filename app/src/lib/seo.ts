@@ -5,6 +5,8 @@
 
 import { CHAIN_KEYS, CHAIN_LABELS, isChainKey, type ChainKey } from "./chainKeys.ts";
 import { chainLandingPath } from "./chainLanding.ts";
+import { BRAND_DOMAIN, BRAND_X, SITE_TITLE } from "./brand.ts";
+import { clampSocial } from "./launchpad/ogcard.ts";
 
 export { isChainKey, type ChainKey };
 
@@ -235,4 +237,33 @@ export function siteVerification(env: Record<string, string | undefined>): { goo
   const bing = env.BING_SITE_VERIFICATION?.trim() || undefined;
   if (!google && !bing) return undefined;
   return { ...(google ? { google } : {}), ...(bing ? { other: { "msvalidate.01": bing } } : {}) };
+}
+
+export type PageMetadata = {
+  title: string;
+  description: string;
+  alternates: { canonical: string };
+  openGraph: { siteName: string; type: "website"; title: string; description: string; url: string; images: ShareImage[] };
+  twitter: { card: "summary_large_image"; site: string; title: string; description: string; images: ShareImage[] };
+};
+type ShareImage = { url: string; width: number; height: number; alt: string };
+
+/** The site card (app/opengraph-image.tsx, 1200×630). A page's own openGraph drops the inherited file image, so it is named here. */
+const SITE_SHARE_IMAGE: ShareImage = { url: "/opengraph-image", width: 1200, height: 630, alt: SITE_TITLE };
+
+/**
+ * Metadata for an indexable page: its canonical plus its own share card. Next replaces nested
+ * metadata objects instead of merging them, so a page that sets only title/description inherits the
+ * root layout's openGraph/twitter whole: the home page's card, and og:url pointing at "/".
+ * `path` and the image resolve against the layout's metadataBase.
+ */
+export function pageMetadata({ path, title, description }: { path: string; title: string; description: string }): PageMetadata {
+  const social = clampSocial(description);
+  return {
+    title,
+    description,
+    alternates: { canonical: path },
+    openGraph: { siteName: BRAND_DOMAIN, type: "website", title, description: social, url: path, images: [SITE_SHARE_IMAGE] },
+    twitter: { card: "summary_large_image", site: `@${BRAND_X}`, title, description: social, images: [SITE_SHARE_IMAGE] },
+  };
 }

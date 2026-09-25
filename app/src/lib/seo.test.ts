@@ -6,6 +6,7 @@ import {
   isCanonicalTokenPath,
   jsonLdHtml,
   jsonLdScript,
+  pageMetadata,
   siteJsonLd,
   siteJsonLdHtml,
   siteVerification,
@@ -162,4 +163,20 @@ test("siteVerification renders only the tags that are configured", () => {
   assert.deepEqual(siteVerification({ GOOGLE_SITE_VERIFICATION: "g123 " }), { google: "g123" });
   assert.deepEqual(siteVerification({ BING_SITE_VERIFICATION: "b456" }), { other: { "msvalidate.01": "b456" } });
   assert.deepEqual(siteVerification({ GOOGLE_SITE_VERIFICATION: "g", BING_SITE_VERIFICATION: "b" }), { google: "g", other: { "msvalidate.01": "b" } });
+});
+
+test("pageMetadata gives a page its own canonical and share card, never the home page's", () => {
+  const long = "Deploy a token on Base, Robinhood Chain or Arc with 100% of supply locked as Uniswap v4 liquidity. No platform fee. Gas only.";
+  const m = pageMetadata({ path: "/launch", title: "Launch a token for free", description: long });
+  assert.equal(m.description, long, "the search snippet keeps the full description");
+  assert.deepEqual(m.alternates, { canonical: "/launch" });
+  assert.equal(m.openGraph.url, "/launch");
+  assert.equal(m.openGraph.title, "Launch a token for free");
+  assert.equal(m.openGraph.siteName, "openlaunch.lol");
+  assert.equal(m.twitter.title, "Launch a token for free");
+  assert.equal(m.twitter.site, "@openlaunch_lol");
+  // a page's own openGraph drops the inherited file image: the card must name it or previews go blank
+  assert.deepEqual(m.openGraph.images.map((i) => i.url), ["/opengraph-image"]);
+  assert.deepEqual(m.twitter.images, m.openGraph.images);
+  assert.ok(m.openGraph.description.length <= 125 && m.twitter.description === m.openGraph.description, "share text is clamped for previews");
 });

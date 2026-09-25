@@ -31,7 +31,8 @@ test("landing copy fits search snippets and names its chain", () => {
 
 test("landing pages canonicalise to themselves, not to / or ?chain=", () => {
   const comp = read("../components/launchpad/ChainLanding.tsx");
-  assert.match(comp, /alternates: \{ canonical: chainLandingPath\(chain\) \}/);
+  assert.match(comp, /pageMetadata\(\{ path: chainLandingPath\(chain\)/);
+  assert.doesNotMatch(comp, /id="launches-heading"/, "LaunchList already owns that id");
   assert.match(comp, /notFound\(\)/, "an unconfigured chain 404s instead of rendering an empty list");
 });
 

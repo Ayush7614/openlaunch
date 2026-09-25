@@ -11,7 +11,7 @@ const llms = readFileSync(new URL("../../app/llms.txt/route.ts", import.meta.url
 test("about page is the brand entity page, built from brand.ts constants", () => {
   assert.match(page, /import \{ BRAND, BRAND_DOMAIN, BRAND_GITHUB, BRAND_X, LEGACY_DOMAIN \} from "@\/lib\/brand"/);
   assert.match(page, /title=\{`What \$\{BRAND\} is`\}/);
-  assert.match(page, /alternates: \{ canonical: "\/about" \}/);
+  assert.match(page, /pageMetadata\(\{\s*path: "\/about"/);
   assert.match(page, /https:\/\/x\.com\/\$\{BRAND_X\}/);
   assert.match(page, /href=\{BRAND_GITHUB\}/);
   assert.match(page, /CHAIN_KEYS\.map/);

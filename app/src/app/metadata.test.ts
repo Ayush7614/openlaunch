@@ -18,7 +18,7 @@ test("root layout declares no canonical and renders the site entity JSON-LD", ()
   assert.match(layout, /<script type="application\/ld\+json" dangerouslySetInnerHTML=\{\{ __html: siteJsonLd \}\} \/>/);
 });
 
-test("every indexable page declares its own canonical path", () => {
+test("every indexable page declares its own canonical path and share card", () => {
   const pages: [string, string][] = [
     ["./(home)/page.tsx", "/"],
     ["./launch/page.tsx", "/launch"],
@@ -28,7 +28,10 @@ test("every indexable page declares its own canonical path", () => {
     ["./about/page.tsx", "/about"],
   ];
   for (const [file, path] of pages) {
-    assert.ok(read(file).includes(`alternates: { canonical: "${path}" }`), `${file} must canonicalise to ${path}`);
+    const src = read(file);
+    // the home page's title, description and card are the layout's own; every other page goes through pageMetadata
+    const ok = path === "/" ? src.includes(`alternates: { canonical: "/" }`) : new RegExp(`pageMetadata\\(\\{\\s*path: "${path}"`).test(src);
+    assert.ok(ok, `${file} must canonicalise to ${path}`);
   }
 });
 

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo";
 import Link from "next/link";
 import { ArrowRight, ArrowUpRight } from "lucide-react";
 import SectionIntro from "@/components/sections/SectionIntro";
@@ -12,11 +13,11 @@ import { chainLandingPath } from "@/lib/chainLanding";
  * official channels, and separates the brand from look-alikes. Facts only (CONTRIBUTING.md):
  * what the contracts do, where the code is, which accounts are ours. No claims about value.
  */
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
+  path: "/about",
   title: `About ${BRAND}`,
   description: `${BRAND} is a free, open-source token launchpad on Base, Robinhood Chain and Arc. What it does, who builds it, and which channels are official.`,
-  alternates: { canonical: "/about" },
-};
+});
 
 const DIFFERENCES = [
   ["No platform fee", "The factory and the locker have no fee address, fee variable or treasury. There is nothing to switch on later."],
