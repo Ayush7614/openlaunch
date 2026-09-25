@@ -33,16 +33,19 @@ export function postsCursorKey(chain: string, token: string, limit: number, befo
 export const FEED_POSTS_LIMIT = 30;
 export const FEED_POSTS_MAX_OFFSET = 100_000;
 
+/** A whole offset in [0, FEED_POSTS_MAX_OFFSET]; anything non-finite is 0. The one clamp the parser, memo key and query share. */
+export function clampFeedOffset(n: number): number {
+  return Number.isFinite(n) ? Math.min(FEED_POSTS_MAX_OFFSET, Math.max(0, Math.trunc(n))) : 0;
+}
+
 export function parseFeedPaging(query: { offset?: unknown }): { offset: number } {
-  const raw = query.offset === null || query.offset === undefined || (typeof query.offset === "string" && query.offset.trim() === "") ? NaN : Number(query.offset);
-  const offset = Number.isFinite(raw) ? Math.min(FEED_POSTS_MAX_OFFSET, Math.max(0, Math.trunc(raw))) : 0;
-  return { offset };
+  const blank = query.offset === null || query.offset === undefined || (typeof query.offset === "string" && query.offset.trim() === "");
+  return { offset: clampFeedOffset(blank ? NaN : Number(query.offset)) };
 }
 
 /** Memo key for a feed page. The offset is clamped first so `-5`, `1.9` and `9999999999` cannot each mint a distinct hot key. */
 export function feedPostsKey(offset: number): string {
-  const n = Number.isFinite(offset) ? Math.min(FEED_POSTS_MAX_OFFSET, Math.max(0, Math.trunc(offset))) : 0;
-  return `feed-posts:${n}`;
+  return `feed-posts:${clampFeedOffset(offset)}`;
 }
 
 /** Cursor for the next page: oldest id on a full page, else null (no more). */

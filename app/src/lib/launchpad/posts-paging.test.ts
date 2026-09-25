@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { FEED_POSTS_LIMIT, FEED_POSTS_MAX_OFFSET, TOKEN_POSTS_DEFAULT_LIMIT, TOKEN_POSTS_MAX_LIMIT, feedPostsKey, nextPostsCursor, parseFeedPaging, parseTokenPostsPaging, postsCursorKey } from "./posts-paging.ts";
+import { readFileSync } from "node:fs";
+import { FEED_POSTS_LIMIT, FEED_POSTS_MAX_OFFSET, clampFeedOffset, TOKEN_POSTS_DEFAULT_LIMIT, TOKEN_POSTS_MAX_LIMIT, feedPostsKey, nextPostsCursor, parseFeedPaging, parseTokenPostsPaging, postsCursorKey } from "./posts-paging.ts";
 
 test("parseTokenPostsPaging defaults, clamps and reads the cursor", () => {
   assert.deepEqual(parseTokenPostsPaging({}), { limit: TOKEN_POSTS_DEFAULT_LIMIT, beforeId: null });
@@ -56,4 +57,14 @@ test("feedPostsKey normalizes the offset into one memo key", () => {
   assert.equal(feedPostsKey(1.9), "feed-posts:1");
   assert.equal(feedPostsKey(9999999999), `feed-posts:${FEED_POSTS_MAX_OFFSET}`);
   assert.equal(feedPostsKey(NaN), "feed-posts:0");
+});
+
+test("the feed query clamps with the same helper as the parser and the memo key", () => {
+  assert.equal(clampFeedOffset(1.9), 1);
+  assert.equal(clampFeedOffset(Number.POSITIVE_INFINITY), 0);
+  assert.equal(clampFeedOffset(1e20), FEED_POSTS_MAX_OFFSET, "a huge offset never reaches Postgres as a non-bigint");
+  const server = readFileSync(new URL("./postsServer.ts", import.meta.url), "utf8");
+  assert.match(server, /OFFSET \$\{clampFeedOffset\(offset\)\}/);
+  const live = readFileSync(new URL("../../app/api/launch/live/route.ts", import.meta.url), "utf8");
+  assert.match(live, /memo\(feedPostsKey\(0\), 2_000, \(\) => listFeed\(FEED_POSTS_LIMIT, 0\)\)/, "live and /api/posts share one feed-posts entry");
 });
