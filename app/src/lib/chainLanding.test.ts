@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
-import { CHAIN_KEYS } from "./chainKeys.ts";
+import { CHAIN_KEYS, CHAIN_LABELS } from "./chainKeys.ts";
 import { BRAND_DOMAIN } from "./brand.ts";
-import { CHAIN_LANDING, chainLandingLabel, chainLandingPath } from "./chainLanding.ts";
+import { CHAIN_LANDING, chainLandingPath } from "./chainLanding.ts";
 
 const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
 
@@ -24,11 +24,9 @@ test("landing copy fits search snippets and names its chain", () => {
     // the root layout template appends " · openlaunch.lol"
     assert.ok(`${c.title} · ${BRAND_DOMAIN}`.length <= 60, `${chain} title too long for Google`);
     assert.ok(c.description.length <= 155, `${chain} description too long for the snippet`);
-    const label = chain === "robinhood" ? "Robinhood Chain" : chain === "arc" ? "Arc" : "Base";
-    for (const text of [c.title, c.description, c.heading, c.intro]) assert.ok(text.includes(label), `${chain}: "${text}" must name the chain`);
+    for (const text of [c.title, c.description, c.heading, c.intro]) assert.ok(text.includes(CHAIN_LABELS[chain]), `${chain}: "${text}" must name the chain`);
     assert.doesNotMatch(JSON.stringify(c), /audited|guaranteed|safe investment|moon|profit|risk.free|best/i);
   }
-  assert.equal(chainLandingLabel("base"), "openlaunch on Base");
 });
 
 test("landing pages canonicalise to themselves, not to / or ?chain=", () => {
@@ -43,6 +41,7 @@ test("/t/<chain> moves permanently to the landing page", () => {
   assert.doesNotMatch(legacy, /\/\?chain=/);
 });
 
-test("footer links each chain's landing page", () => {
+test("footer and about page link each chain's landing page", () => {
   assert.match(read("../components/Footer.tsx"), /<Link href=\{chainLandingPath\(chain\)\}/);
+  assert.match(read("../app/about/page.tsx"), /<Link href=\{chainLandingPath\(chain\)\}/);
 });

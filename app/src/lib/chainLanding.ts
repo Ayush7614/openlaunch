@@ -5,8 +5,7 @@
  * Facts only (CONTRIBUTING.md "Facts over scores"): what the chain is, what a launch there quotes in,
  * what it costs. Keyed by ChainKey, so a new chain fails to type-check until it has copy.
  */
-import { BRAND } from "./brand.ts";
-import { CHAIN_LABELS, type ChainKey } from "./chainKeys.ts";
+import type { ChainKey } from "./chainKeys.ts";
 
 export type ChainLandingCopy = {
   /** ≤ 60 chars once the layout template adds " · openlaunch.lol" (Google truncates past that); query words first. */
@@ -47,9 +46,4 @@ export const CHAIN_LANDING: Record<ChainKey, ChainLandingCopy> = {
 /** The landing page path for a chain: /base, /robinhood, /arc. */
 export function chainLandingPath(chain: ChainKey): string {
   return `/${chain}`;
-}
-
-/** Link text for cross-links between chain pages and from the footer. */
-export function chainLandingLabel(chain: ChainKey): string {
-  return `${BRAND} on ${CHAIN_LABELS[chain]}`;
 }

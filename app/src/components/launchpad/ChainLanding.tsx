@@ -6,7 +6,8 @@ import LaunchList from "@/components/launchpad/LaunchList";
 import SectionIntro from "@/components/sections/SectionIntro";
 import shell from "@/components/sections/SectionShell.module.css";
 import { CHAIN_KEYS, CHAIN_LABELS, CHAINS, EXPLORERS, explorerAddress, type ChainKey } from "@/lib/chainPublic";
-import { CHAIN_LANDING, chainLandingLabel, chainLandingPath } from "@/lib/chainLanding";
+import { BRAND } from "@/lib/brand";
+import { CHAIN_LANDING, chainLandingPath } from "@/lib/chainLanding";
 import { VISIBLE_CHAINS, launchpad } from "@/lib/launchpad/config";
 import { getLaunchTotals, listLaunchesPage } from "@/lib/launchpad/queries";
 import { PAGE_SIZE } from "@/lib/launchpad/paging";
@@ -74,7 +75,7 @@ export default async function ChainLanding({ chain }: { chain: ChainKey }) {
             {others.map((k, i) => (
               <span key={k}>
                 {i ? " · " : null}
-                <Link href={chainLandingPath(k)} className="text-brand underline decoration-line-strong underline-offset-4 hover:text-ink">{chainLandingLabel(k)}</Link>
+                <Link href={chainLandingPath(k)} className="text-brand underline decoration-line-strong underline-offset-4 hover:text-ink">{BRAND} on {CHAIN_LABELS[k]}</Link>
               </span>
             ))}
           </p>

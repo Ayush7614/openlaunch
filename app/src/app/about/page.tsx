@@ -5,6 +5,7 @@ import SectionIntro from "@/components/sections/SectionIntro";
 import shell from "@/components/sections/SectionShell.module.css";
 import { BRAND, BRAND_DOMAIN, BRAND_GITHUB, BRAND_X, LEGACY_DOMAIN } from "@/lib/brand";
 import { CHAIN_KEYS, CHAIN_LABELS, CHAINS } from "@/lib/chainPublic";
+import { chainLandingPath } from "@/lib/chainLanding";
 
 /**
  * The entity page: the one URL that answers "what is openlaunch" in plain words, names the
@@ -50,26 +51,26 @@ export default function AboutPage() {
         </ul>
       </section>
 
-      <section className={shell.anchorSection} id="chains" aria-labelledby="chains-heading">
+      <section className={`${shell.anchorSection} mt-14`} id="chains" aria-labelledby="chains-heading">
         <h2 id="chains-heading" className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-ink">Where it runs</h2>
         <p className="mt-4 max-w-[40rem] text-base leading-relaxed text-body text-pretty">The same contract design is deployed on every chain, each paired with that chain&apos;s canonical Uniswap v4 contracts. Addresses and verification records are listed on the <Link href="/rules#contracts" className="text-brand underline decoration-line-strong underline-offset-4 hover:text-ink">contracts section</Link> of the how-it-works page.</p>
         <dl className="mt-6 grid gap-3 sm:grid-cols-3">
           {CHAIN_KEYS.map((chain) => (
             <div key={chain} className="rounded-2xl border border-line bg-paper p-5">
-              <dt className="text-sm font-semibold text-ink">{CHAIN_LABELS[chain]}</dt>
+              <dt className="text-sm font-semibold text-ink"><Link href={chainLandingPath(chain)} className="hover:text-brand underline decoration-line-strong underline-offset-4">{CHAIN_LABELS[chain]}</Link></dt>
               <dd className="mt-1 font-mono text-xs text-muted tnum">Chain ID {CHAINS[chain].id}</dd>
             </div>
           ))}
         </dl>
       </section>
 
-      <section className={shell.anchorSection} id="who" aria-labelledby="who-heading">
+      <section className={`${shell.anchorSection} mt-14`} id="who" aria-labelledby="who-heading">
         <h2 id="who-heading" className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-ink">Who builds it</h2>
         <p className="mt-4 max-w-[40rem] text-base leading-relaxed text-body text-pretty">{BRAND} is built by Gitlawb and developed in the open. The contracts, the indexer and this site live in one MIT-licensed repository; contributions go through pull requests there.</p>
         <p className="mt-3 max-w-[40rem] text-base leading-relaxed text-body text-pretty">Tokens launched here are created by their launchers, not by {BRAND}. A locked pool does not make a token valuable; read <Link href="/rules#know" className="text-brand underline decoration-line-strong underline-offset-4 hover:text-ink">before you begin</Link>.</p>
       </section>
 
-      <section className={shell.anchorSection} id="official" aria-labelledby="official-heading">
+      <section className={`${shell.anchorSection} mt-14`} id="official" aria-labelledby="official-heading">
         <h2 id="official-heading" className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-ink">Official channels</h2>
         <p className="mt-4 max-w-[40rem] text-base leading-relaxed text-body text-pretty">These are the only places {BRAND} speaks from. Accounts, domains and repositories with similar names are not affiliated with {BRAND}, and {BRAND} is not related to other products that share the name.</p>
         <ul className="mt-6 grid gap-3 sm:grid-cols-3">

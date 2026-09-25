@@ -51,7 +51,6 @@ export const STATIC_SITEMAP_ROUTES: StaticRoute[] = [
   { path: "/about", changeFrequency: "monthly", priority: 0.6 },
   { path: "/agents", changeFrequency: "monthly", priority: 0.6 },
 ];
-// /me is wallet-specific (noindex) and /admin is moderation-only: neither belongs in the sitemap.
 
 export type SitemapEntry = {
   url: string;
