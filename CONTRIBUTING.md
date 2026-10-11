@@ -27,10 +27,45 @@ cd ../contracts && forge test --match-path test/LaunchFactory.t.sol
 
 ```
 cd app && npm run lint && npx tsc --noEmit -p . && npm test && npm run build
-cd ../contracts && forge build && forge test --match-path test/LaunchFactory.t.sol
+cd ../contracts && script/check-deployed-sources.sh && forge build && forge test --match-path test/LaunchFactory.t.sol
 ```
 
 For contract changes, also run the live-fork suites locally (`FORK_TESTS=true forge test`) and say so in the PR.
+
+## The pull request guard
+
+Every pull request into `main` also runs `pr-guard` (`.github/workflows/pr-guard.yml`). It reads the diff and never runs
+your code. It has two answers besides "passed":
+
+- **Blocked.** Refused for everyone, maintainers included: a change to any file listed in `contracts/deployed.lock`
+  (the deployed contract sources, their build settings, the pinned libraries and the deployment records), anything under
+  `.github/`, a lockfile entry that does not come from the npm registry, a new install-time script, a committed key or
+  `.env` file, invisible or direction-changing Unicode, symlinks, new submodules, binaries that are not plain images or
+  fonts, and editor or agent configuration (`.vscode/`, `.claude/`, `AGENTS.md`, `.envrc` and the like).
+- **Needs a maintainer's approval.** Allowed, and listed for a maintainer to read: new files under `contracts/`,
+  dependency and npm script changes, on-chain addresses, wallet calls, new hosts and environment variables, security
+  headers, build and deploy files, migrations, and code that executes strings or injects raw HTML. The check turns green
+  when a maintainer approves the exact commit. A new push needs a new approval.
+
+Deployed contracts are never edited. A change for another chain is a new file that copies the original, with its own
+tests (`contracts/src/LaunchFactoryArc.sol` is the pattern).
+
+To stay out of both lists, leave `.github/` and the lockfile alone unless the change needs them, write an invisible
+character as an escape sequence, and keep unrelated changes in separate pull requests. You can run the guard on your
+branch before you push:
+
+```
+node .github/scripts/pr-guard.mjs --base origin/main --head HEAD
+```
+
+### For maintainers
+
+- The owners are `OWNERS` in `.github/scripts/pr-guard.mjs`, mirrored in `.github/CODEOWNERS`.
+- To release a pull request the guard is holding: read the job summary, approve the head commit with a pull request
+  review, then re-run the `pr-guard` job.
+- A blocked pull request that should merge anyway (a CI change, a new entry in `contracts/deployed.lock`) is merged by
+  an admin with the branch rule bypass, after reading it.
+- The guard protects `main` only while `pr-guard` is a required status check in the branch rules.
 
 ## Style
 
