@@ -27,6 +27,8 @@ if [[ "${1:-}" == "--update" ]]; then
       # compares the lock's paths with the paths of a pull request letter for letter
       path=$(git --literal-pathspecs ls-files --full-name -- "$extra" 2>/dev/null) || path=
       [[ -n "$path" && "$path" != *$'\n'* ]] || { echo "cannot lock $extra: not one file or submodule that git tracks in this repository (git add it first)" >&2; exit 1; }
+      # an entry is "kind hash  path" with no space in the path: the check below and the guard read nothing else
+      [[ "$path" != *[[:space:]]* ]] || { echo "cannot lock $extra: a path with a space in it cannot be an entry of the lock (rename the file)" >&2; exit 1; }
       if [[ -n "$(gitlink "$path")" ]]; then echo "gitlink $path"; else echo "sha256 $path"; fi
     done
   } | awk '!seen[$2]++' | while read -r kind path; do

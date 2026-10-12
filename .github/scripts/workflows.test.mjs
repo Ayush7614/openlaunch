@@ -249,6 +249,14 @@ test("the lock check fails when a deployed file, a library pin or a file inside 
     assert.equal(readFileSync(join(repo, "contracts/deployed.lock"), "utf8"), "# deployed sources\n", "the lock is left as it was");
     rmSync(join(repo, "contracts/src/Draft.sol"));
     assert.equal(run("--update", "contracts").status, 1, "a folder is not one file");
+    // a path with a space cannot be written as an entry that the check and the guard would read back
+    writeFileSync(join(repo, "contracts/src/My Token.sol"), "contract MyToken {}\n");
+    git(repo, "add", "contracts/src/My Token.sol");
+    const spaced = run("--update", "contracts/src/My Token.sol");
+    assert.equal(spaced.status, 1);
+    assert.match(spaced.stderr, /^cannot lock contracts\/src\/My Token\.sol: a path with a space in it cannot be an entry of the lock/m);
+    assert.equal(readFileSync(join(repo, "contracts/deployed.lock"), "utf8"), "# deployed sources\n", "the lock is left as it was");
+    git(repo, "rm", "-q", "-f", "contracts/src/My Token.sol");
     // however the path is typed, the lock holds it as git spells it from the root
     assert.equal(run("--update", "./contracts/src/../src/Token.sol", "contracts/lib/kit").status, 0);
     assert.match(readFileSync(join(repo, "contracts/deployed.lock"), "utf8"), new RegExp(`^sha256 [0-9a-f]{64}  contracts/src/Token\\.sol\\ngitlink ${pin}  contracts/lib/kit$`, "m"));
