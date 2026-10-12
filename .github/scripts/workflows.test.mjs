@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { OWNERS, activeSvg } from "./pr-guard.mjs";
+import { OWNERS, RULES, activeSvg } from "./pr-guard.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const dir = `${root}.github/workflows/`;
@@ -301,4 +301,20 @@ test("the SVGs this repository serves pass the check the guard applies to new on
   const found = ["app/public", "app/src/app", "brand"].flatMap((folder) => readdirSync(root + folder, { recursive: true }).filter((name) => /\.svg$/i.test(name)).map((name) => `${folder}/${name}`));
   assert.ok(found.length >= 5, "the brand and icon files");
   for (const path of found) assert.equal(activeSvg(readFileSync(root + path, "utf8")), null, path);
+});
+
+test("CONTRIBUTING names every rule of the guard, under the outcome the guard gives it", () => {
+  const guide = readFileSync(`${root}CONTRIBUTING.md`, "utf8");
+  const lists = {
+    block: /^- \*\*Blocked\.\*\*([\s\S]*?)^- \*\*Needs a maintainer's approval\.\*\*/m.exec(guide)[1],
+    review: /^- \*\*Needs a maintainer's approval\.\*\*([\s\S]*?)\n\n(?=\S)/m.exec(guide)[1],
+  };
+  for (const [tier, text] of Object.entries(lists)) {
+    // each point opens with the names of the rules it describes: "  - `rule`, `other-rule`: what it is"
+    const named = [...text.matchAll(/^ {2}- ((?:`[a-z-]+`(?:, )?)+):/gm)].flatMap((point) => point[1].match(/[a-z-]+/g));
+    const rules = Object.keys(RULES).filter((rule) => RULES[rule].tier === tier);
+    assert.deepEqual([...named].sort(), rules.sort(), `the ${tier} list`);
+  }
+  // what the guard locks beyond the paths the lock file lists is spelled out
+  for (const path of ["contracts/script/check-deployed-sources.sh", "contracts/script/check-arc-factory.sh", ".gitmodules", "contracts/lib/", ".gitattributes"]) assert.ok(guide.includes(`\`${path}\``), path);
 });

@@ -37,23 +37,41 @@ For contract changes, also run the live-fork suites locally (`FORK_TESTS=true fo
 Every pull request into `main` also runs `pr-guard` (`.github/workflows/pr-guard.yml`). It reads the diff and never runs
 your code. It has two answers besides "passed":
 
-- **Blocked.** Refused for everyone, maintainers included: a change to any file listed in `contracts/deployed.lock`
-  (the deployed contract sources, their build settings, the pinned libraries and the deployment records), anything under
-  `.github/`, a dependency or lockfile entry that does not come from the npm registry (git, a URL, a local path, an
-  alias), a new install-time script, package manager configuration (`.npmrc` and the like), a committed key or `.env`
-  file, invisible or direction-changing Unicode in a file or in its name, symlinks, new submodules, a binary file that
-  is not a real image or font (audio, video and PDF files are allowed, and go to a maintainer: see the next point), an
-  SVG with script or an event handler in it, a file name that differs from an existing one only by letter case, and
-  editor or agent configuration (`.vscode/`, `.claude/`, `AGENTS.md`, `.envrc` and the like).
-- **Needs a maintainer's approval.** Allowed, and listed for a maintainer to read: new files under `contracts/`,
-  dependency and npm script changes (a deleted `package.json` or lockfile included), on-chain addresses, wallet calls,
-  new hosts and environment variables, a signature, nonce or rate-limit check that was removed, security headers, files
-  the site serves as they are (anything in `app/public/` that is not a plain image, font or text file, and every SVG),
-  audio, video and PDF files, build and deploy files, migrations, the license and the security policy, code that
-  executes strings or injects raw HTML, and content that cannot be read by eye (very long lines, encoded blobs). The
-  check turns green when a maintainer approves the exact commit. A new push needs a new approval.
+- **Blocked.** Refused for everyone, maintainers included. The name in front of each point is the one the check prints.
+  - `contract-locked`: a change to any file listed in `contracts/deployed.lock` (the deployed contract sources, their
+    build settings, the pinned libraries and the deployment records), to the lock itself, to the scripts that check it
+    (`contracts/script/check-deployed-sources.sh`, `contracts/script/check-arc-factory.sh`), to `.gitmodules`, or
+    anything added under `contracts/lib/`.
+  - `ci-config`: anything under `.github/`, or a `CODEOWNERS` file.
+  - `dev-machine`: editor, agent or git hook configuration (`.vscode/`, `.claude/`, `AGENTS.md`, `.envrc` and the like).
+  - `registry-config`: package manager configuration (`.npmrc` and the like).
+  - `secret-file`, `secret`: a key, wallet or `.env` file, or a credential anywhere in the diff.
+  - `submodule`, `symlink`: a submodule added, removed or re-pinned; a symbolic link.
+  - `hidden-unicode`, `odd-path`: invisible or direction-changing Unicode in a file, or in a file's name.
+  - `binary`: a binary file that is not a real image or font. Audio, video and PDF files are in the next list.
+  - `svg-active`: an SVG with script or an event handler in it.
+  - `dependency-source`, `lockfile`, `install-script`: a dependency or lockfile entry that does not come from the npm
+    registry (git, a URL, a local path, an alias), a `package.json` or lockfile the guard cannot read in full, a new
+    script that runs at install time.
+  - `case-collision`: a file name that differs from an existing one only by letter case.
+- **Needs a maintainer's approval.** Allowed, and listed for a maintainer to read. The check turns green when a
+  maintainer approves the exact commit. A new push needs a new approval.
+  - `contracts`, `contract-rules`: new files under `contracts/`; an owner, a pause, an allowlist, an upgrade path or a
+    fee switch in a contract (see the ground rules above).
+  - `dependencies`: dependency and npm script changes, a deleted `package.json` or lockfile included.
+  - `address`, `wallet-call`: on-chain addresses; code that asks a wallet to sign, approve or send.
+  - `new-host`, `new-env`: a host or an environment variable the repository has not used before.
+  - `dangerous-code`: code that executes strings, injects raw HTML or starts a process.
+  - `auth-removed`: a signature, nonce, rate-limit or validation check that was removed.
+  - `security-config`: security headers, the request proxy, and files the site serves as they are (anything in
+    `app/public/` that is not a plain image, font or text file, and every SVG).
+  - `build-deploy`: build, deploy and migration files, shell scripts, a file made executable.
+  - `policy`, `git-config`: the license and the security policy; `.gitattributes`.
+  - `media`, `opaque`, `unscanned`: audio, video and PDF files; content that cannot be read by eye (very long lines,
+    encoded blobs); anything the guard could not read.
 
-Every rule, with the reason for it, is in the `RULES` table at the top of `.github/scripts/pr-guard.mjs`.
+The reason for each rule is in the `RULES` table at the top of `.github/scripts/pr-guard.mjs`. A test keeps the two
+lists above and that table the same.
 
 Deployed contracts are never edited. A change for another chain is a new file that copies the original, with its own
 tests (`contracts/src/LaunchFactoryArc.sol` is the pattern).
