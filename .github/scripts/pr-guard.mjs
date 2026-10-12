@@ -168,7 +168,12 @@ const SVG_ELEMENT = /<(?:[^\s<>\/:"'=]+:)?(?:script|foreignObject|iframe|embed|o
 const SVG_HANDLER = /\son[a-z]+\s*=|attributeName\s*=\s*["']\s*on/i;
 /** A stylesheet instruction, or a document type that defines text or default attributes (a default onload among them). */
 const SVG_DECLARATION = /<\?xml-stylesheet|<!ENTITY|<!ATTLIST/i;
-const XHTML = "http://www.w3.org/1999/xhtml";
+/**
+ * The end of the XHTML namespace address, http://www.w3.org/1999/xhtml. HTML elements work inside an SVG only under that
+ * namespace, so the file may not mention it anywhere. The end is enough, and it keeps this what it is: a search of the
+ * file's text, not a check of where an address leads.
+ */
+const XHTML_NAMESPACE = "/1999/xhtml";
 
 /**
  * What makes an SVG active, or null when nothing does. It is read as a whole file, because XML lets a tag and its
@@ -187,7 +192,7 @@ export function activeSvg(text) {
   if (SVG_HANDLER.test(decoded)) return "an event handler";
   if (/javascript:/i.test(decoded.replace(/[\t\n\r]/g, ""))) return "a javascript: address";
   if (SVG_DECLARATION.test(decoded)) return "a stylesheet instruction, or a document type that adds to the file";
-  if (decoded.includes(XHTML)) return "HTML inside the image";
+  if (decoded.includes(XHTML_NAMESPACE)) return "HTML inside the image";
   return null;
 }
 
