@@ -87,7 +87,7 @@ const BASE = {
   "app/public/logo.png": PNG,
   "app/public/brand/base.svg": '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><path d="M0 0h1v1z"/></svg>\n',
   "app/src/lib/security-headers.ts": "export const csp = \"default-src 'self'\";\n",
-  "app/src/lib/launchpad/config.ts": `export const NATIVE = "0x0000000000000000000000000000000000000000";\nexport const ROUTER = "${ROUTER}";\nexport const RPC = process.env.BASE_RPC_URL ?? "https://mainnet.base.org";\n`,
+  "app/src/lib/launchpad/config.ts": `export const NATIVE = "0x0000000000000000000000000000000000000000";\nexport const ROUTER = "${ROUTER}";\nexport const RPC = process.env.BASE_RPC_URL ?? "https://mainnet.base.org";\nexport const OVERLAP = intEnv("SYNC_OVERLAP_BLOCKS", 50);\n`,
   "app/src/app/api/post/route.ts": ROUTE,
   "app/src/components/Hero.tsx": "export function Hero() {\n  return <h1>Launch should be open and free.</h1>;\n}\n",
   "app/src/components/hero.test.ts": 'import test from "node:test";\ntest("hero", () => {});\n',
@@ -202,6 +202,37 @@ describe("deployed contracts", () => {
     assert.doesNotMatch(details(found, "contract-rules"), /admin/, "comment lines are not code");
   });
 
+  test("an owner, a pause or a fee that is written without a library is named too", () => {
+    const found = check({ "contracts/src/Vault.sol": "contract Vault {\n  address public owner;\n  bool public paused;\n  uint16 public feeBps;\n  function setProtocolFee(uint16 fee) external { require(msg.sender == owner); feeBps = fee; }\n}\n" });
+    for (const word of ["owner", "paused", "feeBps", "setProtocolFee"]) assert.ok(of(found, "contract-rules").some((f) => f.detail === word), word);
+  });
+
+  test("a history with two common ancestors is blocked: its diff does not show what merging it would undo", () => {
+    // main: one commit, then a fix that came in from a side branch by a merge
+    git(["checkout", "-q", "-f", "--detach", baseSha]);
+    git(["reset", "-q", "--hard", baseSha]);
+    git(["clean", "-fdxq"]);
+    const before = commit({ "docs/notes.md": "notes\n" }, "main moves on");
+    git(["checkout", "-q", "-f", "--detach", baseSha]);
+    const fix = commit({ "app/src/app/api/post/route.ts": ROUTE.replace("  return save(", "  if (!isOrigin(request)) return denied();\n  return save(") }, "a fix on a side branch");
+    git(["checkout", "-q", "-f", "--detach", before]);
+    git(["merge", "-q", "--no-ff", "-m", "merge the fix", fix]);
+    const main = git(["rev-parse", "HEAD"]);
+    // the pull request: main as it was before the fix, with the fix named as a parent ("already merged, and dropped")
+    const head = git(["commit-tree", `${before}^{tree}`, "-p", before, "-p", fix, "-m", "ours"]);
+    const repo = openRepo(dir, main, head);
+    assert.equal(repo.mergeBases.length, 2);
+    const found = analyze(repo, { lockedPaths: LOCKED });
+    assert.ok(found.some((f) => f.rule === "criss-cross" && f.tier === "block" && f.detail === "2 common ancestors with the base branch"));
+    assert.equal(verdict(found, { author: OWNERS[0], pusher: OWNERS[0], approvedBy: OWNERS[0] }).outcome, "block");
+    // and git, asked to merge it, takes the fix back out of main without a conflict
+    const merged = git(["merge-tree", "--write-tree", main, head]);
+    assert.ok(!git(["show", `${merged}:app/src/app/api/post/route.ts`]).includes("isOrigin"), "the merge undoes the fix");
+    // merging main into the branch leaves one common ancestor, and then the diff shows everything
+    const updated = git(["commit-tree", `${main}^{tree}`, "-p", head, "-p", main, "-m", "merge main"]);
+    assert.deepEqual(analyze(openRepo(dir, main, updated), { lockedPaths: LOCKED }), []);
+  });
+
   test("tests, scripts and docs under contracts/ need an owner as well", () => {
     assert.deepEqual(rules(check({ "contracts/test/New.t.sol": "contract NewTest {}\n" })), ["contracts"]);
     assert.deepEqual(rules(check({ "contracts/docs/NOTES.md": "notes\n" })), ["contracts"]);
@@ -254,7 +285,7 @@ describe("CI and machine configuration", () => {
   });
 
   test("agent instructions, editor tasks and git hooks are blocked", () => {
-    for (const path of ["CLAUDE.md", "AGENTS.md", "app/AGENTS.md", ".claude/settings.json", ".cursor/rules/a.mdc", ".cursorrules", ".mcp.json", ".vscode/tasks.json", ".devcontainer/devcontainer.json", ".husky/pre-commit", ".envrc", "app/.envrc"]) {
+    for (const path of ["CLAUDE.md", "AGENTS.md", "app/AGENTS.md", ".claude/settings.json", ".cursor/rules/a.mdc", ".cursorrules", ".mcp.json", ".vscode/tasks.json", ".devcontainer/devcontainer.json", ".husky/pre-commit", ".envrc", "app/.envrc", "CLAUDE.local.md", "AGENTS.override.md", ".devcontainer.json", ".clinerules/rules.md", "app.code-workspace", ".zed/tasks.json", ".roo/rules.md", ".kiro/steering.md"]) {
       const found = check({ [path]: "x\n" });
       assert.ok(rules(found).includes("dev-machine"), path);
       assert.ok(found.every((f) => f.rule !== "dev-machine" || f.tier === "block"), path);
@@ -273,6 +304,34 @@ describe("CI and machine configuration", () => {
   test("package manager configuration is blocked", () => {
     assert.deepEqual(rules(check({ "app/.npmrc": "loglevel=error\n" })), ["registry-config"]);
     assert.ok(rules(check({ ".yarnrc.yml": "npmRegistryServer: x\n" })).includes("registry-config"));
+  });
+
+  test("any other new file or folder whose name begins with a dot needs an owner", () => {
+    assert.deepEqual(check({ ".coderabbit.yaml": "reviews:\n  auto_review:\n    enabled: false\n" }).map((f) => [f.rule, f.tier, f.detail]), [["dot-file", "review", ".coderabbit.yaml is new"]]);
+    assert.deepEqual(rules(check({ "tools/.cache/list.json": "[]\n" })), ["dot-file"]);
+    assert.deepEqual(rules(check({ ".gitlab-ci.yml": "stages: []\n" })), ["dot-file"], "only .gitignore and .gitkeep are git's housekeeping");
+    // one the repository already has, git's own housekeeping, and ones another rule already refuses or sends to an owner
+    assert.deepEqual(rules(check({ ".gitignore": "node_modules/\n.env\n.next/\n" })), []);
+    assert.deepEqual(rules(check({ "tools/.gitignore": "out/\n", "tools/fixtures/.gitkeep": "" })), []);
+    assert.deepEqual(rules(check({ "app/.env.local": "x\n" })), ["secret-file"]);
+    assert.deepEqual(rules(check({ ".gitattributes": "*.sol linguist-vendored\n" })), ["git-config"]);
+    assert.deepEqual(rules(check({ ".vscode/tasks.json": "{}\n" })), ["dev-machine"]);
+  });
+
+  test("a file name with a character outside ASCII is blocked: a Mac folds some of them onto plain letters", () => {
+    // the long s: on a Mac this path is contracts/src/LaunchFactory.sol, and the next one is .vscode/tasks.json
+    const names = [`contract${cp(0x17f)}/src/LaunchFactory.sol`, `.v${cp(0x17f)}code/tasks.json`, `AGENT${cp(0x17f)}.md`, `app/package.j${cp(0x17f)}on`, `docs/caf${cp(0xe9)}.md`];
+    for (const name of names) {
+      const found = check({ [name]: { index: "x\n" } });
+      assert.ok(found.some((f) => f.rule === "odd-path" && f.tier === "block" && /outside plain ASCII/.test(f.detail)), name);
+    }
+  });
+
+  test("two new names that differ only by letter case collide; one file renamed only in its case does not", () => {
+    const pair = check({ "app/src/lib/Helper.ts": { index: "export {};\n" }, "app/src/lib/helper.ts": { index: "export const x = 1;\n" } });
+    assert.deepEqual(pair.map((f) => [f.rule, f.path, f.detail]), [["case-collision", "app/src/lib/helper.ts", "collides with app/src/lib/Helper.ts"]]);
+    assert.ok(rules(check({ "docs/New/a.md": { index: "a\n" }, "docs/new/b.md": { index: "b\n" } })).includes("case-collision"));
+    assert.deepEqual(rules(check({ "README.md": null, "readme.md": { index: BASE["README.md"] } })), []);
   });
 
   test("a symlink is blocked", () => {
@@ -359,6 +418,22 @@ describe("hidden characters", () => {
     assert.equal(hiddenCharacter(`${cp(0xfeff)}export {};`, true), null);
     assert.equal(hiddenCharacter(`${cp(0xfeff)}export {};`, false), "a byte order mark inside the file");
     assert.equal(hiddenCharacter(`export${cp(0xfeff)} {};`, true), "a byte order mark inside the file");
+  });
+
+  test("a variation selector is fine after an emoji and on a keycap, and blocked anywhere else", () => {
+    assert.equal(hiddenCharacter(`liked ${cp(0x2764, 0xfe0f)}, step ${cp(0x31, 0xfe0f, 0x20e3)}, flag ${cp(0x1f3f3, 0xfe0f, 0x200d, 0x1f308)}`), null);
+    assert.equal(hiddenCharacter(`a${cp(0xfe0f)}b`), "a variation selector outside an emoji");
+    assert.equal(hiddenCharacter(`${cp(0x2764, 0xfe0f, 0xfe0f)}`), "a variation selector outside an emoji", "never twice");
+    // a run of them after a letter is how bytes are hidden in a source file
+    assert.deepEqual(rules(check({ "app/src/lib/x.ts": `const v = "a${cp(0xfe00, 0xfe01, 0xfe02, 0xfe03)}";\n` })), ["hidden-unicode"]);
+  });
+
+  test("a carriage return inside a line is blocked; a Windows line ending is not one", () => {
+    // to the compiler the comment ends at the return, and what follows is code
+    const found = check({ "contracts/src/Vault.sol": "contract Vault {\n  // nothing to see\raddress attacker;\n}\n" });
+    assert.deepEqual(rules(found), ["contracts", "hidden-unicode"]);
+    assert.equal(details(found, "hidden-unicode"), "a carriage return inside a line");
+    assert.deepEqual(rules(check({ "docs/guide.md": "## Guide\r\n\r\nRun `npm test`.\r\n" })), []);
   });
 
   test("the same character written as an escape is visible, so it passes", () => {
@@ -576,11 +651,51 @@ describe("dependencies", () => {
     const filler = Array.from({ length: 1500 }, (_, i) => ({ status: "A", path: `a/${i}.md`, oldMode: "000000", newMode: "100644", oldSha: "0".repeat(40), newSha: "1".repeat(40) }));
     const changed = (path) => ({ status: "M", path, oldMode: "100644", newMode: "100644", oldSha: "2".repeat(40), newSha: "3".repeat(40) });
     const repo = { changes: [...filler, changed("app/package-lock.json"), changed("app/package.json"), changed("app/src/lib/x.ts")], blob: () => Buffer.from("notes\n"), baseText: () => null, baseMatches: () => [], basePaths: () => [], diff: () => ({ added: [], removed: [] }) };
-    assert.deepEqual(analyze(repo, { lockedPaths: LOCKED }).map((f) => [f.rule, f.tier, f.path]), [["lockfile", "block", "app/package-lock.json"], ["dependency-source", "block", "app/package.json"], ["unscanned", "review", "app/src/lib/x.ts"]]);
+    assert.deepEqual(analyze(repo, { lockedPaths: LOCKED }).map((f) => [f.rule, f.tier, f.path]), [["lockfile", "block", "app/package-lock.json"], ["dependency-source", "block", "app/package.json"], ["unread", "block", "app/src/lib/x.ts"]]);
 
     // larger than the guard reads at all
     const huge = { ...repo, changes: [changed("app/package.json"), changed("app/src/lib/x.ts")], blob: () => null };
-    assert.deepEqual(analyze(huge, { lockedPaths: LOCKED }).map((f) => [f.rule, f.tier]), [["dependency-source", "block"], ["unscanned", "review"]]);
+    assert.deepEqual(analyze(huge, { lockedPaths: LOCKED }).map((f) => [f.rule, f.tier]), [["dependency-source", "block"], ["unread", "block"]]);
+  });
+
+  test("a lockfile and a file too large to scan are still read for credentials and hidden characters", () => {
+    const key = "c0ffee".repeat(10) + "abcd";
+    const lock = JSON.parse(lockfile(BASE_LOCK));
+    lock.notes = { deployer: `private key 0x${key}`, label: `user${cp(0x202e)}nimda` };
+    assert.deepEqual(rules(check({ "app/package-lock.json": `${JSON.stringify(lock, null, 2)}\n` })), ["dependencies", "hidden-unicode", "secret"]);
+    const large = check({ "app/src/lib/large.ts": `${"export const a = 1;\n".repeat(110_000)}const PRIVATE_KEY = "0x${key}";\nconst role = "user${cp(0x202e)}";\neval(input);\n` });
+    assert.deepEqual(large.map((f) => [f.rule, f.tier, f.line]), [["secret", "block", 110_001], ["hidden-unicode", "block", 110_002], ["unscanned", "review", null]]);
+    assert.match(details(large, "unscanned"), /a text file of 3 MB, read for credentials and hidden characters only/);
+    // a registry hash is not a credential, even where a stretch of it reads like an access key
+    const lookalike = lockfile({ ...BASE_LOCK, leftpad: entry("leftpad", "1.0.0", { integrity: `sha512-${"x".repeat(65)}+AKIA${"ABCDEFGHIJKLMNOP"}==` }) });
+    assert.deepEqual(rules(check({ "app/package-lock.json": lookalike })), ["dependencies"]);
+  });
+
+  test("a lockfile entry needs a real package name and a real version, so that its address is its own", () => {
+    const hash = `sha512-${"A".repeat(86)}==`;
+    // "left-pad" at a version that walks the address over to another package's tarball
+    const walked = { version: "x/../../../../is-number/-/is-number-7.0.0", resolved: "https://registry.npmjs.org/left-pad/-/left-pad-x/../../../../is-number/-/is-number-7.0.0.tgz", integrity: hash };
+    assert.match(details(lintNpmLock("p", lockfile({ ...BASE_LOCK, "left-pad": walked }), lockfile(BASE_LOCK)), "lockfile"), /^left-pad: its version is not a version number$/);
+    assert.match(details(lintNpmLock("p", lockfile({ ...BASE_LOCK, "left pad": entry("left pad", "1.0.0") }), lockfile(BASE_LOCK)), "lockfile"), /not a package name/);
+    assert.match(details(lintNpmLock("p", lockfile({ ...BASE_LOCK, "a/../viem": entry("a/../viem", "1.0.0") }), lockfile(BASE_LOCK)), "lockfile"), /not a package name/);
+    // names and versions the registry really has
+    const real = { ...BASE_LOCK, JSONStream: entry("JSONStream", "1.3.5"), "@types/node": entry("@types/node", "20.19.0"), next: entry("next", "16.3.8-canary.1"), semver: entry("semver", "7.7.2+build.5") };
+    assert.deepEqual(rules(lintNpmLock("p", lockfile(real), lockfile(BASE_LOCK))), ["dependencies"]);
+  });
+
+  test("a binding.gyp is blocked: npm builds it at install time with no script in package.json", () => {
+    assert.deepEqual(check({ "app/binding.gyp": '{ "targets": [{ "target_name": "addon" }] }\n' }).map((f) => [f.rule, f.tier]), [["install-script", "block"]]);
+  });
+
+  test("a credential is never repeated in a finding, wherever it was written", () => {
+    const token = "ghp_" + "a1B2".repeat(9);
+    const password = "hunter2" + "-deploy-pass";
+    const found = check({ "app/package.json": manifest({ dependencies: { sharp: token, viem: "^2.47.6", priv: `git+https://x-access-token:${token}@github.com/o/r.git`, kit: `git+https://deploy:${password}@git.example.org/o/kit.git` } }) });
+    assert.deepEqual(rules(found), ["dependencies", "dependency-source", "secret"]);
+    assert.equal(details(found, "dependency-source"), 'priv comes from "git+https://x-access-token:<a GitHub token>@github.com/o/r.git" | kit comes from "git+https://<credentials>@git.example.org/o/kit.git"');
+    assert.match(details(found, "dependencies"), /sharp \^0\.35\.4 → <a GitHub token>/);
+    const report = JSON.stringify(found) + renderText(found, verdict(found, {})) + renderSummary(found, verdict(found, {}), { headSha: "a".repeat(40) });
+    assert.ok(!report.includes(token) && !report.includes(password));
   });
 
   test("an override may point at one of this package's own dependencies, and at nothing else", () => {
@@ -752,6 +867,21 @@ describe("application code", () => {
     assert.deepEqual(rules(check({ "docs/guide.md": "Never call `eval(input)` on user text.\n" })), []);
   });
 
+  test("a file Next.js serves as a page is app code whatever it is called, and so is code with a prose-like name", () => {
+    const page = check({ "app/src/pages/airdrop.test.tsx": 'export default function Page() {\n  return <button onClick={() => writeContract(config, { functionName: "approve" })}>Claim</button>;\n}\n' });
+    assert.deepEqual(rules(page), ["wallet-call"]);
+    assert.deepEqual(rules(check({ "app/src/lib/LICENSES.ts": "export const run = (input) => eval(input);\n" })), ["dangerous-code"]);
+    assert.deepEqual(rules(check({ "NOTICE": "Portions of this software call eval(input) in tests.\n", "docs/LICENSE-MIT.txt": "MIT, see eval(input).\n" })), []);
+  });
+
+  test("the app's own checks are known by name, and one that is commented out counts as removed", () => {
+    const facts = { addresses: new Set(), hosts: new Set(), env: new Set() };
+    const dropped = scanLines("app/src/app/api/upload/route.ts", [{ n: 4, text: "  return save(body);" }], ["  const meta = validateMeta(body);", "  if (!(await admitAdmin(request))) return denied();", "  await checkUpload(file);", "  assertBridgeWalletQueueClear(queue);"], facts);
+    assert.equal(details(dropped, "auth-removed"), "validateMeta: 1 fewer use | admitAdmin: 1 fewer use | checkUpload: 1 fewer use | assertBridgeWalletQueueClear: 1 fewer use");
+    const commented = check({ "app/src/app/api/post/route.ts": ROUTE.replace("  if (await rateLimited(request))", "  // if (await rateLimited(request))") });
+    assert.deepEqual(commented.map((f) => [f.rule, f.detail]), [["auth-removed", "rateLimited: 1 fewer use"]]);
+  });
+
   test("app code cannot hide behind a test file's name", () => {
     const found = check({ "app/src/lib/pay.ts": 'import { TREASURY } from "./pay.test";\nexport const to = TREASURY;\n', "app/src/lib/pay.test.ts": `export const TREASURY = "${STRANGER}";\n` });
     assert.deepEqual(rules(found), ["dangerous-code"]);
@@ -803,6 +933,11 @@ describe("application code", () => {
   test("moving a check within the file is not a removal", () => {
     const moved = ROUTE.replace("  if (await rateLimited(request)) return tooMany();\n", "").replace("  return save(", "  if (await rateLimited(request)) return tooMany();\n  return save(");
     assert.deepEqual(rules(check({ "app/src/app/api/post/route.ts": moved })), []);
+  });
+
+  test("a variable read through ?. or through the app's own helper is a new one as well", () => {
+    const found = check({ "app/src/lib/knobs.ts": 'export const a = process.env?.ADMIN_SIGNER_KEY, b = intEnv("SYNC_NEW_KNOB", 5), c = intEnv("SYNC_OVERLAP_BLOCKS", 60), d = process.env?.BASE_RPC_URL;\n' });
+    assert.deepEqual(found.map((f) => [f.rule, f.detail]), [["new-env", "ADMIN_SIGNER_KEY"], ["new-env", "SYNC_NEW_KNOB"]]);
   });
 
   test("a new environment variable is named; an existing one is not", () => {

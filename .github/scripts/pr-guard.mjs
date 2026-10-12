@@ -50,7 +50,9 @@ export const RULES = {
   "install-script": { tier: "block", title: "A new script that runs at install time", help: "Install scripts run on every maintainer machine, in CI and in the production image build." },
   "dependency-source": { tier: "block", title: "A dependency that does not come from the npm registry", help: "Git, URL, file and aliased dependencies skip the registry's integrity checks." },
   "case-collision": { tier: "block", title: "A path that differs from an existing one only by letter case", help: "On macOS and Windows the two overwrite each other at checkout." },
-  "odd-path": { tier: "block", title: "A file name with control or invisible characters", help: "Rename the file with plain characters." },
+  "odd-path": { tier: "block", title: "A file name with control, invisible or non-ASCII characters", help: "A Mac folds letters such as the long s onto plain ones, so a name like this can land on an existing file at checkout. Rename the file with plain characters." },
+  "criss-cross": { tier: "block", title: "A history with more than one common ancestor", help: "With a history like this the diff does not show what merging the pull request changes: the merge can undo work on main that the diff never mentions. Rebase the branch on main, or merge main into it, and push." },
+  unread: { tier: "block", title: "A file the guard could not read", help: "The rules that hold for everyone (credentials, hidden characters) could not be applied to it. Split the change up, or an admin merges it after reading it." },
 
   contracts: { tier: "review", title: "Contracts folder", help: "New contract sources, tests, scripts and deployment records are read by an owner before they merge." },
   "contract-rules": { tier: "review", title: "Owner, pause, upgrade or fee switch in a contract", help: "CONTRIBUTING.md: no fee, no owner, no admin. Contracts that add one are not merged." },
@@ -65,16 +67,17 @@ export const RULES = {
   "build-deploy": { tier: "review", title: "Build, deploy, database or script files", help: "Files that run during the build, the deploy or a migration against the production database." },
   policy: { tier: "review", title: "License or security policy", help: "The security contact and the license are changed by the maintainers." },
   "git-config": { tier: "review", title: "Git attributes", help: "Attributes change how files are diffed, merged and exported." },
+  "dot-file": { tier: "review", title: "A hidden file or folder that is new to the repository", help: "Tools read their settings from names that begin with a dot. The ones known to run commands or steer an agent are blocked; any other new one is read by an owner." },
   opaque: { tier: "review", title: "Content that cannot be read by eye", help: "Very long lines, encoded blobs and obfuscated names." },
   media: { tier: "review", title: "Audio, video or PDF", help: "It cannot be reviewed as text." },
-  unscanned: { tier: "review", title: "Not scanned", help: "The guard could not read this, so a person has to." },
+  unscanned: { tier: "review", title: "Not scanned in full", help: "The guard read this only for what is blocked for everyone, or could not list everything it found, so a person has to read the rest." },
 };
 
 // ---------- path rules ----------
 
 const BLOCK_PATHS = [
   ["ci-config", /^\.github\/|^(docs\/)?CODEOWNERS$/i],
-  ["dev-machine", /(^|\/)\.(claude|cursor|codex|gemini|windsurf|continue|aider[^/]*|vscode|idea|devcontainer|husky|githooks)(\/|$)|(^|\/)(CLAUDE|AGENTS|GEMINI)\.md$|(^|\/)(\.cursorrules|\.clinerules|\.windsurfrules|\.mcp\.json|\.envrc|\.pre-commit-config\.ya?ml|\.?lefthook\.ya?ml|\.?mise(\.[^/]*)?\.toml)$/i],
+  ["dev-machine", /(^|\/)\.(claude|cursor|codex|gemini|qwen|windsurf|continue|aider[^/]*|clinerules|roo|kiro|zed|fleet|junie|amazonq|augment|trae|opencode|goose|vscode|idea|devcontainer|husky|githooks)(\/|$)|(^|\/)(CLAUDE|AGENTS|GEMINI|QWEN)(\.[^/]*)?\.md$|(^|\/)(\.cursorrules|\.clinerules|\.windsurfrules|\.goosehints|\.mcp\.json|opencode\.jsonc?|\.devcontainer\.json|[^/]*\.code-workspace|\.envrc|\.huskyrc(\.[^/]*)?|\.lintstagedrc(\.[^/]*)?|\.pre-commit-config\.ya?ml|\.?lefthook\.ya?ml|\.?mise(\.[^/]*)?\.toml)$/i],
   ["registry-config", /(^|\/)(\.npmrc|\.yarnrc(\.yml)?|\.pnpmfile\.cjs|pnpm-workspace\.yaml|bunfig\.toml)$/i],
 ];
 /** Added or modified only: deleting one of these is fine. */
@@ -96,10 +99,13 @@ const MANIFEST = /(^|\/)package\.json$/;
 const NPM_LOCK = /(^|\/)(package-lock|npm-shrinkwrap)\.json$/;
 const OTHER_LOCK = /(^|\/)(yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|deno\.lock)$/;
 
-/** Named as a test. App code that imports one of these is flagged, so nothing that ships can hide here. */
-const isTest = (p) => /\.(test|spec)\.[cm]?[jt]sx?$|\.t\.sol$|^contracts\/test\//.test(p);
-/** Everything that is not plainly prose is read as code, whatever its extension. */
-const isCode = (p) => !/\.(md|markdown|txt|rst|adoc|csv|tsv|diff|patch)$/i.test(p) && !/(^|\/)(LICENSE|NOTICE|AUTHORS)[^/]*$/.test(p);
+/**
+ * Named as a test. App code that imports one of these is flagged, so nothing that ships can hide here. Under a pages/
+ * folder Next.js serves every file as a page, whatever it is called, so nothing there is a test.
+ */
+const isTest = (p) => /\.(test|spec)\.[cm]?[jt]sx?$|\.t\.sol$|^contracts\/test\//.test(p) && !/^app\/(src\/)?pages\//.test(p);
+/** Everything that is not plainly prose is read as code, whatever its extension: LICENSE and LICENSE-MIT.txt are prose, LICENSES.ts is not. */
+const isCode = (p) => !/\.(md|markdown|txt|rst|adoc|csv|tsv|diff|patch)$/i.test(p) && !/(^|\/)(LICENSE|NOTICE|AUTHORS)(-[\w.]+)?$/.test(p);
 /** The file extension, lowercase and without its dot; "" when there is none. */
 const ext = (p) => (/\.([A-Za-z0-9]+)$/.exec(p)?.[1] ?? "").toLowerCase();
 
@@ -143,6 +149,10 @@ const SECRETS = [
   ["a database URL with its password", /\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp)s?:\/\/[^\s:@/]+:([^\s@/]{3,})@([^\s/:?"'`]+)/i, (m) => !PLACEHOLDER_PASSWORD.test(m[1]) && !LOCAL_HOST.test(m[2].toLowerCase())],
 ];
 
+/** A finding's text with anything shaped like a credential taken out: a detail may quote a dependency's address or a version. */
+const scrub = (text) =>
+  SECRETS.reduce((out, [what, re]) => out.replace(new RegExp(re.source, `${re.flags.replace("g", "")}g`), `<${what}>`), String(text)).replace(/(:\/\/)[^\s/@"'<>]+@/g, "$1<credentials>@");
+
 const BIDI = /[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/u;
 const INVISIBLE = /[\u00AD\u034F\u115F\u1160\u17B4\u17B5\u180B-\u180E\u200B\u200C\u2028\u2029\u2060-\u2064\u206A-\u206F\u3164\uFFA0\u{E0000}-\u{E007F}\u{E0100}-\u{E01EF}]/u;
 const CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/;
@@ -156,6 +166,13 @@ export function hiddenCharacter(text, atFileStart = false) {
   if (CONTROL.test(text)) return "a control character";
   for (let i = text.indexOf("\u200D"); i !== -1; i = text.indexOf("\u200D", i + 1)) {
     if (!EMOJI_BEFORE.test(text.slice(Math.max(0, i - 2), i)) || !EMOJI_AFTER.test(text.slice(i + 1, i + 3))) return "a zero-width joiner outside an emoji";
+  }
+  // a line break to the compiler and the editor, but not to git or to this scan: what follows a "//" would run
+  if (text.includes("\r")) return "a carriage return inside a line";
+  // a variation selector belongs right after an emoji, or between a digit and its keycap; a run of them carries hidden bytes
+  for (const m of text.matchAll(/[\uFE00-\uFE0F]/gu)) {
+    const afterEmoji = /\p{Extended_Pictographic}$/u.test(text.slice(Math.max(0, m.index - 2), m.index));
+    if (!afterEmoji && !(m[0] === "\uFE0F" && text[m.index + 1] === "\u20E3")) return "a variation selector outside an emoji";
   }
   const mark = text.indexOf("\uFEFF");
   if (mark > 0 || (mark === 0 && !atFileStart) || text.indexOf("\uFEFF", 1) > 0) return "a byte order mark inside the file";
@@ -209,7 +226,7 @@ const DANGEROUS = [
   ["a computed import or require", /\b(?:import|require)\s*\(\s*(?:(?!["'`])[^)\s]|`[^`]*\$\{)/, JS_FILE],
   // the environment as one object: printed, spread, taken apart ({ KEY } = process.env) or handed on. A single variable
   // read by its name is "new-env" below.
-  ["reading the whole environment", /\b(?:process|import\.meta)\.env\b(?!\s*(?:\?\.|\.)\s*[A-Za-z_$]|\s*\[)/],
+  ["reading the whole environment", /\b(?:process|import\.meta)\.env\b(?!\s*(?:\?\.|\.)\s*[A-Za-z_$[]|\s*\[)/],
   ["an environment variable read by a computed name", /process\.env\[\s*(?!["'`])/],
   ["decoding hidden text", /\batob\s*\(|String\.fromCharCode|Buffer\.from\([^)\n]*["']base64(?:url)?["']/],
   ["a download piped to a shell", /\b(?:curl|wget)\b[^|\n]*\|\s*(?:sudo\s+)?(?:ba|z|da)?sh\b|base64\s+(?:-d|--decode)\b|\/dev\/tcp\//],
@@ -221,10 +238,10 @@ const TEST_IMPORT = /(?:\bfrom|\bimport|\brequire\s*\()\s*\(?\s*["'`][^"'`]*\.(?
 const WALLET = /\b(?:writeContracts?(?:Async)?|sendTransaction(?:Async)?|sendRawTransaction|sendCalls|signMessage(?:Async)?|signTypedData(?:Async)?|signTransaction|signAuthorization|personal_sign|eth_sign\w*|eth_send\w*|eth_requestAccounts|setApprovalForAll|increaseAllowance|max[Uu]int256|use(?:WriteContract|SendTransaction|SendCalls|SignMessage|SignTypedData|WalletClient)|(?:get|create)WalletClient|privateKeyToAccount|mnemonicToAccount)\b|window\.ethereum|["'`]wallet_[A-Za-z]+["'`]|functionName:\s*["'](?:approve|permit|transfer|transferFrom|setApprovalForAll)["']/g;
 
 /** Checks whose removal matters: signatures, nonces, rate limits, validation, escaping. */
-const AUTH = /\b(?:verify[A-Z]\w*|recover\w+Address|consumeNonce|isNonce|issueNonce|rateLimited|cspNonce|isAddress|ADMIN_WALLETS|isAdmin\w*|requireAdmin\w*|sanitize[A-Z]\w*|escape[A-Z]\w*)\b/g;
+const AUTH = /\b(?:verify[A-Z]\w*|validate[A-Z]\w*|check[A-Z]\w*|admit[A-Z]\w*|assert[A-Z]\w*|require[A-Z]\w*|authori[sz]e\w*|authenticate\w*|recover\w+Address|consumeNonce|isNonce|issueNonce|rateLimited|cspNonce|isAddress|isOrigin|isOwn[A-Z]\w*|ADMIN_WALLETS|isAdmin\w*|sanitize[A-Z]\w*|escape[A-Z]\w*)\b/g;
 
 /** CONTRIBUTING.md ground rules: no fee switch, owner, pause, allowlist or upgrade path. */
-const CONTRACT_RULES = /\b(?:Ownable\w*|onlyOwner|transferOwnership|renounceOwnership|setOwner|Pausable|whenNotPaused|_pause|_unpause|UUPS\w*|\w*Upgradeable|upgradeTo\w*|delegatecall|selfdestruct|tx\.origin|allowlist\w*|whitelist\w*|blacklist\w*|blocklist\w*|setFee\w*|protocolFee\w*|platformFee\w*|feeSwitch\w*|admin)\b/gi;
+const CONTRACT_RULES = /\b(?:Ownable\w*|onlyOwner|owner|transferOwnership|renounceOwnership|setOwner|Pausable|whenNotPaused|_?pause[ds]?|_?unpause|UUPS\w*|\w*Upgradeable|upgradeTo\w*|delegatecall|selfdestruct|tx\.origin|allowlist\w*|whitelist\w*|blacklist\w*|blocklist\w*|set\w*Fee\w*|protocolFee\w*|platformFee\w*|feeSwitch\w*|\w*feeBps|admin)\b/gi;
 
 const ADDRESS = /0x[0-9a-fA-F]{40}(?![0-9a-fA-F])/g;
 /** Not anyone's wallet: zero, the burn address, the native-asset placeholder. */
@@ -280,11 +297,15 @@ export function hostsIn(line, code) {
 /** How often each security check is named in some lines: { name: count }. */
 export function checksIn(lines) {
   const counts = new Map();
-  for (const text of lines) for (const [name] of text.matchAll(AUTH)) counts.set(name, (counts.get(name) ?? 0) + 1);
+  for (const text of lines) {
+    if (/^\s*(?:\/\/|\/\*|\*)/.test(text)) continue; // a check that is commented out is not a check
+    for (const [name] of text.matchAll(AUTH)) counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
   return counts;
 }
 
-const ENV_RE = /process\.env\.([A-Za-z_]\w*)|process\.env\[\s*["'`]([^"'`]+)["'`]\s*\]|import\.meta\.env\.([A-Za-z_]\w*)/g;
+/** A variable read by its name: process.env.NAME, process.env["NAME"], or a helper called with it, as in intEnv("NAME", 5). */
+const ENV_RE = /process\.env\??\.([A-Za-z_]\w*)|process\.env(?:\?\.)?\[\s*["'`]([^"'`]+)["'`]\s*\]|import\.meta\.env\??\.([A-Za-z_]\w*)|\b[A-Za-z_$]*[eE]nv[A-Za-z_$]*\(\s*["'`]([A-Z][A-Z0-9_]*)["'`]/g;
 const OPAQUE = [
   ["a long base64 blob", /[A-Za-z0-9+/]{400,}={0,2}/],
   ["a long hex blob", /(?:0x)?[0-9a-fA-F]{400,}/],
@@ -296,7 +317,7 @@ const OPAQUE = [
  * Findings for one text file. `added` is [{ n, text }], `removed` is [text]. `facts` holds what the base branch already has:
  * addresses (lowercase), hosts, env (variable names).
  */
-export function scanLines(path, added, removed, facts) {
+export function scanLines(path, added, removed, facts, blocksOnly = false) {
   const out = [];
   const add = (rule, detail, line) => out.push({ rule, path, detail, line });
   const code = isCode(path), test = isTest(path), svg = ext(path) === "svg";
@@ -309,6 +330,7 @@ export function scanLines(path, added, removed, facts) {
       const m = re.exec(text);
       if (m && (!check || check(m))) add("secret", what, n);
     }
+    if (blocksOnly) continue;
     if (text.length > MAX_LINE * 5) { add("opaque", `a line of ${text.length} characters, too long to match against the rules`, n); continue; }
 
     for (const host of hostsIn(text, code)) {
@@ -328,14 +350,14 @@ export function scanLines(path, added, removed, facts) {
       if (TEST_IMPORT.test(text)) add("dangerous-code", "app code importing a test file", n);
       for (const [call] of text.matchAll(WALLET)) add("wallet-call", call.replace(/\s+/g, " "), n);
       for (const m of text.matchAll(ENV_RE)) {
-        const name = m[1] ?? m[2] ?? m[3];
+        const name = m[1] ?? m[2] ?? m[3] ?? m[4];
         if (!facts.env.has(name)) add("new-env", name, n);
       }
     }
     if (contractSource && !/^\s*(\/\/|\/\*|\*)/.test(text)) for (const [word] of text.matchAll(CONTRACT_RULES)) add("contract-rules", word, n);
   }
 
-  if (code && !test && removed.length > 0) {
+  if (code && !test && !blocksOnly && removed.length > 0) {
     const kept = checksIn(added.map((l) => l.text));
     for (const [name, gone] of checksIn(removed)) {
       const net = gone - (kept.get(name) ?? 0);
@@ -444,11 +466,15 @@ export function lintNpmLock(path, headText, baseText) {
     if (key === "") continue;
     if (!entry || typeof entry !== "object") { add("lockfile", `${key}: unreadable entry`); continue; }
     const name = key.split("node_modules/").pop();
-    const label = entry.version ? `${name}@${entry.version}` : name;
+    // "x/../../other/-/other-1.0.0" as a version would turn this package's address into another package's
+    const versioned = typeof entry.version === "string" && /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(entry.version);
+    const label = versioned ? `${name}@${entry.version}` : name;
     if (!key.startsWith("node_modules/") && !key.includes("/node_modules/")) add("lockfile", `${key}: a package outside node_modules`);
+    else if (!/^(?:@[A-Za-z0-9~-][A-Za-z0-9._~-]*\/)?[A-Za-z0-9~-][A-Za-z0-9._~-]*$/.test(name)) add("lockfile", `${key}: not a package name`);
     else if (entry.link) add("lockfile", `${name}: a link to a local folder`);
     else if (entry.inBundle) add("lockfile", `${label}: bundled inside another package, with no hash of its own`);
     else if (entry.name && entry.name !== name) add("lockfile", `${name} is an alias for ${entry.name}`);
+    else if (!versioned) add("lockfile", `${name}: its version is not a version number`);
     else {
       const tarball = `https://registry.npmjs.org/${name}/-/${name.split("/").pop()}-${entry.version}.tgz`;
       if (entry.resolved !== tarball) add("lockfile", `${label} does not resolve to its own registry tarball`);
@@ -526,7 +552,9 @@ export function openRepo(cwd, base, head) {
   const text = (args) => git(args).toString("utf8").trim();
   const headSha = text(["rev-parse", "--verify", "--quiet", `${head}^{commit}`]);
   const baseSha = text(["rev-parse", "--verify", "--quiet", `${base}^{commit}`]);
-  const mergeBase = text(["merge-base", baseSha, headSha]);
+  // With more than one common ancestor the diff from any one of them is not what a merge does (analyze refuses that).
+  const mergeBases = text(["merge-base", "--all", baseSha, headSha]).split("\n").filter(Boolean);
+  const mergeBase = mergeBases[0];
   const changes = parseRaw(git(["diff-tree", "-r", "-z", "--no-renames", "--no-abbrev", mergeBase, headSha]).toString("utf8"));
 
   /**
@@ -543,7 +571,7 @@ export function openRepo(cwd, base, head) {
     }
   };
   return {
-    headSha, baseSha, mergeBase, changes, baseMatches,
+    headSha, baseSha, mergeBase, mergeBases, changes, baseMatches,
     /** The file's bytes, or null when it is larger than the guard reads. */
     blob: (sha) => {
       try {
@@ -574,11 +602,12 @@ const lazy = (make) => {
 /** Every finding for the pull request. `lockedPaths` comes from the trusted checkout, never from the pull request. */
 export function analyze(repo, { lockedPaths }) {
   const findings = [];
-  const add = (rule, path, detail, line = null) => findings.push({ rule, tier: RULES[rule].tier, path, detail, line });
+  const add = (rule, path, detail, line = null) => findings.push({ rule, tier: RULES[rule].tier, path, detail: scrub(detail), line });
+  if ((repo.mergeBases?.length ?? 1) > 1) add("criss-cross", "(the branch's history)", `${repo.mergeBases.length} common ancestors with the base branch`);
   const facts = lazy(() => ({
     addresses: new Set(repo.baseMatches("0x[0-9a-f]{40,}").filter((hit) => hit.length === 42).map((hit) => hit.toLowerCase())),
     hosts: new Set(repo.baseMatches("(https?|wss?|ftp)://[]a-z0-9._~%:@[*-]+").map((hit) => hostOf(hit.replace(/^[a-z]+:\/\//i, ""))).filter(Boolean)),
-    env: new Set(repo.baseMatches("(process\\.env|import\\.meta\\.env)(\\.[a-z_][a-z0-9_]*|\\[[^]]+\\])").map((hit) => /\.env\.?\[?\s*["'`]?([A-Za-z_]\w*)/.exec(hit)?.[1]).filter(Boolean)),
+    env: new Set(repo.baseMatches("(process\\.env|import\\.meta\\.env)(\\??\\.[a-z_][a-z0-9_]*|(\\?\\.)?\\[[^]]+\\])|[a-z_$]*env[a-z_$]*\\([[:space:]]*[\"'`][a-z_][a-z0-9_]*[\"'`]").flatMap((hit) => [...hit.matchAll(ENV_RE)].map((m) => m[1] ?? m[2] ?? m[3] ?? m[4]))),
   }));
   /** lowercase path or folder -> its spelling in the base tree */
   const spellings = lazy(() => {
@@ -595,6 +624,9 @@ export function analyze(repo, { lockedPaths }) {
 
   const locked = (path) => lockedPaths.has(path) || path.startsWith(LOCKED_FOLDER);
 
+  /** Paths this pull request deletes, and the spellings of what it adds: lowercase path or folder -> as written. */
+  const deleted = new Set(repo.changes.filter((change) => change.status === "D").map((change) => change.path));
+  const addedSpellings = new Map();
   let scanned = 0;
   /** Code files this pull request deletes, and the checks its other files gain: a check that reappears was moved. */
   const deletedCode = [], gained = new Map();
@@ -603,23 +635,34 @@ export function analyze(repo, { lockedPaths }) {
     const gone = status === "D";
 
     if (hiddenCharacter(path) || /[\\\n\r\t]/.test(path) || path.split("/").includes("..")) add("odd-path", path, "the file name");
+    else if (/[^\x20-\x7E]/.test(path)) add("odd-path", path, "the file name has characters outside plain ASCII");
     if (locked(path)) add("contract-locked", path, gone ? "deleted" : status === "A" ? "added" : "edited");
     if (oldMode === "160000" || newMode === "160000") add("submodule", path, gone ? "removed" : status === "A" ? "added" : "pinned to a different commit");
     if (newMode === "120000") add("symlink", path, "a symbolic link");
     for (const [rule, re] of BLOCK_PATHS) if (re.test(path)) add(rule, path, gone ? "deleted" : status === "A" ? "added" : "changed");
     if (!gone && SECRET_FILE.test(path)) add("secret-file", path, status === "A" ? "added" : "changed");
+    // npm builds a package that has this file with node-gyp at install time, with no script in package.json at all
+    if (!gone && /(^|\/)binding\.gyp$/i.test(path)) add("install-script", path, "npm runs node-gyp on this file at install time");
+    let hiddenName = null;
     if (status === "A") {
       const parts = path.split("/");
+      let collided = false;
       for (let i = 1; i <= parts.length; i++) {
-        const prefix = parts.slice(0, i).join("/");
-        const existing = spellings().get(prefix.toLowerCase());
-        if (existing && existing !== prefix) { add("case-collision", path, `collides with ${existing}`); break; }
+        const prefix = parts.slice(0, i).join("/"), lower = prefix.toLowerCase();
+        // against the base branch and against what this pull request itself adds; a file renamed only in its case is one file
+        const existing = spellings().get(lower) ?? addedSpellings.get(lower);
+        if (existing && existing !== prefix && !(i === parts.length && deleted.has(existing))) { add("case-collision", path, `collides with ${existing}`); collided = true; break; }
+        if (!addedSpellings.has(lower)) addedSpellings.set(lower, prefix);
       }
+      // .gitignore and the empty files that keep a folder in git configure no tool
+      if (!collided) hiddenName = parts.find((part, i) => part.startsWith(".") && !/^\.(gitignore|gitkeep|keep)$/.test(part) && !spellings().has(parts.slice(0, i + 1).join("/").toLowerCase())) ?? null;
     }
     if (!locked(path) && !BLOCK_PATHS.some(([, re]) => re.test(path))) {
       const match = REVIEW_PATHS.find(([, re]) => re.test(path));
       if (match) add(match[0], path, gone ? "deleted" : status === "A" ? "added" : "changed");
       else if (!gone && newMode === "100755" && oldMode !== "100755") add("build-deploy", path, "marked executable");
+      // a new name that begins with a dot, where no rule above already refuses the file or sends it to an owner
+      if (!match && hiddenName && !SECRET_FILE.test(path)) add("dot-file", path, `${hiddenName} is new`);
     }
     if (OTHER_LOCK.test(path) && !gone) add("dependencies", path, "a lockfile for another package manager");
     // a deletion is never read below, and it is a change to the dependencies all the same
@@ -632,7 +675,7 @@ export function analyze(repo, { lockedPaths }) {
     // it must never rank below what reading it would have found.
     const wholeFileRule = MANIFEST.test(path) ? "dependency-source" : NPM_LOCK.test(path) ? "lockfile" : ext(path) === "svg" ? "svg-active" : null;
     let checked = !wholeFileRule;
-    const unread = (why) => (checked ? add("unscanned", path, why) : add(wholeFileRule, path, `could not be checked: ${why}`));
+    const unread = (why) => (checked ? add("unread", path, why) : add(wholeFileRule, path, `could not be checked: ${why}`));
     if (++scanned > MAX_SCAN_FILES) { unread(`more than ${MAX_SCAN_FILES} files in one pull request`); continue; }
     try {
       const bytes = repo.blob(change.newSha);
@@ -644,15 +687,22 @@ export function analyze(repo, { lockedPaths }) {
       if (MANIFEST.test(path)) for (const f of lintManifest(path, bytes.toString("utf8"), repo.baseText(path))) add(f.rule, f.path, f.detail);
       if (NPM_LOCK.test(path)) {
         for (const f of lintNpmLock(path, bytes.toString("utf8"), repo.baseText(path))) add(f.rule, f.path, f.detail);
-        continue; // thousands of registry URLs and hashes: the structure check above is the scan
       }
       const active = ext(path) === "svg" ? activeSvg(bytes.toString("utf8")) : null;
       if (active) add("svg-active", path, active);
       checked = true;
-      if (bytes.length > MAX_TEXT_BYTES) { add("unscanned", path, `a text file of ${Math.ceil(bytes.length / 1_000_000)} MB`); continue; }
       const lines = status === "A" || /^0+$/.test(change.oldSha) || oldMode === "160000" || oldMode === "120000"
         ? { added: allLines(bytes.toString("utf8")), removed: [] }
         : repo.diff(change.oldSha, change.newSha);
+      // A lockfile (thousands of registry addresses and hashes; its structure was checked above) and a file too large to
+      // match line by line are still read for what is blocked for everyone: credentials and hidden characters.
+      const lockfile = NPM_LOCK.test(path), large = bytes.length > MAX_TEXT_BYTES;
+      if (lockfile || large) {
+        const plainLines = lockfile ? lines.added.map((l) => ({ n: l.n, text: l.text.replace(/"(?:integrity|resolved)":\s*"[^"]*"/g, "") })) : lines.added;
+        for (const f of scanLines(path, plainLines, [], facts(), true).slice(0, MAX_FINDINGS_PER_FILE)) add(f.rule, f.path, f.detail, f.line);
+        if (!lockfile) add("unscanned", path, `a text file of ${Math.ceil(bytes.length / 1_000_000)} MB, read for credentials and hidden characters only`);
+        continue;
+      }
       const found = scanLines(path, lines.added, lines.removed, facts());
       if (isCode(path) && !isTest(path)) {
         const lost = checksIn(lines.removed);

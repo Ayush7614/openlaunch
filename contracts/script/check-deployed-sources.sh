@@ -38,8 +38,13 @@ if [[ "${1:-}" == "--update" ]]; then
 fi
 
 failed=0; checked=0
-while read -r kind want path || [[ -n "$kind" ]]; do # the last line counts with or without its newline
-  [[ "$kind" == sha256 || "$kind" == gitlink ]] || continue
+# An entry as --update writes it, which is also what the guard reads. A line in any other shape (indented, a tab, a
+# path with a space) would be checked here and not locked there, so it is refused.
+entry='^(sha256 [0-9a-f]{64}|gitlink [0-9a-f]{40})  [^[:space:]]+$'
+while IFS= read -r line || [[ -n "$line" ]]; do # the last line counts with or without its newline
+  if [[ -z "$line" || "$line" == \#* ]]; then continue; fi
+  if [[ ! "$line" =~ $entry ]]; then echo "DRIFT  $lock has a line that is not an entry: $line"; failed=1; continue; fi
+  read -r kind want path <<< "$line"
   checked=$((checked + 1))
   got=$(current "$kind" "$path")
   if [[ "$got" != "$want" ]]; then

@@ -47,17 +47,23 @@ your code. It has two answers besides "passed":
   - `registry-config`: package manager configuration (`.npmrc` and the like).
   - `secret-file`, `secret`: a key, wallet or `.env` file, or a credential anywhere in the diff.
   - `submodule`, `symlink`: a submodule added, removed or re-pinned; a symbolic link.
-  - `hidden-unicode`, `odd-path`: invisible or direction-changing Unicode in a file, or in a file's name.
-  - `binary`: a binary file that is not a real image or font. Audio, video and PDF files are in the next list.
+  - `hidden-unicode`, `odd-path`: invisible or direction-changing Unicode in a file; a file name with such characters,
+    or with any character outside plain ASCII.
+  - `binary`: a binary file that is not a real image or web font (PNG, JPEG, GIF, WebP, AVIF, ICO, WOFF, WOFF2). Audio,
+    video and PDF files are in the next list.
   - `svg-active`: an SVG with script or an event handler in it.
   - `dependency-source`, `lockfile`, `install-script`: a dependency or lockfile entry that does not come from the npm
     registry (git, a URL, a local path, an alias), a `package.json` or lockfile the guard cannot read in full, a new
-    script that runs at install time.
-  - `case-collision`: a file name that differs from an existing one only by letter case.
+    script that runs at install time, a `binding.gyp` (npm builds it at install time).
+  - `case-collision`: a file name that differs from another one only by letter case.
+  - `criss-cross`: a branch whose history has more than one common ancestor with `main`. Its diff does not show what a
+    merge would undo. Rebase it on `main`, or merge `main` into it.
+  - `unread`: a file the guard could not read: larger than 25 MB, or past the 1500 files one pull request may have read.
 - **Needs a maintainer's approval.** Allowed, and listed for a maintainer to read. The check turns green when a
   maintainer approves the exact commit and then re-runs the `pr-guard` job. A new push needs a new approval.
-  - `contracts`, `contract-rules`: new files under `contracts/`; an owner, a pause, an allowlist, an upgrade path or a
-    fee switch in a contract (see the ground rules above).
+  - `contracts`, `contract-rules`: any change under `contracts/` that is not blocked above (a new contract, a test, a
+    script, a document); an owner, a pause, an allowlist, an upgrade path or a fee switch in a contract (see the ground
+    rules above).
   - `dependencies`: dependency and npm script changes, a deleted `package.json` or lockfile included.
   - `address`, `wallet-call`: on-chain addresses; code that asks a wallet to sign, approve or send.
   - `new-host`, `new-env`: a host or an environment variable the repository has not used before, and a host that
@@ -67,9 +73,11 @@ your code. It has two answers besides "passed":
   - `security-config`: security headers, the request proxy, and files the site serves as they are (anything in
     `app/public/` that is not a plain image, font or text file, and every SVG).
   - `build-deploy`: build, deploy and migration files, shell scripts, a file made executable.
-  - `policy`, `git-config`: the license and the security policy; `.gitattributes`.
+  - `policy`, `git-config`, `dot-file`: the license and the security policy; `.gitattributes`; any other new file or
+    folder whose name begins with a dot (a `.gitignore` or `.gitkeep` aside).
   - `media`, `opaque`, `unscanned`: audio, video and PDF files; content that cannot be read by eye (very long lines,
-    encoded blobs); anything the guard could not read.
+    encoded blobs); a file the guard read only in part (a text file over 2 MB is read for credentials and hidden
+    characters only).
 
 The reason for each rule is in the `RULES` table at the top of `.github/scripts/pr-guard.mjs`. A test keeps the two
 lists above and that table the same.
