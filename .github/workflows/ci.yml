@@ -4,7 +4,8 @@ name: ci
 # workflow, which runs main's copy of itself; these jobs can be trusted on a pull request only while pr-guard is green,
 # because a pull request that edits this file is refused there.
 #
-# Actions are pinned to full commit SHAs (the comment names the release). .github/scripts/workflows.test.mjs keeps it so.
+# Actions are pinned to full commit SHAs (the comment names the release), and no checkout leaves the job's token behind
+# for the steps that follow. .github/scripts/workflows.test.mjs keeps it so.
 
 on:
   push:
@@ -27,6 +28,8 @@ jobs:
         working-directory: app
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
@@ -55,6 +58,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           submodules: recursive
+          persist-credentials: false
       # the deployed sources, their build settings and the library pins match contracts/deployed.lock byte for byte
       - run: script/check-deployed-sources.sh
       - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
@@ -72,6 +76,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - run: node --version
       - run: node --test .github/scripts/pr-guard.test.mjs .github/scripts/workflows.test.mjs
 
@@ -83,6 +89,8 @@ jobs:
         working-directory: app
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22

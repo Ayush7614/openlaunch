@@ -4,8 +4,9 @@
 // Invisible characters are built from code points and credentials from pieces, so this file holds neither.
 
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { execFile, execFileSync, spawnSync } from "node:child_process";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, describe, test } from "node:test";
@@ -13,10 +14,11 @@ import { fileURLToPath } from "node:url";
 
 import {
   OWNERS, RULES, analyze, annotation, hiddenCharacter, hostOf, lintManifest, lintNpmLock, openRepo, ownerApproval, parseHunks,
-  parseLock, plain, renderSummary, renderText, scanLines, verdict,
+  parseLock, plain, pusherOf, renderSummary, renderText, scanLines, verdict,
 } from "./pr-guard.mjs";
 
 const GUARD = fileURLToPath(new URL("./pr-guard.mjs", import.meta.url));
+/** A string from code points, so no invisible character is ever written in this file. */
 const cp = (...codes) => String.fromCodePoint(...codes);
 
 // ---------- fixture ----------
@@ -37,14 +39,17 @@ const LOCK = [
 ].join("\n");
 const LOCKED = parseLock(LOCK);
 
+/** A lockfile entry as the registry writes it; `extra` overrides or adds fields. */
 const entry = (name, version, extra = {}) => ({
   version,
   resolved: `https://registry.npmjs.org/${name}/-/${name.split("/").pop()}-${version}.tgz`,
   integrity: `sha512-${"A".repeat(86)}==`,
   ...extra,
 });
+/** The text of a package-lock.json that holds `packages`: { name: entry }. */
 const lockfile = (packages) =>
   `${JSON.stringify({ name: "openlaunch", lockfileVersion: 3, packages: { "": { name: "openlaunch" }, ...Object.fromEntries(Object.entries(packages).map(([name, e]) => [`node_modules/${name}`, e])) } }, null, 2)}\n`;
+/** The text of the base package.json with `fields` laid over it. */
 const manifest = (fields) => `${JSON.stringify({ name: "openlaunch", private: true, scripts: { test: "tsx --test", build: "next build" }, dependencies: { sharp: "^0.35.4", viem: "^2.47.6" }, ...fields }, null, 2)}\n`;
 const BASE_LOCK = { sharp: entry("sharp", "0.35.4"), viem: entry("viem", "2.47.6"), esbuild: entry("esbuild", "0.28.2", { hasInstallScript: true }), "@scope/pkg": entry("@scope/pkg", "1.0.0") };
 
@@ -92,6 +97,7 @@ const GIT_ENV = {
   GIT_AUTHOR_NAME: "test", GIT_AUTHOR_EMAIL: "test@example.com", GIT_COMMITTER_NAME: "test", GIT_COMMITTER_EMAIL: "test@example.com",
 };
 let dir, lockFile, baseSha;
+/** Run git in the fixture repository and return what it printed. */
 const git = (args, input) => execFileSync("git", args, { cwd: dir, input, env: GIT_ENV, stdio: ["pipe", "pipe", "pipe"] }).toString().trim();
 
 /**
@@ -124,9 +130,13 @@ function pullRequest(changes) {
   git(["clean", "-fdxq"]);
   return commit(changes, "pull request");
 }
+/** The guard's findings for a pull request that makes `changes`. */
 const check = (changes) => analyze(openRepo(dir, baseSha, pullRequest(changes)), { lockedPaths: LOCKED });
+/** The distinct rules among some findings, sorted. */
 const rules = (findings) => [...new Set(findings.map((f) => f.rule))].sort();
+/** The findings of one rule. */
 const of = (findings, rule) => findings.filter((f) => f.rule === rule);
+/** The details of one rule's findings, joined into one string to match against. */
 const details = (findings, rule) => of(findings, rule).map((f) => f.detail).join(" | ");
 
 before(() => {
@@ -291,7 +301,7 @@ describe("credentials", () => {
   test("a private key in code is blocked, and its value is never repeated", () => {
     const found = check({ "app/scripts/deploy.mjs": `const PRIVATE_KEY = "0x${key}";\n` });
     assert.ok(rules(found).includes("secret"));
-    const report = renderSummary(found, verdict(found, { author: "someone", sender: "someone" }), { headSha: "a".repeat(40) }) + renderText(found, verdict(found, {})) + JSON.stringify(found);
+    const report = renderSummary(found, verdict(found, { author: "someone", pusher: "someone" }), { headSha: "a".repeat(40) }) + renderText(found, verdict(found, {})) + JSON.stringify(found);
     assert.ok(!report.includes(key), "the key must not be echoed into the public job log");
   });
 
@@ -474,13 +484,60 @@ describe("dependencies", () => {
     }
   });
 
+  test("every way npm reads a spec as a folder, a file or a git remote is blocked", () => {
+    const local = ["../../vendor/viem", "./vendor/pkg/viem.tgz", "/opt/viem", "~/viem", ".", "..", "viem-2.0.0.tgz", "viem.tar.gz", "viem.tar-gz", "viem.tarXgz", "C:\\viem", "..\\viem", " ./viem"];
+    const remote = ["git@github.com:someone/viem.git", "someone/viem", "gist:11081aaa281", "workspace:*", "catalog:", "jsr:@someone/viem"];
+    for (const spec of [...local, ...remote]) {
+      const found = lintManifest("app/package.json", manifest({ dependencies: { sharp: "^0.35.4", viem: spec } }), manifest({}));
+      assert.deepEqual(rules(found), ["dependency-source"], spec);
+    }
+    // through the whole guard it is a block, for a change to package.json alone
+    const found = check({ "app/package.json": manifest({ dependencies: { sharp: "^0.35.4", viem: "../../vendor/viem" } }) });
+    assert.deepEqual(found.map((f) => [f.rule, f.tier]), [["dependency-source", "block"]]);
+  });
+
+  test("a manifest or lockfile is read whole whatever its size, so padding cannot hide what is in it", () => {
+    const padding = " ".repeat(2_100_000);
+    const padded = check({ "app/package.json": manifest({ dependencies: { sharp: "^0.35.4", viem: "github:someone/viem" } }) + padding });
+    assert.match(details(padded, "dependency-source"), /viem comes from "github:someone\/viem"/);
+    const paddedLock = check({ "app/package-lock.json": lockfile({ ...BASE_LOCK, sharp: entry("sharp", "0.35.4", { resolved: "https://example.org/sharp-0.35.4.tgz" }) }) + padding });
+    assert.deepEqual(rules(paddedLock), ["dependencies", "lockfile"], "linted, not set aside as too large");
+    assert.match(details(paddedLock, "lockfile"), /sharp@0\.35\.4 does not resolve to its own registry tarball/);
+  });
+
+  test("a manifest or lockfile the guard cannot check is blocked, not passed on for review", () => {
+    // nested deeper than the reader can follow, beside a dependency from git
+    const depth = 50_000;
+    const nested = manifest({ dependencies: { sharp: "^0.35.4", viem: "github:someone/viem" } }).replace(/\n\}\n$/, `,\n  "resolutions": ${'{"a":'.repeat(depth)}"1.0.0"${"}".repeat(depth)}\n}\n`);
+    const unreadable = check({ "app/package.json": nested });
+    assert.deepEqual(unreadable.map((f) => [f.rule, f.tier]), [["dependency-source", "block"]]);
+    assert.match(unreadable[0].detail, /^(could not be checked: could not be read|is not a valid package\.json)/);
+
+    // past the number of files one pull request may have scanned
+    const filler = Array.from({ length: 1500 }, (_, i) => ({ status: "A", path: `a/${i}.md`, oldMode: "000000", newMode: "100644", oldSha: "0".repeat(40), newSha: "1".repeat(40) }));
+    const changed = (path) => ({ status: "M", path, oldMode: "100644", newMode: "100644", oldSha: "2".repeat(40), newSha: "3".repeat(40) });
+    const repo = { changes: [...filler, changed("app/package-lock.json"), changed("app/package.json"), changed("app/src/lib/x.ts")], blob: () => Buffer.from("notes\n"), baseText: () => null, baseMatches: () => [], basePaths: () => [], diff: () => ({ added: [], removed: [] }) };
+    assert.deepEqual(analyze(repo, { lockedPaths: LOCKED }).map((f) => [f.rule, f.tier, f.path]), [["lockfile", "block", "app/package-lock.json"], ["dependency-source", "block", "app/package.json"], ["unscanned", "review", "app/src/lib/x.ts"]]);
+
+    // larger than the guard reads at all
+    const huge = { ...repo, changes: [changed("app/package.json"), changed("app/src/lib/x.ts")], blob: () => null };
+    assert.deepEqual(analyze(huge, { lockedPaths: LOCKED }).map((f) => [f.rule, f.tier]), [["dependency-source", "block"], ["unscanned", "review"]]);
+  });
+
+  test("an override may point at one of this package's own dependencies, and at nothing else", () => {
+    const references = lintManifest("app/package.json", manifest({ overrides: { ox: "$viem", "@scope/kit": "$@scope/pkg" } }), manifest({}));
+    assert.deepEqual(rules(references), ["dependencies"]);
+    assert.deepEqual(rules(lintManifest("app/package.json", manifest({ overrides: { ox: "$../viem" } }), manifest({}))), ["dependency-source"]);
+    assert.deepEqual(rules(lintManifest("app/package.json", manifest({ dependencies: { sharp: "^0.35.4", viem: "$sharp" } }), manifest({}))), ["dependency-source"], "only overrides have references");
+  });
+
   test("an override is read like any other dependency", () => {
     const found = lintManifest("app/package.json", manifest({ overrides: { viem: { ox: "github:someone/ox" } } }), manifest({}));
     assert.match(details(found, "dependency-source"), /viem > ox comes from "github:someone\/ox"/);
   });
 
   test("ordinary version ranges are not mistaken for off-registry sources", () => {
-    for (const spec of ["^1.2.3", "~1.2.3", "1.2.3", ">=1.2.3 <2", "1.x", "*", "latest", "19.2.3", "^16.3.8-canary.1"]) {
+    for (const spec of ["^1.2.3", "~1.2.3", "1.2.3", ">=1.2.3 <2", "1.x", "*", "latest", "19.2.3", "^16.3.8-canary.1", "^1 || ^2", "1.2.3 - 2.0.0", "1.0.0+build.5", "v1.2.3", "next", ""]) {
       assert.deepEqual(rules(lintManifest("app/package.json", manifest({ dependencies: { sharp: "^0.35.4", viem: spec } }), manifest({}))), ["dependencies"], spec);
     }
   });
@@ -733,28 +790,47 @@ describe("verdict", () => {
   });
 
   test("nothing found passes", () => {
-    assert.deepEqual(verdict([], { author: "someone", sender: "someone" }), { outcome: "pass", ok: true, blocks: 0, reviews: 0, ownPr: false, approvedBy: null });
+    assert.deepEqual(verdict([], { author: "someone", pusher: "someone" }), { outcome: "pass", ok: true, blocks: 0, reviews: 0, byOwner: false, ownPr: false, approvedBy: null });
   });
 
   test("a sensitive change from a contributor waits for an owner", () => {
-    assert.equal(verdict([sensitive], { author: "someone", sender: "someone" }).outcome, "review");
-    assert.equal(verdict([sensitive], { author: "someone", sender: "someone" }).ok, false);
-    const approved = verdict([sensitive], { author: "someone", sender: "someone", approvedBy: owner });
+    assert.equal(verdict([sensitive], { author: "someone", pusher: "someone" }).outcome, "review");
+    assert.equal(verdict([sensitive], { author: "someone", pusher: "someone" }).ok, false);
+    const approved = verdict([sensitive], { author: "someone", pusher: "someone", approvedBy: owner });
     assert.deepEqual([approved.outcome, approved.ok, approved.approvedBy], ["pass", true, owner]);
   });
 
   test("on an owner's own pull request a sensitive change is a notice", () => {
-    const result = verdict([sensitive], { author: owner, sender: owner });
+    const result = verdict([sensitive], { author: owner, pusher: owner });
     assert.deepEqual([result.outcome, result.ok, result.ownPr], ["pass", true, true]);
   });
 
   test("an owner's pull request that someone else pushed to is treated like anyone's", () => {
-    assert.equal(verdict([sensitive], { author: owner, sender: "collaborator" }).ok, false);
-    assert.equal(verdict([sensitive], { author: "collaborator", sender: owner }).ok, false);
+    const held = verdict([sensitive], { author: owner, pusher: "collaborator" });
+    assert.deepEqual([held.outcome, held.ok, held.byOwner, held.ownPr], ["review", false, true, false]);
+    assert.equal(verdict([sensitive], { author: "collaborator", pusher: owner }).ok, false);
+  });
+
+  test("a head commit with no known pusher is nobody's: the owner starting the run does not make it theirs", () => {
+    assert.equal(verdict([sensitive], { author: owner, pusher: "" }).ok, false);
+    assert.equal(verdict([sensitive], { author: owner }).ok, false);
+    assert.equal(verdict([sensitive], { author: owner, pusher: null }).ok, false);
+  });
+
+  test("the pusher of a commit is read from the branch's activity log", () => {
+    const log = [
+      { activity_type: "push", before: OLD, after: HEAD, actor: { login: "collaborator" } },
+      { activity_type: "branch_creation", before: "0".repeat(40), after: OLD, actor: { login: owner } },
+    ];
+    assert.equal(pusherOf(log, HEAD), "collaborator");
+    assert.equal(pusherOf(log, OLD), owner);
+    assert.equal(pusherOf(log, "c".repeat(40)), null, "a commit the log does not list has no known pusher");
+    assert.equal(pusherOf([{ after: HEAD, actor: null }], HEAD), null);
+    assert.equal(pusherOf({ message: "Not Found" }, HEAD), null);
   });
 
   test("a block stays a block: no owner, no approval, nothing turns it into a pass", () => {
-    for (const context of [{ author: owner, sender: owner }, { author: "someone", sender: "someone", approvedBy: owner }, { author: owner, sender: owner, approvedBy: owner }]) {
+    for (const context of [{ author: owner, pusher: owner }, { author: "someone", pusher: "someone", approvedBy: owner }, { author: owner, pusher: owner, approvedBy: owner }]) {
       const result = verdict([block, sensitive], context);
       assert.deepEqual([result.outcome, result.ok], ["block", false]);
     }
@@ -774,13 +850,53 @@ describe("report", () => {
   const sensitive = { tier: "review", rule: "new-host", path: "app/src/lib/track.ts", detail: "collect.metrics-cdn.io", line: 4 };
 
   test("the summary says what happened and what to do next", () => {
-    const waiting = renderSummary([sensitive], verdict([sensitive], { author: "someone", sender: "someone" }), { headSha: HEAD });
+    const waiting = renderSummary([sensitive], verdict([sensitive], { author: "someone", pusher: "someone" }), { headSha: HEAD });
     assert.match(waiting, /^## pr-guard: needs an owner's approval/);
     assert.match(waiting, /approves commit `ccccccc` with a pull request review, then re-runs this job/);
-    assert.match(waiting, /`app\/src\/lib\/track\.ts`: collect\.metrics-cdn\.io \(line 4\)/);
+    assert.match(waiting, /^- `app\/src\/lib\/track\.ts`: `collect\.metrics-cdn\.io` \(line 4\)$/m);
+    assert.match(renderText([sensitive], verdict([sensitive], {})), /^ {6}- app\/src\/lib\/track\.ts: collect\.metrics-cdn\.io \(line 4\)$/m);
     assert.match(renderSummary([], verdict([], {}), { headSha: HEAD }), /^## pr-guard: passed/);
     const blocked = [{ tier: "block", rule: "ci-config", path: ".github/workflows/ci.yml", detail: "changed", line: null }];
     assert.match(renderSummary(blocked, verdict(blocked, {}), { headSha: HEAD }), /^## pr-guard: blocked/);
+  });
+
+  test("an owner's pull request that waits is told the way through that GitHub allows", () => {
+    const held = renderSummary([sensitive], verdict([sensitive], { author: OWNERS[0], pusher: "collaborator" }), { headSha: HEAD });
+    assert.match(held, /^## pr-guard: needs an owner's approval/);
+    assert.match(held, /commit `ccccccc` does not count as an owner's push\. \*\*To pass:\*\* an owner reads the points below and pushes the next commit/);
+    assert.doesNotMatch(held, /approves commit `ccccccc` with a pull request review, then re-runs/, "an author cannot approve their own pull request");
+    assert.match(renderText([sensitive], verdict([sensitive], { author: OWNERS[0], pusher: "collaborator" })), /^ {2}an owner's pull request, held because the head commit does not count as an owner's push$/m);
+    const own = renderSummary([sensitive], verdict([sensitive], { author: OWNERS[0], pusher: OWNERS[0] }), { headSha: HEAD });
+    assert.match(own, /^## pr-guard: passed\n\nAn owner's own pull request, and an owner pushed `ccccccc`\./);
+  });
+
+  test("a detail from the pull request is shown as code, so it cannot write a link or HTML into the summary", () => {
+    const bait = "[Approved, merge here](https://evil.example) <img src=x> `tick`";
+    const found = [
+      ...lintManifest("app/package.json", manifest({ dependencies: { sharp: "^0.35.4", viem: "^2.47.6", [bait]: "^1.0.0" }, scripts: { test: "tsx --test", build: "next build", [bait]: "true" } }), manifest({})),
+      ...scanLines("app/src/lib/x.ts", [{ n: 3, text: `const v = process.env["${bait.replace(/`/g, "")}"];` }], [], { addresses: new Set(), hosts: new Set(["evil.example"]), env: new Set() }),
+    ].map((f) => ({ ...f, tier: RULES[f.rule].tier }));
+    assert.deepEqual(rules(found), ["dependencies", "new-env"]);
+    const summary = renderSummary(found, verdict(found, {}), { headSha: HEAD });
+    const items = summary.split("\n").filter((line) => line.startsWith("- "));
+    assert.equal(items.length, 2);
+    for (const item of items) {
+      assert.match(item, /Approved, merge here/);
+      // outside the code spans there is nothing left of it: no bracket, no tag, no address
+      assert.doesNotMatch(item.replace(/`[^`]*`/g, ""), /[[\]<>]|https?:/, item);
+      assert.doesNotMatch(item, /`tick`/, "a backtick in the detail cannot close the span");
+    }
+    // the job log is plain text, so there it is printed as it is
+    assert.ok(renderText(found, verdict(found, {})).includes(`npm script "${bait}" added`));
+  });
+
+  test("a file name cannot be read from the job log as a workflow command", () => {
+    // the runner takes "::command::" at the start of a line, spaces aside, and "##[command]" anywhere in one
+    const names = ["::notice title=pr-guard%3A passed::Approved by an owner, safe to merge", "::stop-commands::x", "docs/##[error]forged.md"];
+    const found = names.map((path) => ({ ...sensitive, path, detail: "##[warning]forged too" }));
+    const log = renderText(found, verdict(found, {}));
+    assert.match(log, /^ {6}- ::notice title=pr-guard%3A passed::Approved by an owner, safe to merge: /m, "the name is still shown");
+    for (const line of log.split("\n")) assert.doesNotMatch(line, /^\s*::|##\[/, line);
   });
 
   test("text from the pull request cannot break out of the report", () => {
@@ -816,7 +932,7 @@ describe("command line", () => {
     assert.match(waiting.stdout, /pr-guard: review {2}\(0 blocking, 1 for review\)/);
     assert.equal(run(["--base", baseSha, "--head", sensitive, "--author", "someone", "--approved"]).status, 0);
     assert.equal(run(["--base", baseSha, "--head", sensitive, "--author", OWNERS[0]]).status, 0);
-    assert.equal(run(["--base", baseSha, "--head", sensitive, "--author", OWNERS[0], "--sender", "collaborator"]).status, 1);
+    assert.equal(run(["--base", baseSha, "--head", sensitive, "--author", OWNERS[0], "--pusher", "collaborator"]).status, 1);
 
     const blocked = pullRequest({ "contracts/src/LaunchFactory.sol": "contract LaunchFactory { address owner; }\n" });
     assert.equal(run(["--base", baseSha, "--head", blocked, "--author", OWNERS[0], "--approved"]).status, 1);
@@ -826,7 +942,24 @@ describe("command line", () => {
     const head = pullRequest({ ".github/workflows/ci.yml": "name: ci\n# edited\n" });
     const out = JSON.parse(run(["--base", baseSha, "--head", head, "--author", "someone", "--json"]).stdout);
     assert.equal(out.result.outcome, "block");
+    assert.deepEqual(out.notes, []);
     assert.deepEqual(out.findings.map((f) => [f.rule, f.path]), [["ci-config", ".github/workflows/ci.yml"]]);
+  });
+
+  test("a long report reaches a pipe whole", () => {
+    const head = pullRequest(Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`app/src/lib/flood${i}.ts`, "eval(x);\n".repeat(190)])));
+    const piped = run(["--base", baseSha, "--head", head, "--author", "someone", "--json"]);
+    assert.ok(piped.stdout.length > 250_000, "longer than a pipe holds, on Linux as on a Mac");
+    assert.equal(JSON.parse(piped.stdout).findings.length, 12 * 190);
+    assert.equal(piped.status, 1);
+  });
+
+  test("a file named like a workflow command starts no line of the output", () => {
+    const head = pullRequest({ "::notice title=pr-guard%3A passed::safe to merge": "eval(x);\n" });
+    const result = run(["--base", baseSha, "--head", head, "--author", "someone"]);
+    assert.equal(result.status, 1);
+    assert.match(result.stdout, /^ {6}- ::notice title=pr-guard%3A passed::safe to merge: eval\(\) \(line 1\)$/m);
+    for (const line of result.stdout.split("\n")) assert.doesNotMatch(line, /^\s*::/, line);
   });
 
   test("when the guard itself cannot finish, the check fails", () => {
@@ -848,6 +981,98 @@ describe("command line", () => {
     assert.equal(result.status, 1);
     assert.match(result.stdout, /^::error title=pr-guard%3A CI%2C the guard or code owners changed,file=\.github\/workflows\/ci\.yml::/m);
     assert.match(result.stdout, /^::warning title=pr-guard%3A A host the repository has not used before,file=app\/src\/lib\/t\.ts,line=1::/m);
-    assert.match(execFileSync("cat", [summary]).toString(), /## pr-guard: blocked/);
+    assert.match(readFileSync(summary, "utf8"), /## pr-guard: blocked/);
+  });
+});
+
+// ---------- the command inside Actions, with GitHub to ask ----------
+
+describe("who pushed the head commit, and who approved it", () => {
+  const owner = OWNERS[0], OLD = "b".repeat(40);
+  let server, api, head, state;
+  /** Answer a request to the stand-in API with JSON. */
+  const reply = (res, status, body) => { res.writeHead(status, { "content-type": "application/json" }); res.end(JSON.stringify(body)); };
+  /** A branch's activity log, newest first: `login` pushed the head on top of a commit the owner pushed. */
+  const pushedBy = (login) => [{ activity_type: "push", before: OLD, after: head, actor: { login } }, { activity_type: "branch_creation", before: "0".repeat(40), after: OLD, actor: { login: owner } }];
+  /** The pull request's reviews: one approval, by the owner, of `commit_id`. */
+  const approvalOf = (commit_id) => [{ id: 1, user: { login: owner }, state: "APPROVED", commit_id, submitted_at: "2026-10-12T01:00:00Z" }];
+
+  /** Run the guard as the workflow does, against a stand-in for the GitHub API. `answers` is what GitHub would say. */
+  const guard = (answers, env = {}) => new Promise((done) => {
+    state = { asked: [], activity: [], reviews: [], ...answers };
+    const options = { encoding: "utf8", env: { ...process.env, GITHUB_ACTIONS: "true", GITHUB_STEP_SUMMARY: "", GITHUB_API_URL: api, GITHUB_REPOSITORY: "o/r", GITHUB_TOKEN: "", PR_NUMBER: "7", PR_AUTHOR: owner, EVENT_ACTION: "opened", EVENT_AFTER: "", EVENT_SENDER: owner, ...env } };
+    execFile(process.execPath, [GUARD, "--repo", dir, "--lock", lockFile, "--base", baseSha, "--head", head], options, (error, stdout) => done({ status: error ? error.code : 0, stdout, asked: state.asked }));
+  });
+
+  before(async () => {
+    head = pullRequest({ "app/src/lib/launchpad/config.ts": BASE["app/src/lib/launchpad/config.ts"].replace(ROUTER, STRANGER) });
+    server = createServer((req, res) => {
+      const url = new URL(req.url, "http://github.test");
+      const what = url.pathname.replace("/repos/o/r/", "");
+      state.asked.push(what);
+      if (state.down) return reply(res, 503, {});
+      if (what === "pulls/7") return reply(res, 200, { head: { sha: state.movedTo ?? head, ref: "feature/x", repo: { full_name: "o/r" } } });
+      if (what === "activity" && url.searchParams.get("ref") === "refs/heads/feature/x") return reply(res, 200, state.activity);
+      if (what === "pulls/7/reviews") return reply(res, 200, state.reviews);
+      return reply(res, 404, {});
+    });
+    await new Promise((listening) => server.listen(0, "127.0.0.1", listening));
+    api = `http://127.0.0.1:${server.address().port}`;
+  });
+  after(() => new Promise((closed) => server.close(closed)));
+
+  test("an owner opens a pull request from a branch they pushed: the sensitive change is a notice", async () => {
+    const result = await guard({ activity: [{ activity_type: "branch_creation", before: "0".repeat(40), after: head, actor: { login: owner } }] });
+    assert.equal(result.status, 0);
+    assert.match(result.stdout, /pr-guard: pass {2}\(0 blocking, 1 for review\)/);
+    assert.match(result.stdout, /^::notice title=pr-guard%3A On-chain address,/m);
+    assert.deepEqual(result.asked, ["pulls/7", "activity"]);
+  });
+
+  test("an owner reopens a pull request that someone else pushed to while it was closed: it waits", async () => {
+    const result = await guard({ activity: pushedBy("collaborator") }, { EVENT_ACTION: "reopened" });
+    assert.equal(result.status, 1);
+    assert.match(result.stdout, /pr-guard: review {2}\(0 blocking, 1 for review\)/);
+    assert.deepEqual(result.asked, ["pulls/7", "activity", "pulls/7/reviews"]);
+  });
+
+  test("an owner opens a pull request from a branch someone else pushed: it waits", async () => {
+    assert.equal((await guard({ activity: pushedBy("collaborator") })).status, 1);
+    assert.equal((await guard({ activity: pushedBy(owner) })).status, 0);
+  });
+
+  test("a push names its pusher, so nothing is asked: the owner's passes, anyone else's waits", async () => {
+    const own = await guard({ activity: pushedBy("collaborator") }, { EVENT_ACTION: "synchronize", EVENT_AFTER: head });
+    assert.deepEqual([own.status, own.asked], [0, []]);
+    const other = await guard({ activity: pushedBy(owner) }, { EVENT_ACTION: "synchronize", EVENT_AFTER: head, EVENT_SENDER: "collaborator" });
+    assert.deepEqual([other.status, other.asked], [1, ["pulls/7/reviews"]]);
+  });
+
+  test("a push event whose commit is no longer the head does not speak for the head: the log is asked", async () => {
+    const overtaken = await guard({ activity: pushedBy("collaborator") }, { EVENT_ACTION: "synchronize", EVENT_AFTER: OLD });
+    assert.deepEqual([overtaken.status, overtaken.asked], [1, ["pulls/7", "activity", "pulls/7/reviews"]]);
+    assert.equal((await guard({ activity: pushedBy(owner) }, { EVENT_ACTION: "synchronize", EVENT_AFTER: OLD })).status, 0);
+    assert.equal((await guard({ activity: pushedBy("collaborator") }, { EVENT_ACTION: "synchronize" })).status, 1, "a push event that names no commit");
+  });
+
+  test("when GitHub cannot say who pushed the commit, it is nobody's", async () => {
+    const down = await guard({ down: true });
+    assert.equal(down.status, 1);
+    assert.match(down.stdout, /note: Could not confirm who pushed [0-9a-f]{7} \(HTTP 503\), so it is not counted as an owner's push\./);
+    assert.match((await guard({ activity: [] })).stdout, /\(the branch's activity log does not list that push\)/);
+    assert.match((await guard({ activity: pushedBy(owner), movedTo: OLD })).stdout, /\(the pull request's head is now another commit\)/);
+    const nothingToAsk = await guard({ activity: pushedBy(owner) }, { PR_NUMBER: "" });
+    assert.deepEqual([nothingToAsk.status, nothingToAsk.asked], [1, []]);
+    assert.match(nothingToAsk.stdout, /\(this run has no pull request to ask about\)/);
+  });
+
+  test("a contributor's pull request passes on an owner's approval of the head commit, and only of that commit", async () => {
+    const approved = await guard({ reviews: approvalOf(head) }, { PR_AUTHOR: "someone", EVENT_SENDER: "someone" });
+    assert.deepEqual([approved.status, approved.asked], [0, ["pulls/7/reviews"]]);
+    assert.equal((await guard({ reviews: approvalOf(OLD) }, { PR_AUTHOR: "someone", EVENT_SENDER: "someone" })).status, 1);
+    assert.equal((await guard({}, { PR_AUTHOR: "someone", EVENT_SENDER: owner, EVENT_ACTION: "reopened" })).status, 1, "an owner reopening it is not an approval");
+    const unread = await guard({ down: true }, { PR_AUTHOR: "someone", EVENT_SENDER: "someone" });
+    assert.equal(unread.status, 1);
+    assert.match(unread.stdout, /Could not read the pull request's reviews \(HTTP 503\), so no approval was counted\./);
   });
 });

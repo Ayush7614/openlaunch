@@ -39,9 +39,10 @@ your code. It has two answers besides "passed":
 
 - **Blocked.** Refused for everyone, maintainers included: a change to any file listed in `contracts/deployed.lock`
   (the deployed contract sources, their build settings, the pinned libraries and the deployment records), anything under
-  `.github/`, a lockfile entry that does not come from the npm registry, a new install-time script, a committed key or
-  `.env` file, invisible or direction-changing Unicode, symlinks, new submodules, binaries that are not plain images or
-  fonts, and editor or agent configuration (`.vscode/`, `.claude/`, `AGENTS.md`, `.envrc` and the like).
+  `.github/`, a dependency or lockfile entry that does not come from the npm registry (git, a URL, a local path, an
+  alias), a new install-time script, a committed key or `.env` file, invisible or direction-changing Unicode, symlinks,
+  new submodules, binaries that are not plain images or fonts, and editor or agent configuration (`.vscode/`,
+  `.claude/`, `AGENTS.md`, `.envrc` and the like).
 - **Needs a maintainer's approval.** Allowed, and listed for a maintainer to read: new files under `contracts/`,
   dependency and npm script changes, on-chain addresses, wallet calls, new hosts and environment variables, security
   headers, build and deploy files, migrations, and code that executes strings or injects raw HTML. The check turns green
@@ -63,6 +64,13 @@ node .github/scripts/pr-guard.mjs --base origin/main --head HEAD
 - The owners are `OWNERS` in `.github/scripts/pr-guard.mjs`, mirrored in `.github/CODEOWNERS`.
 - To release a pull request the guard is holding: read the job summary, approve the head commit with a pull request
   review, then re-run the `pr-guard` job.
+- The check is a snapshot of the reviews at the moment it ran, and a review does not start it again. If you take an
+  approval back (dismiss it, or request changes), re-run the job as well: until then the earlier pass stays on that
+  commit. The reason is in the header of `.github/workflows/pr-guard.yml`.
+- On an owner's own pull request the sensitive changes are notices, as long as an owner pushed the head commit. If
+  someone else pushed it (also when the pull request was opened or reopened after their push), the check waits like
+  anyone's. GitHub does not let an author approve their own pull request, so read the changes and push the next commit
+  yourself, or have another owner approve.
 - A blocked pull request that should merge anyway (a CI change, a new entry in `contracts/deployed.lock`) is merged by
   an admin with the branch rule bypass, after reading it.
 - The guard protects `main` only while `pr-guard` is a required status check in the branch rules.

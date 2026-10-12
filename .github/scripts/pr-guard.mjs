@@ -8,11 +8,11 @@
 // Two kinds of finding:
 //   block   red for everyone, the owners included. Merging takes a deliberate admin bypass.
 //   review  red until an owner approves the exact head commit with a pull request review (then re-run the job). On an
-//           owner's own pull request it is a notice.
+//           owner's own pull request it is a notice, as long as an owner pushed the head commit.
 //
 // Findings name the matched token (an address, a host, a function), never the whole line, and never a secret's value.
 //
-// Local replay:  node .github/scripts/pr-guard.mjs --base <ref> --head <ref> [--author <login>] [--sender <login>] [--approved] [--json]
+// Local replay:  node .github/scripts/pr-guard.mjs --base <ref> --head <ref> [--author <login>] [--pusher <login>] [--approved] [--json]
 
 import { execFileSync } from "node:child_process";
 import { appendFileSync, readFileSync } from "node:fs";
@@ -96,10 +96,12 @@ const OTHER_LOCK = /(^|\/)(yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|deno\.lock)$/;
 const isTest = (p) => /\.(test|spec)\.[cm]?[jt]sx?$|\.t\.sol$|^contracts\/test\//.test(p);
 /** Everything that is not plainly prose is read as code, whatever its extension. */
 const isCode = (p) => !/\.(md|markdown|txt|rst|adoc|csv|tsv|diff|patch)$/i.test(p) && !/(^|\/)(LICENSE|NOTICE|AUTHORS)[^/]*$/.test(p);
+/** The file extension, lowercase and without its dot; "" when there is none. */
 const ext = (p) => (/\.([A-Za-z0-9]+)$/.exec(p)?.[1] ?? "").toLowerCase();
 
 // ---------- content rules ----------
 
+/** A slice of a file's bytes as text, for comparing with a format's signature. */
 const ascii = (b, from, to) => b.subarray(from, to).toString("latin1");
 /** Images and fonts may be binary, when the bytes are what the name says. */
 const MAGIC = {
@@ -278,8 +280,24 @@ export function scanBytes(path, bytes) {
 
 const LIFECYCLE = new Set(["preinstall", "install", "postinstall", "prepublish", "preprepare", "prepare", "postprepare", "prepack", "postpack", "dependencies"]);
 const DEP_FIELDS = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies", "overrides", "resolutions"];
-const OFF_REGISTRY = /^(git|git\+\w+|https?|file|link|github|gitlab|bitbucket|gist|workspace|npm|portal|patch):|:\/\/|^[\w.-]+\/[\w.-]+(#.*)?$/i;
+/**
+ * What the registry is asked for: a version, a range or a tag. Anything else names a place. npm reads a leading dot, a
+ * slash, a colon, an @ or a tarball's name as a folder, a file, a URL, a git remote or an alias, so the rule lists what a
+ * registry spec may hold instead of every way to leave the registry.
+ */
+const REGISTRY_SPEC = /^(?!\.)[\w.^~<>=*|+ -]*$/;
+/** A tarball's name, as npm tests it. The dot in "tar.gz" is left bare on purpose: older npm reads "x.tar-gz" as a file too. */
+const TARBALL = /\.(tgz|tar.gz|tar)$/i;
+/** In `overrides`, "$name" stands for the version this manifest already asks for under that name. */
+const OVERRIDE_REFERENCE = /^\$(@[a-z\d~-][\w.~-]*\/)?[a-z\d~-][\w.~-]*$/i;
+/** True when a dependency's spec takes the package from anywhere but the npm registry. */
+function offRegistry(field, spec) {
+  const text = spec.trim();
+  if (field === "overrides" && OVERRIDE_REFERENCE.test(text)) return false;
+  return !REGISTRY_SPEC.test(text) || TARBALL.test(text);
+}
 
+/** A JSON object from a file's text: {} when the file is absent, null when it is not an object. */
 const parseJson = (text) => {
   if (text === null) return {};
   try {
@@ -322,7 +340,7 @@ export function lintManifest(path, headText, baseText) {
     for (const [name, spec] of Object.entries(now)) {
       const had = Object.hasOwn(was, name);
       if (had && was[name] === spec) continue;
-      if (OFF_REGISTRY.test(spec)) add("dependency-source", `${name} comes from "${spec}"`);
+      if (offRegistry(field, spec)) add("dependency-source", `${name} comes from "${spec}"`);
       else add("dependencies", had ? `${name} ${was[name]} → ${spec}` : `${name} ${spec} added (${field})`);
     }
     for (const name of Object.keys(was)) if (!Object.hasOwn(now, name)) add("dependencies", `${name} removed (${field})`);
@@ -398,6 +416,7 @@ export function parseRaw(raw) {
   return changes;
 }
 
+/** A line without the carriage return a Windows line ending leaves behind. */
 const stripCr = (line) => (line.endsWith("\r") ? line.slice(0, -1) : line);
 /** A zero-context unified diff to { added: [{ n, text }], removed: [text] }. */
 export function parseHunks(diff) {
@@ -412,6 +431,7 @@ export function parseHunks(diff) {
   }
   return { added, removed };
 }
+/** Every line of a new file as an added line: [{ n, text }]. */
 const allLines = (text) => {
   const lines = text.split("\n");
   if (lines.at(-1) === "") lines.pop();
@@ -467,6 +487,7 @@ export function openRepo(cwd, base, head) {
   };
 }
 
+/** A value computed on first use and kept: the base branch is only searched when a rule needs it. */
 const lazy = (make) => {
   let value;
   return () => (value ??= make());
@@ -523,19 +544,26 @@ export function analyze(repo, { lockedPaths }) {
     if (OTHER_LOCK.test(path) && !gone) add("dependencies", path, "a lockfile for another package manager");
 
     if (gone || (newMode !== "100644" && newMode !== "100755")) continue;
-    if (++scanned > MAX_SCAN_FILES) { add("unscanned", path, `more than ${MAX_SCAN_FILES} files in one pull request`); continue; }
+    // A manifest or lockfile the guard could not check is refused, not handed on for review: failing to read it must
+    // never rank below what reading it would have found.
+    const dependencyRule = MANIFEST.test(path) ? "dependency-source" : NPM_LOCK.test(path) ? "lockfile" : null;
+    let checked = !dependencyRule;
+    const unread = (why) => (checked ? add("unscanned", path, why) : add(dependencyRule, path, `could not be checked: ${why}`));
+    if (++scanned > MAX_SCAN_FILES) { unread(`more than ${MAX_SCAN_FILES} files in one pull request`); continue; }
     try {
       const bytes = repo.blob(change.newSha);
-      if (!bytes) { add("unscanned", path, `larger than ${MAX_BLOB_BYTES / 1_000_000} MB`); continue; }
+      if (!bytes) { unread(`larger than ${MAX_BLOB_BYTES / 1_000_000} MB`); continue; }
       const byteFindings = scanBytes(path, bytes);
       if (byteFindings) { for (const f of byteFindings) add(f.rule, f.path, f.detail, f.line); continue; }
-      if (bytes.length > MAX_TEXT_BYTES) { add("unscanned", path, `a text file of ${Math.ceil(bytes.length / 1_000_000)} MB`); continue; }
 
+      // dependency files are read whole whatever their size; the limit below is on what is matched line by line
       if (MANIFEST.test(path)) for (const f of lintManifest(path, bytes.toString("utf8"), repo.baseText(path))) add(f.rule, f.path, f.detail);
       if (NPM_LOCK.test(path)) {
         for (const f of lintNpmLock(path, bytes.toString("utf8"), repo.baseText(path))) add(f.rule, f.path, f.detail);
         continue; // thousands of registry URLs and hashes: the structure check above is the scan
       }
+      checked = true;
+      if (bytes.length > MAX_TEXT_BYTES) { add("unscanned", path, `a text file of ${Math.ceil(bytes.length / 1_000_000)} MB`); continue; }
       const lines = status === "A" || /^0+$/.test(change.oldSha) || oldMode === "160000" || oldMode === "120000"
         ? { added: allLines(bytes.toString("utf8")), removed: [] }
         : repo.diff(change.oldSha, change.newSha);
@@ -545,7 +573,7 @@ export function analyze(repo, { lockedPaths }) {
       for (const f of found.slice(0, MAX_FINDINGS_PER_FILE)) add(f.rule, f.path, f.detail, f.line);
       if (found.length > MAX_FINDINGS_PER_FILE) add("unscanned", path, `${found.length - MAX_FINDINGS_PER_FILE} more findings in this file are not listed`);
     } catch (error) {
-      add("unscanned", path, `could not be read (${error.code ?? error.status ?? "error"})`);
+      unread(`could not be read (${error.code ?? error.status ?? "error"})`);
     }
   }
   return findings;
@@ -567,17 +595,30 @@ export function ownerApproval(reviews, owners, headSha) {
 }
 
 /**
- * pass / review / block. An owner's own pull request, at a commit an owner pushed, turns "review" findings into notices;
- * so does an owner's approval of the exact head commit. Nothing turns a "block" into a pass.
+ * Who pushed `headSha` to the pull request's branch, from the branch's activity log (newest first), or null when the log
+ * does not list that push. Creating the branch, a force push and a merge into the branch all count as pushing it.
  */
-export function verdict(findings, { author, sender, approvedBy, owners = OWNERS }) {
+export function pusherOf(activity, headSha) {
+  const push = Array.isArray(activity) ? activity.find((entry) => entry?.after === headSha) : null;
+  return push?.actor?.login ?? null;
+}
+
+/**
+ * pass / review / block. An owner's own pull request, at a head commit an owner pushed, turns "review" findings into
+ * notices; so does an owner's approval of the exact head commit. Nothing turns a "block" into a pass.
+ *
+ * `pusher` is whoever pushed the head commit, which is not always whoever started the run: reopening a pull request, or
+ * opening one from a branch someone else pushed, does not make the commit the owner's.
+ */
+export function verdict(findings, { author, pusher, approvedBy, owners = OWNERS }) {
   const is = (login) => owners.includes(String(login ?? "").toLowerCase());
   const blocks = findings.filter((f) => f.tier === "block").length;
   const reviews = findings.filter((f) => f.tier === "review").length;
-  const ownPr = is(author) && is(sender);
-  if (blocks > 0) return { outcome: "block", ok: false, blocks, reviews, ownPr, approvedBy: null };
-  if (reviews > 0 && !ownPr && !approvedBy) return { outcome: "review", ok: false, blocks, reviews, ownPr, approvedBy: null };
-  return { outcome: "pass", ok: true, blocks, reviews, ownPr, approvedBy: reviews > 0 && !ownPr ? approvedBy : null };
+  const byOwner = is(author);
+  const ownPr = byOwner && is(pusher);
+  if (blocks > 0) return { outcome: "block", ok: false, blocks, reviews, byOwner, ownPr, approvedBy: null };
+  if (reviews > 0 && !ownPr && !approvedBy) return { outcome: "review", ok: false, blocks, reviews, byOwner, ownPr, approvedBy: null };
+  return { outcome: "pass", ok: true, blocks, reviews, byOwner, ownPr, approvedBy: reviews > 0 && !ownPr ? approvedBy : null };
 }
 
 // ---------- report ----------
@@ -587,6 +628,12 @@ export const plain = (value, max = 200) => {
   const text = String(value).replace(/[\u0000-\u001F\u007F-\u009F\u2028\u2029]/g, " ").replace(/[\u061C\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g, "?");
   return text.length > max ? `${text.slice(0, max)}…` : text;
 };
+/**
+ * Untrusted text for the job log. The runner reads "::command::" at the start of a line (after any spaces) and
+ * "##[command]" anywhere in one, so the second is broken up here and the first by never starting a line with such text.
+ */
+const logged = (value, max) => plain(value, max).replace(/##\[/g, "# #[");
+/** Untrusted text as a Markdown code span, where nothing in it is read as Markdown, HTML or a link. */
 const code = (value) => `\`${plain(value).replace(/`/g, "'") || " "}\``;
 /** A workflow command with its data and properties escaped, so file names and details cannot start a command of their own. */
 export function annotation(level, { path, line, title }, message) {
@@ -609,7 +656,11 @@ function grouped(findings, tier) {
   }
   return Object.keys(RULES).filter((rule) => byRule.has(rule)).map((rule) => [rule, [...byRule.get(rule)]]);
 }
-const describe = (list) => {
+/**
+ * One file's findings on one line: each distinct detail once, with the lines it was found on. `show` makes a detail safe
+ * for where the line is printed. Details carry text from the pull request (a dependency's name, a script's name, a host).
+ */
+const describe = (list, show) => {
   const seen = new Map();
   for (const f of list) {
     if (!seen.has(f.detail)) seen.set(f.detail, []);
@@ -617,11 +668,12 @@ const describe = (list) => {
   }
   const parts = [...seen].slice(0, 6).map(([detail, lines]) => {
     const where = lines.length === 0 ? "" : ` (line ${lines.slice(0, 4).join(", ")}${lines.length > 4 ? `, +${lines.length - 4}` : ""})`;
-    return `${plain(detail)}${where}`;
+    return `${show(detail)}${where}`;
   });
   return parts.join("; ") + (seen.size > 6 ? `; and ${seen.size - 6} more` : "");
 };
 
+/** The job summary, in Markdown: the verdict, what to do next, and the findings by rule. */
 export function renderSummary(findings, result, { headSha, owners = OWNERS, note = "" }) {
   const short = headSha.slice(0, 7);
   const names = owners.map((login) => `@${login}`).join(" or ");
@@ -629,13 +681,16 @@ export function renderSummary(findings, result, { headSha, owners = OWNERS, note
   if (result.outcome === "block") {
     out.push("## pr-guard: blocked", "", `${result.blocks} blocking ${result.blocks === 1 ? "finding" : "findings"} at \`${short}\`. These are refused for everyone. Take the change out of the pull request, or a repository admin merges it with an explicit bypass after reading it.`);
   } else if (result.outcome === "review") {
-    out.push("## pr-guard: needs an owner's approval", "", `Nothing is blocked, and ${result.reviews} sensitive ${result.reviews === 1 ? "change needs" : "changes need"} a look from ${names}.`, "", `**To pass:** ${names} reads the points below, approves commit \`${short}\` with a pull request review, then re-runs this job. A new push needs a new approval.`);
+    out.push("## pr-guard: needs an owner's approval", "", `Nothing is blocked, and ${result.reviews} sensitive ${result.reviews === 1 ? "change needs" : "changes need"} a look from ${names}.`, "");
+    // an author cannot approve their own pull request on GitHub, so an owner's has a second way through
+    if (result.byOwner) out.push(`This is an owner's pull request, but commit \`${short}\` does not count as an owner's push. **To pass:** an owner reads the points below and pushes the next commit to the branch, or another owner approves commit \`${short}\` with a pull request review and re-runs this job.`);
+    else out.push(`**To pass:** ${names} reads the points below, approves commit \`${short}\` with a pull request review, then re-runs this job. A new push needs a new approval.`);
   } else if (result.reviews > 0) {
-    out.push("## pr-guard: passed", "", result.approvedBy ? `@${result.approvedBy} approved commit \`${short}\`. The sensitive changes are listed below for the record.` : `An owner's own pull request at \`${short}\`. The sensitive changes are listed below as notices.`);
+    out.push("## pr-guard: passed", "", result.approvedBy ? `@${result.approvedBy} approved commit \`${short}\`. The sensitive changes are listed below for the record.` : `An owner's own pull request, and an owner pushed \`${short}\`. The sensitive changes are listed below as notices.`);
   } else {
     out.push("## pr-guard: passed", "", `Nothing blocked and nothing sensitive at \`${short}\`.`);
   }
-  if (note) out.push("", `> ${plain(note)}`);
+  if (note) out.push("", `> ${plain(note, 600)}`);
   let budget = 400;
   for (const [tier, heading] of [["block", "Blocked"], ["review", result.ok ? "Sensitive changes" : "Needs an owner's approval"]]) {
     const groups = grouped(findings, tier);
@@ -645,7 +700,7 @@ export function renderSummary(findings, result, { headSha, owners = OWNERS, note
       out.push("", `**${RULES[rule].title}** (\`${rule}\`)  `, RULES[rule].help, "");
       for (const [path, list] of paths) {
         if (--budget < 0) break;
-        out.push(`- ${code(path)}: ${describe(list)}`);
+        out.push(`- ${code(path)}: ${describe(list, code)}`);
       }
       if (budget < 0) out.push("- and more; the list is cut here");
     }
@@ -653,12 +708,14 @@ export function renderSummary(findings, result, { headSha, owners = OWNERS, note
   return `${out.join("\n")}\n`;
 }
 
+/** The same verdict and findings as plain text, for the job log and a local run. */
 export function renderText(findings, result) {
   const out = [`pr-guard: ${result.outcome}  (${result.blocks} blocking, ${result.reviews} for review)`];
+  if (result.outcome === "review" && result.byOwner) out.push("  an owner's pull request, held because the head commit does not count as an owner's push");
   for (const tier of ["block", "review"]) {
     for (const [rule, paths] of grouped(findings, tier)) {
       out.push(`  [${tier}] ${rule}: ${RULES[rule].title}`);
-      for (const [path, list] of paths) out.push(`      ${plain(path)}: ${describe(list)}`);
+      for (const [path, list] of paths) out.push(`      - ${logged(path)}: ${describe(list, logged)}`);
     }
   }
   return out.join("\n");
@@ -666,20 +723,52 @@ export function renderText(findings, result) {
 
 // ---------- entry point ----------
 
-async function fetchReviews({ api, repository, number, token }) {
+/**
+ * GET a GitHub API path as JSON, with the job's read-only token when there is one. A failure is one of a few fixed
+ * reasons, so nothing the API sent back ends up in the report.
+ */
+async function getJson(env, path) {
+  let response;
+  try {
+    response = await fetch(`${env.GITHUB_API_URL ?? "https://api.github.com"}${path}`, {
+      headers: { accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", ...(env.GITHUB_TOKEN ? { authorization: `Bearer ${env.GITHUB_TOKEN}` } : {}) },
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch (error) {
+    throw new Error(error?.name === "TimeoutError" ? "no answer in 30 seconds" : "no answer");
+  }
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  try {
+    return await response.json();
+  } catch {
+    throw new Error("the answer was not JSON");
+  }
+}
+
+/** Every review on the pull request, oldest first. */
+async function fetchReviews(env) {
   const reviews = [];
   for (let page = 1; page <= 20; page++) {
-    const response = await fetch(`${api}/repos/${repository}/pulls/${number}/reviews?per_page=100&page=${page}`, {
-      headers: { accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", ...(token ? { authorization: `Bearer ${token}` } : {}) },
-    });
-    if (!response.ok) throw new Error(`reviews: HTTP ${response.status}`);
-    const batch = await response.json();
+    const batch = await getJson(env, `/repos/${env.GITHUB_REPOSITORY}/pulls/${env.PR_NUMBER}/reviews?per_page=100&page=${page}`);
+    if (!Array.isArray(batch)) throw new Error("the answer was not a list");
     reviews.push(...batch);
     if (batch.length < 100) return reviews;
   }
-  throw new Error("reviews: too many pages");
+  throw new Error("more than 2000 reviews");
 }
 
+/** Who pushed `headSha` to the pull request's branch. Throws, with the reason, when GitHub cannot say. */
+async function fetchPusher(env, headSha) {
+  const pr = await getJson(env, `/repos/${env.GITHUB_REPOSITORY}/pulls/${env.PR_NUMBER}`);
+  if (pr?.head?.sha !== headSha) throw new Error("the pull request's head is now another commit");
+  const branch = pr.head.ref, source = pr.head.repo?.full_name;
+  if (typeof branch !== "string" || !/^[\w.-]+\/[\w.-]+$/.test(source ?? "")) throw new Error("the pull request's branch is gone");
+  const pusher = pusherOf(await getJson(env, `/repos/${source}/activity?ref=${encodeURIComponent(`refs/heads/${branch}`)}&per_page=100`), headSha);
+  if (!pusher) throw new Error("the branch's activity log does not list that push");
+  return pusher;
+}
+
+/** Read the pull request, ask GitHub what the rules cannot see, print the report. Returns the exit code. */
 async function main(argv, env) {
   const flag = (name) => (argv.includes(`--${name}`) ? argv[argv.indexOf(`--${name}`) + 1] : undefined);
   const cwd = resolve(flag("repo") ?? ".");
@@ -687,7 +776,7 @@ async function main(argv, env) {
   const base = flag("base") ?? env.GUARD_BASE ?? "HEAD";
   if (!head) throw new Error("no head commit: pass --head or set GUARD_HEAD");
   const author = flag("author") ?? env.PR_AUTHOR ?? "";
-  const sender = flag("sender") ?? env.EVENT_SENDER ?? author;
+  const isOwner = (login) => OWNERS.includes(String(login ?? "").toLowerCase());
 
   // the lock is read from this checkout (main's copy in CI), never from the pull request
   const lockedPaths = parseLock(readFileSync(resolve(flag("lock") ?? LOCK_PATH), "utf8"));
@@ -695,26 +784,44 @@ async function main(argv, env) {
 
   const repo = openRepo(cwd, base, head);
   const findings = analyze(repo, { lockedPaths });
-
-  let approvedBy = argv.includes("--approved") ? OWNERS[0] : null;
-  let note = "";
+  const short = repo.headSha.slice(0, 7);
+  const notes = [];
   const needsApproval = findings.some((f) => f.tier === "review") && !findings.some((f) => f.tier === "block");
-  if (needsApproval && !approvedBy && env.PR_NUMBER && env.GITHUB_REPOSITORY) {
-    try {
-      const reviews = await fetchReviews({ api: env.GITHUB_API_URL ?? "https://api.github.com", repository: env.GITHUB_REPOSITORY, number: env.PR_NUMBER, token: env.GITHUB_TOKEN });
-      approvedBy = ownerApproval(reviews, OWNERS, repo.headSha);
-    } catch (error) {
-      note = `Could not read the pull request's reviews (${error.message}), so no approval was counted. Re-run this job.`;
+  const onGitHub = Boolean(env.PR_NUMBER && env.GITHUB_REPOSITORY);
+
+  // Who pushed the head commit. A local replay reads the branch as its author's own. In Actions nothing is assumed: a
+  // push event names the pusher of the commit it left as the head, and for anything else (opened, reopened, a head that
+  // has moved past that push) the branch's activity log is asked.
+  let pusher = flag("pusher") ?? (env.GITHUB_ACTIONS ? "" : author);
+  if (flag("pusher") === undefined && env.GITHUB_ACTIONS && needsApproval && isOwner(author)) {
+    if (env.EVENT_ACTION === "synchronize" && env.EVENT_AFTER === repo.headSha) pusher = env.EVENT_SENDER ?? "";
+    else {
+      try {
+        if (!onGitHub) throw new Error("this run has no pull request to ask about");
+        pusher = await fetchPusher(env, repo.headSha);
+      } catch (error) {
+        notes.push(`Could not confirm who pushed ${short} (${error.message}), so it is not counted as an owner's push. Re-run this job to ask again.`);
+      }
     }
   }
-  const result = verdict(findings, { author, sender, approvedBy });
+
+  let approvedBy = argv.includes("--approved") ? OWNERS[0] : null;
+  if (needsApproval && !approvedBy && onGitHub && !(isOwner(author) && isOwner(pusher))) {
+    try {
+      approvedBy = ownerApproval(await fetchReviews(env), OWNERS, repo.headSha);
+    } catch (error) {
+      notes.push(`Could not read the pull request's reviews (${error.message}), so no approval was counted. Re-run this job.`);
+    }
+  }
+  const result = verdict(findings, { author, pusher, approvedBy });
+  const note = notes.join(" ");
 
   if (argv.includes("--json")) {
-    console.log(JSON.stringify({ result, findings }, null, 1));
+    console.log(JSON.stringify({ result, notes, findings }, null, 1));
     return result.ok ? 0 : 1;
   }
   console.log(renderText(findings, result));
-  if (note) console.log(`  note: ${plain(note)}`);
+  if (note) console.log(`  note: ${logged(note, 600)}`);
   if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, renderSummary(findings, result, { headSha: repo.headSha, note }));
   if (env.GITHUB_ACTIONS) {
     const level = { block: "error", review: result.ok ? "notice" : "warning" };
@@ -728,12 +835,13 @@ async function main(argv, env) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  // any failure of the guard itself is a failed check, never a pass
+  // Any failure of the guard itself is a failed check, never a pass. The exit code is set rather than forced, so a report
+  // still on its way into a pipe is written in full before the process ends.
   main(process.argv.slice(2), process.env).then(
-    (exit) => process.exit(exit),
+    (exit) => { process.exitCode = exit; },
     (error) => {
-      console.log(`pr-guard could not finish, so the check fails: ${plain(error?.message ?? error, 300)}`);
-      process.exit(1);
+      console.log(`pr-guard could not finish, so the check fails: ${logged(error?.message ?? error, 300)}`);
+      process.exitCode = 1;
     },
   );
 }
