@@ -61,7 +61,7 @@ export const RULES = {
   "new-env": { tier: "review", title: "A new environment variable", help: "New configuration the deployment has to carry, or new access to existing secrets." },
   "dangerous-code": { tier: "review", title: "Code execution, raw HTML or shell", help: "Patterns that run code, inject markup, start processes or decode hidden text." },
   "auth-removed": { tier: "review", title: "A security check was removed", help: "Signature, nonce, rate limit or validation calls that the change drops." },
-  "security-config": { tier: "review", title: "Security headers, proxy or files served as the site", help: "The Content-Security-Policy, the request proxy, the Next.js configuration, and static pages, scripts or .well-known files that run as, or vouch for, the site's origin." },
+  "security-config": { tier: "review", title: "Security headers, proxy or files served as the site", help: "The Content-Security-Policy, the request proxy, the Next.js configuration, and files the site serves as they are: anything in app/public that is not a plain image, font or text file, and every SVG, page or XML file, since those run as, or vouch for, the site's origin." },
   "build-deploy": { tier: "review", title: "Build, deploy, database or script files", help: "Files that run during the build, the deploy or a migration against the production database." },
   policy: { tier: "review", title: "License or security policy", help: "The security contact and the license are changed by the maintainers." },
   "git-config": { tier: "review", title: "Git attributes", help: "Attributes change how files are diffed, merged and exported." },
@@ -82,7 +82,11 @@ const SECRET_FILE = /(^|\/)\.env(\.(?!example$)[^/]*)?$|\.(pem|p12|pfx|jks|keyst
 
 const REVIEW_PATHS = [
   ["contracts", /^contracts\//],
-  ["security-config", /^app\/src\/(proxy|middleware|instrumentation)\.[cm]?[jt]s$|^app\/src\/lib\/(security-headers|rpc-proxy)\.ts$|^app\/next\.config\.[cm]?[jt]s$|^app\/public\/.*\.(html?|xhtml|xml|[cm]?js|webmanifest)$|^app\/(public|src\/app)\/\.well-known\//],
+  // app/public is served as it is, so everything in it counts except what cannot act: images and fonts (their bytes are
+  // checked against their names) and plain text. A browser runs script in anything served as HTML or XML, and there are
+  // dozens of such file types, so the rule names the few that are inert. Markup elsewhere in the app is served too
+  // (icon.svg, sitemap.xml, an imported image), and so is the web app manifest.
+  ["security-config", /^app\/src\/(proxy|middleware|instrumentation)\.[cm]?[jt]s$|^app\/src\/lib\/(security-headers|rpc-proxy)\.ts$|^app\/next\.config\.[cm]?[jt]s$|^app\/public\/(?!.*\.(png|jpe?g|gif|webp|avif|ico|woff2?|txt)$)|^app\/.*\.(svg|xml|xhtml?|html?|webmanifest)$|^app\/src\/app\/(.*\/)?manifest\.json$|^app\/(public|src\/app)\/\.well-known\//i],
   ["policy", /^(LICENSE[^/]*|SECURITY\.md)$/i],
   ["git-config", /(^|\/)\.gitattributes$/],
   ["build-deploy", /(^|\/)(Dockerfile[^/]*|\.dockerignore|docker-compose[^/]*\.ya?ml|fly[^/]*\.toml|vercel\.json|Makefile|Procfile)$|^app\/(scripts|db)\/|^app\/(postcss|eslint)\.config\.[cm]?[jt]s$|^app\/tsconfig[^/]*\.json$|^app\/\.env\.example$|\.(sh|bash|zsh|py|rb|pl|ps1|bat|cmd)$/i],
@@ -158,7 +162,34 @@ export function hiddenCharacter(text, atFileStart = false) {
   return null;
 }
 
-const SVG_ACTIVE = /<(?:script|foreignObject|iframe|embed|object)\b|\son[a-z]+\s*=|javascript:|<\?xml-stylesheet|<!ENTITY/i;
+/** An element that runs or embeds something, under any namespace prefix: <script>, <svg:script>, <x:script xmlns:x="…">. */
+const SVG_ELEMENT = /<(?:[^\s<>\/:"'=]+:)?(?:script|foreignObject|iframe|embed|object|handler|listener)\b/i;
+/** An event handler attribute, or an animation that sets one. An attribute may sit on a line of its own, away from its "=". */
+const SVG_HANDLER = /\son[a-z]+\s*=|attributeName\s*=\s*["']\s*on/i;
+/** A stylesheet instruction, or a document type that defines text or default attributes (a default onload among them). */
+const SVG_DECLARATION = /<\?xml-stylesheet|<!ENTITY|<!ATTLIST/i;
+const XHTML = "http://www.w3.org/1999/xhtml";
+
+/**
+ * What makes an SVG active, or null when nothing does. It is read as a whole file, because XML lets a tag and its
+ * attributes run over several lines, and after undoing character references, because a browser reads
+ * "&#106;avascript&#58;" as "javascript:" and drops tabs and line breaks from inside an address.
+ * The matching is loose on purpose: a comment or a caption that only mentions <script> is refused as well.
+ */
+export function activeSvg(text) {
+  const decoded = text
+    .replace(/&#(x[0-9a-f]+|[0-9]+);?/gi, (whole, ref) => {
+      const point = /^x/i.test(ref) ? parseInt(ref.slice(1), 16) : parseInt(ref, 10);
+      return point <= 0x10ffff ? String.fromCodePoint(point) : whole;
+    })
+    .replace(/&(colon|Tab|NewLine);/g, (whole, name) => ({ colon: ":", Tab: "\t", NewLine: "\n" })[name]);
+  if (SVG_ELEMENT.test(decoded)) return "a script or an embedded document";
+  if (SVG_HANDLER.test(decoded)) return "an event handler";
+  if (/javascript:/i.test(decoded.replace(/[\t\n\r]/g, ""))) return "a javascript: address";
+  if (SVG_DECLARATION.test(decoded)) return "a stylesheet instruction, or a document type that adds to the file";
+  if (decoded.includes(XHTML)) return "HTML inside the image";
+  return null;
+}
 
 const JS_FILE = /\.([cm]?[jt]sx?|mdx|vue|svelte|astro)$/i;
 /** [what it is, pattern, optional: the files it applies to (Solidity's require() is not Node's)]. */
@@ -224,7 +255,6 @@ export function scanLines(path, added, removed, facts) {
       const m = re.exec(text);
       if (m && (!check || check(m))) add("secret", what, n);
     }
-    if (svg && SVG_ACTIVE.test(text)) add("svg-active", "script, event handler or embedded document", n);
     if (text.length > MAX_LINE * 5) { add("opaque", `a line of ${text.length} characters, too long to match against the rules`, n); continue; }
 
     for (const m of text.matchAll(URL_RE)) {
@@ -542,13 +572,16 @@ export function analyze(repo, { lockedPaths }) {
       else if (!gone && newMode === "100755" && oldMode !== "100755") add("build-deploy", path, "marked executable");
     }
     if (OTHER_LOCK.test(path) && !gone) add("dependencies", path, "a lockfile for another package manager");
+    // a deletion is never read below, and it is a change to the dependencies all the same
+    if (gone && MANIFEST.test(path)) add("dependencies", path, "deleted");
+    if (gone && (NPM_LOCK.test(path) || OTHER_LOCK.test(path))) add("dependencies", path, "deleted, so nothing pins the packages it listed");
 
     if (gone || (newMode !== "100644" && newMode !== "100755")) continue;
-    // A manifest or lockfile the guard could not check is refused, not handed on for review: failing to read it must
-    // never rank below what reading it would have found.
-    const dependencyRule = MANIFEST.test(path) ? "dependency-source" : NPM_LOCK.test(path) ? "lockfile" : null;
-    let checked = !dependencyRule;
-    const unread = (why) => (checked ? add("unscanned", path, why) : add(dependencyRule, path, `could not be checked: ${why}`));
+    // A manifest, a lockfile or an SVG the guard could not check is refused, not handed on for review: failing to read
+    // it must never rank below what reading it would have found.
+    const wholeFileRule = MANIFEST.test(path) ? "dependency-source" : NPM_LOCK.test(path) ? "lockfile" : ext(path) === "svg" ? "svg-active" : null;
+    let checked = !wholeFileRule;
+    const unread = (why) => (checked ? add("unscanned", path, why) : add(wholeFileRule, path, `could not be checked: ${why}`));
     if (++scanned > MAX_SCAN_FILES) { unread(`more than ${MAX_SCAN_FILES} files in one pull request`); continue; }
     try {
       const bytes = repo.blob(change.newSha);
@@ -556,12 +589,14 @@ export function analyze(repo, { lockedPaths }) {
       const byteFindings = scanBytes(path, bytes);
       if (byteFindings) { for (const f of byteFindings) add(f.rule, f.path, f.detail, f.line); continue; }
 
-      // dependency files are read whole whatever their size; the limit below is on what is matched line by line
+      // dependency files and SVGs are read whole whatever their size; the limit below is on what is matched line by line
       if (MANIFEST.test(path)) for (const f of lintManifest(path, bytes.toString("utf8"), repo.baseText(path))) add(f.rule, f.path, f.detail);
       if (NPM_LOCK.test(path)) {
         for (const f of lintNpmLock(path, bytes.toString("utf8"), repo.baseText(path))) add(f.rule, f.path, f.detail);
         continue; // thousands of registry URLs and hashes: the structure check above is the scan
       }
+      const active = ext(path) === "svg" ? activeSvg(bytes.toString("utf8")) : null;
+      if (active) add("svg-active", path, active);
       checked = true;
       if (bytes.length > MAX_TEXT_BYTES) { add("unscanned", path, `a text file of ${Math.ceil(bytes.length / 1_000_000)} MB`); continue; }
       const lines = status === "A" || /^0+$/.test(change.oldSha) || oldMode === "160000" || oldMode === "120000"

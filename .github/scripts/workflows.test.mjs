@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { OWNERS } from "./pr-guard.mjs";
+import { OWNERS, activeSvg } from "./pr-guard.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const dir = `${root}.github/workflows/`;
@@ -295,4 +295,10 @@ test("the lock check fails when a deployed file, a library pin or a file inside 
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }
+});
+
+test("the SVGs this repository serves pass the check the guard applies to new ones", () => {
+  const found = ["app/public", "app/src/app", "brand"].flatMap((folder) => readdirSync(root + folder, { recursive: true }).filter((name) => /\.svg$/i.test(name)).map((name) => `${folder}/${name}`));
+  assert.ok(found.length >= 5, "the brand and icon files");
+  for (const path of found) assert.equal(activeSvg(readFileSync(root + path, "utf8")), null, path);
 });

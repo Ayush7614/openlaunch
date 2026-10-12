@@ -13,7 +13,7 @@ import { after, before, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
-  OWNERS, RULES, analyze, annotation, hiddenCharacter, hostOf, lintManifest, lintNpmLock, openRepo, ownerApproval, parseHunks,
+  OWNERS, RULES, activeSvg, analyze, annotation, hiddenCharacter, hostOf, lintManifest, lintNpmLock, openRepo, ownerApproval, parseHunks,
   parseLock, plain, pusherOf, renderSummary, renderText, scanLines, verdict,
 } from "./pr-guard.mjs";
 
@@ -85,6 +85,7 @@ const BASE = {
   "app/Dockerfile": "FROM node:22-slim\n",
   "app/db/schema.sql": "create table if not exists launches (id text primary key);\n",
   "app/public/logo.png": PNG,
+  "app/public/brand/base.svg": '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><path d="M0 0h1v1z"/></svg>\n',
   "app/src/lib/security-headers.ts": "export const csp = \"default-src 'self'\";\n",
   "app/src/lib/launchpad/config.ts": `export const NATIVE = "0x0000000000000000000000000000000000000000";\nexport const ROUTER = "${ROUTER}";\nexport const RPC = process.env.BASE_RPC_URL ?? "https://mainnet.base.org";\n`,
   "app/src/app/api/post/route.ts": ROUTE,
@@ -275,7 +276,7 @@ describe("CI and machine configuration", () => {
   });
 
   test("a symlink is blocked", () => {
-    assert.deepEqual(rules(check({ "app/public/readme": { symlink: "../../README.md" } })), ["symlink"]);
+    assert.deepEqual(rules(check({ "docs/readme": { symlink: "../README.md" } })), ["symlink"]);
   });
 
   test("a file name with a line break or an invisible character is blocked", () => {
@@ -383,7 +384,7 @@ describe("binary files", () => {
 
   test("executables and archives are blocked", () => {
     assert.deepEqual(rules(check({ "tools/helper": Buffer.from([0x7f, 0x45, 0x4c, 0x46, 0, 0, 0, 0, 1, 2, 3]) })), ["binary"]);
-    assert.deepEqual(rules(check({ "app/public/pack.wasm": Buffer.from([0, 0x61, 0x73, 0x6d, 1, 0, 0, 0]) })), ["binary"]);
+    assert.deepEqual(rules(check({ "app/public/pack.wasm": Buffer.from([0, 0x61, 0x73, 0x6d, 1, 0, 0, 0]) })), ["binary", "security-config"]);
   });
 
   test("source saved as UTF-16 counts as binary, because the scanner cannot read it", () => {
@@ -394,10 +395,59 @@ describe("binary files", () => {
     assert.deepEqual(rules(check({ "brand/clip.mp4": Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from("ftypmp42"), Buffer.alloc(16)]) })), ["media"]);
   });
 
-  test("an SVG with script or an event handler is blocked; a plain one passes", () => {
-    assert.deepEqual(rules(check({ "app/public/a.svg": '<svg viewBox="0 0 1 1"><script>alert(1)</script></svg>\n' })), ["svg-active"]);
-    assert.ok(rules(check({ "app/public/b.svg": '<svg onload="go()"><path d="M0 0h1"/></svg>\n' })).includes("svg-active"));
-    assert.deepEqual(rules(check({ "app/public/c.svg": '<svg viewBox="0 0 1 1"><path d="M0 0h1v1z"/></svg>\n' })), []);
+  const svg = (body, attributes = "") => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"${attributes}>${body}</svg>\n`;
+
+  test("an SVG with script or an event handler is blocked; a plain one the site serves needs an owner", () => {
+    const scripted = check({ "app/public/a.svg": svg("<script>alert(1)</script>") });
+    assert.deepEqual(scripted.map((f) => [f.rule, f.tier, f.detail]), [["security-config", "review", "added"], ["svg-active", "block", "a script or an embedded document"]]);
+    assert.ok(rules(check({ "app/public/b.svg": svg('<path d="M0 0h1"/>', ' onload="go()"') })).includes("svg-active"));
+    assert.deepEqual(rules(check({ "app/public/c.svg": svg('<path d="M0 0h1v1z"/>') })), ["security-config"]);
+    // an SVG the site does not serve is still not allowed to carry script
+    assert.deepEqual(rules(check({ "brand/mark.svg": svg('<path d="M0 0h1v1z"/>') })), []);
+    assert.deepEqual(rules(check({ "brand/mark.svg": svg("<script>alert(1)</script>") })), ["svg-active"]);
+  });
+
+  test("script is found in an SVG however the file is laid out or spelled", () => {
+    const prefix = cp(0xe9);
+    const active = {
+      "a script element under a namespace prefix": '<svg xmlns="http://www.w3.org/2000/svg"><x:script xmlns:x="http://www.w3.org/2000/svg">alert(1)</x:script></svg>',
+      "a prefix that is not plain letters": `<svg xmlns="http://www.w3.org/2000/svg"><${prefix}:script xmlns:${prefix}="http://www.w3.org/2000/svg">alert(1)</${prefix}:script></svg>`,
+      "a handler on a line of its own, away from its =": '<svg xmlns="http://www.w3.org/2000/svg"\n  onload\n  ="go()"><path d="M0 0h1"/></svg>',
+      "a handler at the very start of a line": '<svg xmlns="http://www.w3.org/2000/svg"\nonload="go()"><path d="M0 0h1"/></svg>',
+      "the colon of javascript: as a character reference": svg('<a href="javascript&#58;alert(1)"><path d="M0 0h1"/></a>'),
+      "a letter of javascript: as a character reference": svg('<a href="&#x6A;avascript:alert(1)"><path d="M0 0h1"/></a>'),
+      "a tab inside javascript:, which a browser drops": svg('<a href="java&#9;script:alert(1)"><path d="M0 0h1"/></a>'),
+      "a line break inside javascript:": svg('<a xlink:href="jav&#x0A;ascript:alert(1)"><path d="M0 0h1"/></a>'),
+      "a handler given as a default attribute by the document type": '<!DOCTYPE svg [ <!ATTLIST svg onload CDATA "alert(1)"> ]>\n<svg xmlns="http://www.w3.org/2000/svg"/>',
+      "an animation that sets a handler": svg('<set attributeName="onmouseover" to="alert(1)"/>'),
+      "an HTML form inside the image": svg('<h:form xmlns:h="http://www.w3.org/1999/xhtml" action="/collect"><h:input name="seed"/></h:form>'),
+      "the HTML namespace spelled with a character reference": svg('<h:meta xmlns:h="http://www.w3.org/1999/xhtm&#108;" http-equiv="refresh" content="0;url=/x"/>'),
+      "an embedded document": svg('<foreignObject width="1" height="1"><p>hi</p></foreignObject>'),
+      "a stylesheet instruction over two lines": '<?xml-stylesheet\n href="x.xsl" type="text/xsl"?>\n<svg xmlns="http://www.w3.org/2000/svg"/>',
+    };
+    for (const [what, text] of Object.entries(active)) assert.ok(activeSvg(text), what);
+    // through the whole guard, in a file that is new to the pull request
+    for (const what of ["a handler on a line of its own, away from its =", "a script element under a namespace prefix", "the colon of javascript: as a character reference"]) {
+      assert.ok(rules(check({ "app/public/x.svg": `${active[what]}\n` })).includes("svg-active"), what);
+    }
+  });
+
+  test("ordinary SVGs are not mistaken for scripted ones", () => {
+    const inert = {
+      "a path": svg('<path d="M0 0h1v1z"/>'),
+      "a gradient, a clip path and a use": svg('<defs><linearGradient id="g"><stop offset="0" stop-color="#fff"/></linearGradient><clipPath id="c"><rect width="1" height="1"/></clipPath></defs><use href="#c" fill="url(#g)"/>'),
+      "a style block and a link to a site": svg('<style>.a{fill:#000}</style><a href="https://openlaunch.lol"><text class="a">launch, online</text></a>'),
+      "an XML declaration and a character reference in a title": `<?xml version="1.0" encoding="UTF-8"?>\n${svg('<title>Base &#8212; logo &amp; mark</title><path d="M0 0h1"/>')}`,
+      "an editor's own metadata": '<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"><inkscape:grid type="xygrid"/><path d="M0 0h1"/></svg>',
+    };
+    for (const [what, text] of Object.entries(inert)) assert.equal(activeSvg(text), null, what);
+  });
+
+  test("an SVG is read whole whatever its size, and one that cannot be read is blocked", () => {
+    const large = check({ "app/public/big.svg": svg(`<path d="${"M0 0h1v1z".repeat(240_000)}"/><script>alert(1)</script>`) });
+    assert.ok(large.some((f) => f.rule === "svg-active" && f.detail === "a script or an embedded document"), "past the size that is matched line by line");
+    const unreadable = { changes: [{ status: "M", path: "app/public/x.svg", oldMode: "100644", newMode: "100644", oldSha: "2".repeat(40), newSha: "3".repeat(40) }], blob: () => null, baseText: () => null, baseMatches: () => [], basePaths: () => [], diff: () => ({ added: [], removed: [] }) };
+    assert.deepEqual(analyze(unreadable, { lockedPaths: LOCKED }).map((f) => [f.rule, f.tier, f.detail]), [["security-config", "review", "changed"], ["svg-active", "block", "could not be checked: larger than 25 MB"]]);
   });
 });
 
@@ -494,6 +544,15 @@ describe("dependencies", () => {
     // through the whole guard it is a block, for a change to package.json alone
     const found = check({ "app/package.json": manifest({ dependencies: { sharp: "^0.35.4", viem: "../../vendor/viem" } }) });
     assert.deepEqual(found.map((f) => [f.rule, f.tier]), [["dependency-source", "block"]]);
+  });
+
+  test("deleting the manifest or a lockfile is a change to the dependencies", () => {
+    const lock = check({ "app/package-lock.json": null });
+    assert.deepEqual(lock.map((f) => [f.rule, f.tier, f.detail]), [["dependencies", "review", "deleted, so nothing pins the packages it listed"]]);
+    assert.deepEqual(check({ "app/package.json": null }).map((f) => [f.rule, f.detail]), [["dependencies", "deleted"]]);
+    const deleted = (path) => ({ status: "D", path, oldMode: "100644", newMode: "000000", oldSha: "2".repeat(40), newSha: "0".repeat(40) });
+    const repo = { changes: [deleted("app/yarn.lock"), deleted("app/npm-shrinkwrap.json"), deleted("docs/guide.md")], blob: () => null, baseText: () => null, baseMatches: () => [], basePaths: () => [], diff: () => ({ added: [], removed: [] }) };
+    assert.deepEqual(analyze(repo, { lockedPaths: LOCKED }).map((f) => [f.rule, f.path]), [["dependencies", "app/yarn.lock"], ["dependencies", "app/npm-shrinkwrap.json"]]);
   });
 
   test("a manifest or lockfile is read whole whatever its size, so padding cannot hide what is in it", () => {
@@ -690,6 +749,23 @@ describe("application code", () => {
     assert.deepEqual(rules(check({ "app/public/sw.js": "self.addEventListener('fetch', () => {});\n" })), ["security-config"]);
     assert.deepEqual(rules(check({ "app/public/.well-known/farcaster.json": '{ "accountAssociation": {} }\n' })), ["security-config"]);
     assert.deepEqual(rules(check({ "app/public/claim.html": "<h1>Claim</h1>\n" })), ["security-config"]);
+  });
+
+  test("anything in the served folder that is not a plain image, font or text file needs an owner", () => {
+    // a browser runs script in whatever is served as HTML or XML, and it does not go by the letter case of a name
+    const page = '<h:html xmlns:h="http://www.w3.org/1999/xhtml"><h:body><h:p>Claim</h:p></h:body></h:html>\n';
+    for (const path of ["app/public/promo.xht", "app/public/feed.rss", "app/public/style.xsl", "app/public/claim.HTML", "app/public/data.json", "app/public/tokens"]) {
+      assert.deepEqual(rules(check({ [path]: page })), ["security-config"], path);
+    }
+    assert.deepEqual(rules(check({ "app/public/brand/new.svg": BASE["app/public/brand/base.svg"] })), ["security-config"]);
+    assert.deepEqual(rules(check({ "app/public/notes.txt": "plain text\n" })), []);
+    assert.deepEqual(rules(check({ "app/public/brand/new.png": PNG })), []);
+    // markup the app serves from outside that folder (its icon, its sitemap, its manifest), whatever the case of the name
+    assert.deepEqual(rules(check({ "app/src/app/icon.svg": '<svg viewBox="0 0 1 1"><path d="M0 0h1v1z"/></svg>\n' })), ["security-config"]);
+    assert.deepEqual(rules(check({ "app/src/app/sitemap.xml": "<urlset/>\n" })), ["security-config"]);
+    assert.deepEqual(rules(check({ "app/src/assets/Mark.SVG": '<svg viewBox="0 0 1 1"><path d="M0 0h1v1z"/></svg>\n' })), ["security-config"]);
+    assert.deepEqual(rules(check({ "app/src/app/manifest.json": '{ "name": "openlaunch" }\n' })), ["security-config"]);
+    assert.deepEqual(rules(check({ "app/src/lib/chains.json": '{ "base": 8453 }\n' })), [], "data the code imports is not a served file");
   });
 
   test("a line too long to match is flagged instead of skipped, and hidden characters in it are still found", () => {

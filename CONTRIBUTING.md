@@ -41,12 +41,14 @@ your code. It has two answers besides "passed":
   (the deployed contract sources, their build settings, the pinned libraries and the deployment records), anything under
   `.github/`, a dependency or lockfile entry that does not come from the npm registry (git, a URL, a local path, an
   alias), a new install-time script, a committed key or `.env` file, invisible or direction-changing Unicode, symlinks,
-  new submodules, binaries that are not plain images or fonts, and editor or agent configuration (`.vscode/`,
-  `.claude/`, `AGENTS.md`, `.envrc` and the like).
+  new submodules, binaries that are not plain images or fonts, an SVG with script or an event handler in it, and editor
+  or agent configuration (`.vscode/`, `.claude/`, `AGENTS.md`, `.envrc` and the like).
 - **Needs a maintainer's approval.** Allowed, and listed for a maintainer to read: new files under `contracts/`,
-  dependency and npm script changes, on-chain addresses, wallet calls, new hosts and environment variables, security
-  headers, build and deploy files, migrations, and code that executes strings or injects raw HTML. The check turns green
-  when a maintainer approves the exact commit. A new push needs a new approval.
+  dependency and npm script changes (a deleted `package.json` or lockfile included), on-chain addresses, wallet calls,
+  new hosts and environment variables, security headers, files the site serves as they are (anything in `app/public/`
+  that is not a plain image, font or text file, and every SVG), build and deploy files, migrations, and code that
+  executes strings or injects raw HTML. The check turns green when a maintainer approves the exact commit. A new push
+  needs a new approval.
 
 Deployed contracts are never edited. A change for another chain is a new file that copies the original, with its own
 tests (`contracts/src/LaunchFactoryArc.sol` is the pattern).
