@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { OWNERS, RULES, activeSvg } from "./pr-guard.mjs";
+import { OWNERS, RULES, activeSvg, lintNpmLock, parseLock } from "./pr-guard.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const dir = `${root}.github/workflows/`;
@@ -200,8 +200,11 @@ test("code owners and the guard name the same people, and cover the guarded path
 
 test("the lock names files that exist, and every deployed source is in it", () => {
   const lock = readFileSync(`${root}contracts/deployed.lock`, "utf8");
+  // every line is a comment or an entry in the one shape the script writes, the script checks and the guard reads
+  for (const line of lock.split("\n")) assert.match(line, /^(#.*|)$|^(sha256 [0-9a-f]{64}|gitlink [0-9a-f]{40}) {2}\S+$/, line);
   const entries = lock.split("\n").filter((line) => /^(sha256|gitlink) /.test(line)).map((line) => line.split(/\s+/));
   assert.ok(entries.length >= 13);
+  for (const [, , path] of entries) assert.ok(parseLock(lock).has(path), `the guard reads ${path}`);
   for (const [kind, value, path] of entries) {
     // the guard compares these with a pull request's paths letter for letter: from the root, with no "./" or ".."
     assert.doesNotMatch(path, /^\/|(^|\/)\.\.?(\/|$)/, path);
@@ -246,6 +249,14 @@ test("the lock check fails when a deployed file, a library pin or a file inside 
     assert.equal(readFileSync(join(repo, "contracts/deployed.lock"), "utf8"), "# deployed sources\n", "the lock is left as it was");
     rmSync(join(repo, "contracts/src/Draft.sol"));
     assert.equal(run("--update", "contracts").status, 1, "a folder is not one file");
+    // a path with a space cannot be written as an entry that the check and the guard would read back
+    writeFileSync(join(repo, "contracts/src/My Token.sol"), "contract MyToken {}\n");
+    git(repo, "add", "contracts/src/My Token.sol");
+    const spaced = run("--update", "contracts/src/My Token.sol");
+    assert.equal(spaced.status, 1);
+    assert.match(spaced.stderr, /^cannot lock contracts\/src\/My Token\.sol: a path with a space in it cannot be an entry of the lock/m);
+    assert.equal(readFileSync(join(repo, "contracts/deployed.lock"), "utf8"), "# deployed sources\n", "the lock is left as it was");
+    git(repo, "rm", "-q", "-f", "contracts/src/My Token.sol");
     // however the path is typed, the lock holds it as git spells it from the root
     assert.equal(run("--update", "./contracts/src/../src/Token.sol", "contracts/lib/kit").status, 0);
     assert.match(readFileSync(join(repo, "contracts/deployed.lock"), "utf8"), new RegExp(`^sha256 [0-9a-f]{64}  contracts/src/Token\\.sol\\ngitlink ${pin}  contracts/lib/kit$`, "m"));
@@ -293,8 +304,18 @@ test("the lock check fails when a deployed file, a library pin or a file inside 
 
     // the lock's last line counts with or without its newline
     const lock = join(repo, "contracts/deployed.lock");
-    writeFileSync(lock, readFileSync(lock, "utf8").trimEnd());
+    const entries = readFileSync(lock, "utf8");
+    writeFileSync(lock, entries.trimEnd());
     assert.match(run().stdout, /^ok: 2 deployed contract files and library pins match/);
+    // a line the guard would not read as an entry is not quietly checked here either
+    for (const odd of [entries.replace("sha256 ", "  sha256 "), entries.replace(/ {2}contracts\/src/, "\tcontracts/src"), `${entries}sha256 ${"0".repeat(64)}  contracts/src/My Token.sol\n`]) {
+      writeFileSync(lock, odd);
+      const refused = run();
+      assert.equal(refused.status, 1);
+      assert.match(refused.stdout, /^DRIFT {2}contracts\/deployed\.lock has a line that is not an entry: /m);
+    }
+    writeFileSync(lock, entries);
+    assert.equal(run().status, 0);
 
     // a deployed source edited
     const token = join(repo, "contracts/src/Token.sol");
@@ -336,4 +357,11 @@ test("CONTRIBUTING names every rule of the guard, under the outcome the guard gi
   }
   // what the guard locks beyond the paths the lock file lists is spelled out
   for (const path of ["contracts/script/check-deployed-sources.sh", "contracts/script/check-arc-factory.sh", ".gitmodules", "contracts/lib/", ".gitattributes"]) assert.ok(guide.includes(`\`${path}\``), path);
+});
+
+test("the repository's own lockfile passes the guard's check of every entry", () => {
+  const lock = readFileSync(`${root}app/package-lock.json`, "utf8");
+  assert.ok(Object.keys(JSON.parse(lock).packages).length > 300);
+  // compared with itself nothing is added or changed, so anything but this one line is an entry the guard refuses
+  assert.deepEqual(lintNpmLock("app/package-lock.json", lock, lock), [{ rule: "dependencies", path: "app/package-lock.json", detail: "lockfile metadata changed", line: null }]);
 });
