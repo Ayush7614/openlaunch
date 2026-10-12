@@ -57,7 +57,7 @@ export const RULES = {
   dependencies: { tier: "review", title: "Dependencies or npm scripts", help: "New packages are checked for who publishes them and why they are needed." },
   address: { tier: "review", title: "On-chain address", help: "Addresses decide where funds and approvals go. Each one is checked against its source." },
   "wallet-call": { tier: "review", title: "Wallet signing or sending", help: "Code that asks a wallet to sign, approve or send." },
-  "new-host": { tier: "review", title: "A host the repository has not used before", help: "New network destinations and links." },
+  "new-host": { tier: "review", title: "A host the repository has not used before", help: "New network destinations and links. A host that code puts together at run time shows as (computed): there is nothing to compare it with." },
   "new-env": { tier: "review", title: "A new environment variable", help: "New configuration the deployment has to carry, or new access to existing secrets." },
   "dangerous-code": { tier: "review", title: "Code execution, raw HTML or shell", help: "Patterns that run code, inject markup, start processes or decode hidden text." },
   "auth-removed": { tier: "review", title: "A security check was removed", help: "Signature, nonce, rate limit or validation calls that the change drops." },
@@ -199,14 +199,17 @@ export function activeSvg(text) {
 const JS_FILE = /\.([cm]?[jt]sx?|mdx|vue|svelte|astro)$/i;
 /** [what it is, pattern, optional: the files it applies to (Solidity's require() is not Node's)]. */
 const DANGEROUS = [
-  ["eval()", /\beval\s*\(/],
-  ["new Function()", /\bnew\s+Function\s*\(/],
+  ["eval()", /(?<![\w$-])eval\s*(?:\?\.\s*)?\(|[,(=]\s*eval\s*[),;]/],
+  ["the Function constructor", /(?<![\w$])Function\s*\(/],
+  ["a timer given its code as a string", /\bset(?:Timeout|Interval)\s*\(\s*["'`]/],
   ["raw HTML injection", /dangerouslySetInnerHTML|\.(?:inner|outer)HTML\s*=|insertAdjacentHTML|document\.write(?:ln)?\s*\(/],
-  ["a script, frame or embed tag", /<(?:script|iframe|embed|object)\b/i],
+  ["a script, frame or embed tag", /<(?:script|iframe|embed|object)\b|createElement\(\s*["'`](?:script|iframe|embed|object)["'`]/i],
   ["starting a process", /child_process|\b(?:execSync|execFileSync|spawnSync|execFile)\s*\(|\bDeno\.(?:run|Command)\b|\bBun\.spawn/],
   ["the vm module", /["'](?:node:)?vm["']|\bvm\.(?:runIn\w+|Script|compileFunction)\b/],
   ["a computed import or require", /\b(?:import|require)\s*\(\s*(?:(?!["'`])[^)\s]|`[^`]*\$\{)/, JS_FILE],
-  ["reading the whole environment", /(?:JSON\.stringify|Object\.(?:keys|values|entries)|structuredClone)\(\s*process\.env\s*[,)]|\.\.\.process\.env\b/],
+  // the environment as one object: printed, spread, taken apart ({ KEY } = process.env) or handed on. A single variable
+  // read by its name is "new-env" below.
+  ["reading the whole environment", /\b(?:process|import\.meta)\.env\b(?!\s*(?:\?\.|\.)\s*[A-Za-z_$]|\s*\[)/],
   ["an environment variable read by a computed name", /process\.env\[\s*(?!["'`])/],
   ["decoding hidden text", /\batob\s*\(|String\.fromCharCode|Buffer\.from\([^)\n]*["']base64(?:url)?["']/],
   ["a download piped to a shell", /\b(?:curl|wget)\b[^|\n]*\|\s*(?:sudo\s+)?(?:ba|z|da)?sh\b|base64\s+(?:-d|--decode)\b|\/dev\/tcp\//],
@@ -227,12 +230,58 @@ const ADDRESS = /0x[0-9a-fA-F]{40}(?![0-9a-fA-F])/g;
 /** Not anyone's wallet: zero, the burn address, the native-asset placeholder. */
 const SENTINELS = new Set(["0x" + "0".repeat(40), "0x000000000000000000000000000000000000dead", "0x" + "e".repeat(40)]);
 
-const URL_RE = /\b(?:https?|wss?|ftp):\/\/([A-Za-z0-9.\-_~%:@[\]${}]+)/gi;
+/**
+ * "scheme://authority", or "//authority" with no scheme. The authority (user, host, port) may hold a template placeholder
+ * or a wildcard, and may be empty: "https://" + host. The same characters are searched for in the base branch (analyze).
+ */
+const URL_RE = /(\b(?:https?|wss?|ftp):)?\/\/([A-Za-z0-9.\-_~%:@[\]${}*]*)/gi;
 /** The host of a URL authority, lowercased; "(computed)" when it is built at run time; null when there is none. */
 export function hostOf(authority) {
   if (/[${}]/.test(authority)) return "(computed)";
-  const host = authority.replace(/^[^@]*@/, "").replace(/:\d*$/, "").replace(/\.+$/, "").toLowerCase();
-  return host || null;
+  const host = authority.replace(/^[^@]*@/, "").replace(/:(?:\d*|\*)$/, "").replace(/\.+$/, "").toLowerCase();
+  // "[https://example.org]": the bracket closes something around the address. "[::1]" is an address of its own.
+  return (host.startsWith("[") ? host : host.replace(/[[\]]+$/, "")) || null;
+}
+
+/**
+ * The hosts one line names. "(computed)" stands for a host that is put together at run time, where there is nothing to
+ * compare: a placeholder in a template, and in code also a scheme with no host after it ("https://" + target) or an
+ * address that ends its string and has more joined on ("https://known.org" + ".elsewhere.io"). In prose a scheme on
+ * its own is only a mention. A scheme split further ("https:" + "//" + target) is not seen: a string that is only
+ * "https:" is how code compares a protocol.
+ */
+export function hostsIn(line, code) {
+  const hosts = new Set();
+  for (const m of line.matchAll(URL_RE)) {
+    const [whole, scheme, authority] = m;
+    const rest = line.slice(m.index + whole.length);
+    if (!scheme) {
+      // without a scheme it is an address only where a string or a url() opens with it: "//cdn.example.io/x", "//" + host
+      if (!/["'`(]/.test(line[m.index - 1] ?? "")) continue;
+      if (authority === "" ? !/^["'`]/.test(rest) : !/[.$]/.test(authority)) continue;
+    }
+    const host = hostOf(authority);
+    // the string ends with the address and more is joined on, other than a path, a query or a fragment written out
+    const joined = /^["'`]\s*(?:\+|\.concat\()(?!\s*["'`][/?#])/.test(rest);
+    if (host === "(computed)" || (code && (host === null || joined))) hosts.add("(computed)");
+    if (host && host !== "(computed)") hosts.add(host);
+  }
+  // "https:\/\/x\.com" names x.com as well: a string with its slashes escaped, or a pattern. Only a host that is written
+  // out in full is taken from these, since the rest of a pattern (/^https:\/\//, /\/$/) is not an address at all.
+  if (line.includes("\\/")) {
+    for (const [, scheme, authority] of line.replace(/\\([/.-])/g, "$1").matchAll(URL_RE)) {
+      const host = scheme ? hostOf(authority) : null;
+      if (host && /^(?:[a-z0-9*](?:[a-z0-9*-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(host)) hosts.add(host);
+    }
+  }
+  return hosts;
+}
+
+/** How often each security check is named in some lines: { name: count }. */
+export function checksIn(lines) {
+  const counts = new Map();
+  for (const text of lines) for (const [name] of text.matchAll(AUTH)) counts.set(name, (counts.get(name) ?? 0) + 1);
+  return counts;
 }
 
 const ENV_RE = /process\.env\.([A-Za-z_]\w*)|process\.env\[\s*["'`]([^"'`]+)["'`]\s*\]|import\.meta\.env\.([A-Za-z_]\w*)/g;
@@ -262,9 +311,8 @@ export function scanLines(path, added, removed, facts) {
     }
     if (text.length > MAX_LINE * 5) { add("opaque", `a line of ${text.length} characters, too long to match against the rules`, n); continue; }
 
-    for (const m of text.matchAll(URL_RE)) {
-      const host = hostOf(m[1]);
-      if (host && !LOCAL_HOST.test(host) && !facts.hosts.has(host)) add("new-host", host, n);
+    for (const host of hostsIn(text, code)) {
+      if (host === "(computed)" || (!LOCAL_HOST.test(host) && !facts.hosts.has(host))) add("new-host", host, n);
     }
     if (!test) {
       for (const [address] of text.matchAll(ADDRESS)) {
@@ -288,13 +336,8 @@ export function scanLines(path, added, removed, facts) {
   }
 
   if (code && !test && removed.length > 0) {
-    const tally = (lines) => {
-      const counts = new Map();
-      for (const text of lines) for (const [name] of text.matchAll(AUTH)) counts.set(name, (counts.get(name) ?? 0) + 1);
-      return counts;
-    };
-    const kept = tally(added.map((l) => l.text));
-    for (const [name, gone] of tally(removed)) {
+    const kept = checksIn(added.map((l) => l.text));
+    for (const [name, gone] of checksIn(removed)) {
       const net = gone - (kept.get(name) ?? 0);
       if (net > 0) add("auth-removed", `${name}: ${net} fewer ${net === 1 ? "use" : "uses"}`, null);
     }
@@ -534,7 +577,7 @@ export function analyze(repo, { lockedPaths }) {
   const add = (rule, path, detail, line = null) => findings.push({ rule, tier: RULES[rule].tier, path, detail, line });
   const facts = lazy(() => ({
     addresses: new Set(repo.baseMatches("0x[0-9a-f]{40,}").filter((hit) => hit.length === 42).map((hit) => hit.toLowerCase())),
-    hosts: new Set(repo.baseMatches("(https?|wss?|ftp)://[a-z0-9.-]+").map((hit) => hit.replace(/^[a-z]+:\/\//i, "").replace(/\.+$/, "").toLowerCase())),
+    hosts: new Set(repo.baseMatches("(https?|wss?|ftp)://[]a-z0-9._~%:@[*-]+").map((hit) => hostOf(hit.replace(/^[a-z]+:\/\//i, ""))).filter(Boolean)),
     env: new Set(repo.baseMatches("(process\\.env|import\\.meta\\.env)(\\.[a-z_][a-z0-9_]*|\\[[^]]+\\])").map((hit) => /\.env\.?\[?\s*["'`]?([A-Za-z_]\w*)/.exec(hit)?.[1]).filter(Boolean)),
   }));
   /** lowercase path or folder -> its spelling in the base tree */
@@ -553,6 +596,8 @@ export function analyze(repo, { lockedPaths }) {
   const locked = (path) => lockedPaths.has(path) || path.startsWith(LOCKED_FOLDER);
 
   let scanned = 0;
+  /** Code files this pull request deletes, and the checks its other files gain: a check that reappears was moved. */
+  const deletedCode = [], gained = new Map();
   for (const change of repo.changes) {
     const { path, status, oldMode, newMode } = change;
     const gone = status === "D";
@@ -581,6 +626,7 @@ export function analyze(repo, { lockedPaths }) {
     if (gone && MANIFEST.test(path)) add("dependencies", path, "deleted");
     if (gone && (NPM_LOCK.test(path) || OTHER_LOCK.test(path))) add("dependencies", path, "deleted, so nothing pins the packages it listed");
 
+    if (gone && (oldMode === "100644" || oldMode === "100755") && isCode(path) && !isTest(path) && !NPM_LOCK.test(path) && !OTHER_LOCK.test(path)) deletedCode.push(change);
     if (gone || (newMode !== "100644" && newMode !== "100755")) continue;
     // A manifest, a lockfile or an SVG the guard could not check is refused, not handed on for review: failing to read
     // it must never rank below what reading it would have found.
@@ -608,12 +654,37 @@ export function analyze(repo, { lockedPaths }) {
         ? { added: allLines(bytes.toString("utf8")), removed: [] }
         : repo.diff(change.oldSha, change.newSha);
       const found = scanLines(path, lines.added, lines.removed, facts());
+      if (isCode(path) && !isTest(path)) {
+        const lost = checksIn(lines.removed);
+        for (const [name, count] of checksIn(lines.added.map((l) => l.text))) {
+          const net = count - (lost.get(name) ?? 0);
+          if (net > 0) gained.set(name, (gained.get(name) ?? 0) + net);
+        }
+      }
       // blocks first, so a flood of minor findings cannot push one off the end
       found.sort((a, b) => (RULES[a.rule].tier === "block" ? 0 : 1) - (RULES[b.rule].tier === "block" ? 0 : 1));
       for (const f of found.slice(0, MAX_FINDINGS_PER_FILE)) add(f.rule, f.path, f.detail, f.line);
       if (found.length > MAX_FINDINGS_PER_FILE) add("unscanned", path, `${found.length - MAX_FINDINGS_PER_FILE} more findings in this file are not listed`);
     } catch (error) {
       unread(`could not be read (${error.code ?? error.status ?? "error"})`);
+    }
+  }
+
+  // A deleted file is never read above, and it takes its security checks with it. One that turns up again in what the
+  // pull request adds elsewhere was moved, not removed.
+  for (const { path, oldSha } of deletedCode) {
+    if (++scanned > MAX_SCAN_FILES) { add("unscanned", path, `deleted, past the ${MAX_SCAN_FILES} files one pull request may have read`); continue; }
+    try {
+      const bytes = repo.blob(oldSha);
+      if (!bytes || bytes.length > MAX_TEXT_BYTES) { add("unscanned", path, "deleted, and too large to read for the checks it held"); continue; }
+      if (scanBytes(path, bytes)) continue;
+      for (const [name, held] of checksIn(bytes.toString("utf8").split("\n"))) {
+        const moved = Math.min(held, gained.get(name) ?? 0);
+        gained.set(name, (gained.get(name) ?? 0) - moved);
+        if (held > moved) add("auth-removed", path, `${name}: ${held - moved} fewer ${held - moved === 1 ? "use" : "uses"}, with the file deleted`);
+      }
+    } catch (error) {
+      add("unscanned", path, `deleted, and could not be read (${error.code ?? error.status ?? "error"})`);
     }
   }
   return findings;

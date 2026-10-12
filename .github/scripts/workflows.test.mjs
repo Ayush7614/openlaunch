@@ -203,6 +203,8 @@ test("the lock names files that exist, and every deployed source is in it", () =
   const entries = lock.split("\n").filter((line) => /^(sha256|gitlink) /.test(line)).map((line) => line.split(/\s+/));
   assert.ok(entries.length >= 13);
   for (const [kind, value, path] of entries) {
+    // the guard compares these with a pull request's paths letter for letter: from the root, with no "./" or ".."
+    assert.doesNotMatch(path, /^\/|(^|\/)\.\.?(\/|$)/, path);
     assert.match(value, kind === "sha256" ? /^[0-9a-f]{64}$/ : /^[0-9a-f]{40}$/, path);
     if (kind === "sha256") assert.doesNotThrow(() => readFileSync(root + path), path);
   }
@@ -236,11 +238,28 @@ test("the lock check fails when a deployed file, a library pin or a file inside 
     git(repo, "add", "-A");
 
     assert.equal(run().status, 1, "an empty lock checks nothing, so it fails");
-    assert.equal(run("--update", "contracts/src/Token.sol", "contracts/lib/kit").status, 0);
+    // a file git does not track cannot be locked: a fresh checkout would not have it
+    writeFileSync(join(repo, "contracts/src/Draft.sol"), "contract Draft {}\n");
+    const untracked = run("--update", "contracts/src/Draft.sol");
+    assert.equal(untracked.status, 1);
+    assert.match(untracked.stderr, /^cannot lock contracts\/src\/Draft\.sol: not one file or submodule that git tracks in this repository/m);
+    assert.equal(readFileSync(join(repo, "contracts/deployed.lock"), "utf8"), "# deployed sources\n", "the lock is left as it was");
+    rmSync(join(repo, "contracts/src/Draft.sol"));
+    assert.equal(run("--update", "contracts").status, 1, "a folder is not one file");
+    // however the path is typed, the lock holds it as git spells it from the root
+    assert.equal(run("--update", "./contracts/src/../src/Token.sol", "contracts/lib/kit").status, 0);
     assert.match(readFileSync(join(repo, "contracts/deployed.lock"), "utf8"), new RegExp(`^sha256 [0-9a-f]{64}  contracts/src/Token\\.sol\\ngitlink ${pin}  contracts/lib/kit$`, "m"));
     const clean = run();
     assert.equal(clean.status, 0, clean.stdout + clean.stderr);
     assert.match(clean.stdout, /^ok: 2 deployed contract files and library pins match/);
+
+    // a locked file that is here but that git no longer tracks would be missing from a fresh checkout
+    git(repo, "rm", "-q", "--cached", "contracts/src/Token.sol");
+    const dropped = run();
+    assert.equal(dropped.status, 1);
+    assert.match(dropped.stdout, /^DRIFT {2}contracts\/src\/Token\.sol: the file is here, but git does not track it$/m);
+    git(repo, "add", "contracts/src/Token.sol");
+    assert.equal(run().status, 0);
 
     // a library file edited in place: the pin and the checked-out commit still match, the bytes that compile do not
     appendFileSync(join(kit, "Kit.sol"), "// edited\n");

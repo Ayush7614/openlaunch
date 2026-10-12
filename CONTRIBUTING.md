@@ -55,14 +55,15 @@ your code. It has two answers besides "passed":
     script that runs at install time.
   - `case-collision`: a file name that differs from an existing one only by letter case.
 - **Needs a maintainer's approval.** Allowed, and listed for a maintainer to read. The check turns green when a
-  maintainer approves the exact commit. A new push needs a new approval.
+  maintainer approves the exact commit and then re-runs the `pr-guard` job. A new push needs a new approval.
   - `contracts`, `contract-rules`: new files under `contracts/`; an owner, a pause, an allowlist, an upgrade path or a
     fee switch in a contract (see the ground rules above).
   - `dependencies`: dependency and npm script changes, a deleted `package.json` or lockfile included.
   - `address`, `wallet-call`: on-chain addresses; code that asks a wallet to sign, approve or send.
-  - `new-host`, `new-env`: a host or an environment variable the repository has not used before.
+  - `new-host`, `new-env`: a host or an environment variable the repository has not used before, and a host that
+    code puts together at run time (it shows as `(computed)`).
   - `dangerous-code`: code that executes strings, injects raw HTML or starts a process.
-  - `auth-removed`: a signature, nonce, rate-limit or validation check that was removed.
+  - `auth-removed`: a signature, nonce, rate-limit or validation check that was removed, with its file or from it.
   - `security-config`: security headers, the request proxy, and files the site serves as they are (anything in
     `app/public/` that is not a plain image, font or text file, and every SVG).
   - `build-deploy`: build, deploy and migration files, shell scripts, a file made executable.

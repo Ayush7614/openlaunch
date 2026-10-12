@@ -11,21 +11,27 @@ lock=contracts/deployed.lock
 sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1; }
 # path -> the commit a submodule is pinned at, empty when the path is not a submodule
 gitlink() { git ls-files -s -- "$1" | awk '$1 == "160000" { print $2 }'; }
-current() { # kind path -> the value the lock should hold, empty when the path is gone
-  if [[ "$1" == gitlink ]]; then gitlink "$2"; elif [[ -f "$2" && ! -L "$2" ]]; then sha "$2"; fi
+# path -> succeeds when git tracks the file. A file that only exists on this machine is not there in a fresh checkout.
+tracked() { git --literal-pathspecs ls-files --error-unmatch -- "$1" >/dev/null 2>&1; }
+current() { # kind path -> the value the lock should hold, empty when the path is gone or git does not track it
+  if [[ "$1" == gitlink ]]; then gitlink "$2"; elif [[ -f "$2" && ! -L "$2" ]] && tracked "$2"; then sha "$2"; fi
 }
 
 if [[ "${1:-}" == "--update" ]]; then
   shift
-  tmp=$(mktemp)
+  tmp=$(mktemp); trap 'rm -f "$tmp"' EXIT
   grep -E '^(#|$)' "$lock" > "$tmp" || true
   { grep -E '^(sha256|gitlink) ' "$lock" | awk '{ print $1, $3 }' || true # a lock with no entries yet
     for extra in "$@"; do
-      if [[ -n "$(gitlink "$extra")" ]]; then echo "gitlink $extra"; else echo "sha256 $extra"; fi
+      # the lock holds each path as git spells it from the repository root, however it was typed here: the guard
+      # compares the lock's paths with the paths of a pull request letter for letter
+      path=$(git --literal-pathspecs ls-files --full-name -- "$extra" 2>/dev/null) || path=
+      [[ -n "$path" && "$path" != *$'\n'* ]] || { echo "cannot lock $extra: not one file or submodule that git tracks in this repository (git add it first)" >&2; exit 1; }
+      if [[ -n "$(gitlink "$path")" ]]; then echo "gitlink $path"; else echo "sha256 $path"; fi
     done
   } | awk '!seen[$2]++' | while read -r kind path; do
     value=$(current "$kind" "$path")
-    [[ -n "$value" ]] || { echo "cannot lock $path: not a tracked file or submodule" >&2; exit 1; }
+    [[ -n "$value" ]] || { echo "cannot lock $path: the file is gone, or git no longer tracks it" >&2; exit 1; }
     printf '%s %s  %s\n' "$kind" "$value" "$path"
   done >> "$tmp"
   mv "$tmp" "$lock"; echo "updated $lock"; exit 0
@@ -37,7 +43,9 @@ while read -r kind want path || [[ -n "$kind" ]]; do # the last line counts with
   checked=$((checked + 1))
   got=$(current "$kind" "$path")
   if [[ "$got" != "$want" ]]; then
-    echo "DRIFT  $path: locked $kind ${want:0:12}…, found ${got:-nothing}"; failed=1; continue
+    if [[ "$kind" == sha256 && -z "$got" && -f "$path" ]]; then echo "DRIFT  $path: the file is here, but git does not track it"
+    else echo "DRIFT  $path: locked $kind ${want:0:12}…, found ${got:-nothing}"; fi
+    failed=1; continue
   fi
   # the library that gets compiled is the checked-out one, so it has to be the pinned commit too, with nothing edited,
   # added or re-pinned inside it. A library that is not checked out at all (an empty folder) has nothing to compile.
