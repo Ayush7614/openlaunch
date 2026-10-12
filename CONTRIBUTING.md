@@ -74,7 +74,7 @@ your code. It has two answers besides "passed":
     `app/public/` that is not a plain image, font or text file, and every SVG).
   - `build-deploy`: build, deploy and migration files, shell scripts, a file made executable.
   - `policy`, `git-config`, `dot-file`: the license and the security policy; `.gitattributes`; any other new file or
-    folder whose name begins with a dot (a `.gitignore` or `.gitkeep` aside).
+    folder whose name begins with a dot (a `.gitignore`, `.gitkeep` or `.keep` aside).
   - `media`, `opaque`, `unscanned`: audio, video and PDF files; content that cannot be read by eye (very long lines,
     encoded blobs); a file the guard read only in part (a text file over 2 MB is read for credentials and hidden
     characters only).

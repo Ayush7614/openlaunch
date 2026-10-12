@@ -699,7 +699,9 @@ export function analyze(repo, { lockedPaths }) {
       const lockfile = NPM_LOCK.test(path), large = bytes.length > MAX_TEXT_BYTES;
       if (lockfile || large) {
         const plainLines = lockfile ? lines.added.map((l) => ({ n: l.n, text: l.text.replace(/"(?:integrity|resolved)":\s*"[^"]*"/g, "") })) : lines.added;
-        for (const f of scanLines(path, plainLines, [], facts(), true).slice(0, MAX_FINDINGS_PER_FILE)) add(f.rule, f.path, f.detail, f.line);
+        const blocking = scanLines(path, plainLines, [], facts(), true);
+        for (const f of blocking.slice(0, MAX_FINDINGS_PER_FILE)) add(f.rule, f.path, f.detail, f.line);
+        if (blocking.length > MAX_FINDINGS_PER_FILE) add("unscanned", path, `${blocking.length - MAX_FINDINGS_PER_FILE} more findings in this file are not listed`);
         if (!lockfile) add("unscanned", path, `a text file of ${Math.ceil(bytes.length / 1_000_000)} MB, read for credentials and hidden characters only`);
         continue;
       }

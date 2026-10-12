@@ -312,7 +312,7 @@ describe("CI and machine configuration", () => {
     assert.deepEqual(rules(check({ ".gitlab-ci.yml": "stages: []\n" })), ["dot-file"], "only .gitignore and .gitkeep are git's housekeeping");
     // one the repository already has, git's own housekeeping, and ones another rule already refuses or sends to an owner
     assert.deepEqual(rules(check({ ".gitignore": "node_modules/\n.env\n.next/\n" })), []);
-    assert.deepEqual(rules(check({ "tools/.gitignore": "out/\n", "tools/fixtures/.gitkeep": "" })), []);
+    assert.deepEqual(rules(check({ "tools/.gitignore": "out/\n", "tools/fixtures/.gitkeep": "", "tools/tmp/.keep": "" })), []);
     assert.deepEqual(rules(check({ "app/.env.local": "x\n" })), ["secret-file"]);
     assert.deepEqual(rules(check({ ".gitattributes": "*.sol linguist-vendored\n" })), ["git-config"]);
     assert.deepEqual(rules(check({ ".vscode/tasks.json": "{}\n" })), ["dev-machine"]);
@@ -666,6 +666,10 @@ describe("dependencies", () => {
     const large = check({ "app/src/lib/large.ts": `${"export const a = 1;\n".repeat(110_000)}const PRIVATE_KEY = "0x${key}";\nconst role = "user${cp(0x202e)}";\neval(input);\n` });
     assert.deepEqual(large.map((f) => [f.rule, f.tier, f.line]), [["secret", "block", 110_001], ["hidden-unicode", "block", 110_002], ["unscanned", "review", null]]);
     assert.match(details(large, "unscanned"), /a text file of 3 MB, read for credentials and hidden characters only/);
+    // past the number of findings listed for one file, the report says how many it left out, as it does for any file
+    const flood = check({ "app/src/lib/flood.ts": `${"export const a = 1;\n".repeat(110_000)}${`const role = "user${cp(0x202e)}";\n`.repeat(250)}` });
+    assert.equal(of(flood, "hidden-unicode").length, 200);
+    assert.equal(details(flood, "unscanned"), "50 more findings in this file are not listed | a text file of 3 MB, read for credentials and hidden characters only");
     // a registry hash is not a credential, even where a stretch of it reads like an access key
     const lookalike = lockfile({ ...BASE_LOCK, leftpad: entry("leftpad", "1.0.0", { integrity: `sha512-${"x".repeat(65)}+AKIA${"ABCDEFGHIJKLMNOP"}==` }) });
     assert.deepEqual(rules(check({ "app/package-lock.json": lookalike })), ["dependencies"]);
