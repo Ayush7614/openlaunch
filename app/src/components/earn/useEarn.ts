@@ -8,7 +8,7 @@ import { useHydratedAccount } from "@/lib/useHydratedAccount";
 import { BUILDER_DATA_SUFFIX, CHAINS } from "@/lib/chainPublic";
 import { ERC20_MIN_ABI } from "@/lib/launchpad/abi";
 import { EARN_VAULT_ABI } from "@/lib/earn/abi";
-import { EARN_BATCH_CAPABILITIES, approveCall, batchHash, canBatch, depositCall, redeemCall, withdrawCall, type EarnCall } from "@/lib/earn/calls";
+import { EARN_BATCH_CAPABILITIES, approveCall, approvedState, batchHash, canBatch, depositCall, redeemCall, withdrawCall, type EarnCall } from "@/lib/earn/calls";
 import { cleanAmountInput, depositProblem, fmtAmount, maxInput, parseAmount, withdrawPlan, withdrawProblem } from "@/lib/earn/math";
 import { NOT_CONFIRMED_YET, isBusy, revertedCopy, type EarnOutcome, type EarnPhase, type EarnSent, type EarnTab } from "@/lib/earn/phase";
 import { liveCheck, pausedCopy, readTerms, termsCheck } from "@/lib/earn/terms";
@@ -181,6 +181,26 @@ export default function useEarn(vault: EarnVault, initialTab: EarnTab) {
     }
   }
 
+  /**
+   * Simulates the whole deposit batch before the wallet's one prompt, the way the batch will run: the approval, then
+   * the deposit with that approval's only effect (the allowance) applied as a state override on the asset. Returns
+   * false when the override does not take (the asset's storage is not what was reviewed): the caller then takes the
+   * one-at-a-time path, where each call is simulated on its own. A deposit that reverts with the allowance in place
+   * throws here, before any prompt.
+   */
+  async function preflightBatch(pub: Pick<PublicClient, "simulateContract" | "readContract">, account: Address, value: bigint, withApproval: boolean): Promise<boolean> {
+    if (!withApproval) {
+      await pub.simulateContract({ address: vault.address, abi: EARN_VAULT_ABI, functionName: "deposit", args: [value, account], account, dataSuffix: BUILDER_DATA_SUFFIX });
+      return true;
+    }
+    await pub.simulateContract({ address: vault.asset, abi: ERC20_MIN_ABI, functionName: "approve", args: [vault.address, value], account, dataSuffix: BUILDER_DATA_SUFFIX });
+    const stateOverride = approvedState(vault, account, value);
+    const seen = await pub.readContract({ address: vault.asset, abi: ERC20_MIN_ABI, functionName: "allowance", args: [account, vault.address], stateOverride }).catch(() => null);
+    if (seen !== value) return false;
+    await pub.simulateContract({ address: vault.address, abi: EARN_VAULT_ABI, functionName: "deposit", args: [value, account], account, dataSuffix: BUILDER_DATA_SUFFIX, stateOverride });
+    return true;
+  }
+
   /** The state for a send whose outcome could not be read. */
   function unconfirmed(tab: EarnTab, amount: bigint, sent: EarnSent): EarnPhase {
     return { k: "unconfirmed", tab, amount, sent, checking: false, note: null };
@@ -242,12 +262,14 @@ export default function useEarn(vault: EarnVault, initialTab: EarnTab) {
         pub.readContract({ address: vault.asset, abi: ERC20_MIN_ABI, functionName: "allowance", args: [account, vault.address] }),
       ]);
       if (value > balance) throw new Error("That is more USDC than this wallet holds.");
+      const short = allowance < value;
       let outcome: EarnOutcome;
-      if (await batching(account)) {
-        // one prompt; atomic, so a failed deposit takes the approval back with it
-        outcome = await sendBatch(account, allowance < value ? [approveCall(vault, value), depositCall(vault, value, account)] : [depositCall(vault, value, account)], "deposit", value);
+      // one prompt for a wallet that batches, once the whole batch has simulated; atomic, so a failed deposit takes the
+      // approval back with it
+      if ((await batching(account)) && (await preflightBatch(pub, account, value, short))) {
+        outcome = await sendBatch(account, short ? [approveCall(vault, value), depositCall(vault, value, account)] : [depositCall(vault, value, account)], "deposit", value);
       } else {
-        if (allowance < value) {
+        if (short) {
           const wallet = await walletFor(account);
           setPhase({ k: "approving" });
           const approval = await wallet.writeContract({ account, address: vault.asset, abi: ERC20_MIN_ABI, functionName: "approve", args: [vault.address, value], dataSuffix: BUILDER_DATA_SUFFIX });
@@ -289,6 +311,9 @@ export default function useEarn(vault: EarnVault, initialTab: EarnTab) {
       if (held <= 0n) throw new Error("Nothing is deposited from this wallet.");
       let outcome: EarnOutcome;
       if (await batching(account)) {
+        // the one call, simulated before the one prompt
+        if (plan.fn === "redeem") await pub.simulateContract({ address: vault.address, abi: EARN_VAULT_ABI, functionName: "redeem", args: [held, account, account], account, dataSuffix: BUILDER_DATA_SUFFIX });
+        else await pub.simulateContract({ address: vault.address, abi: EARN_VAULT_ABI, functionName: "withdraw", args: [plan.assets, account, account], account, dataSuffix: BUILDER_DATA_SUFFIX });
         outcome = await sendBatch(account, [plan.fn === "redeem" ? redeemCall(vault, held, account) : withdrawCall(vault, plan.assets, account)], "withdraw", plan.assets);
       } else {
         let hash: Hex;

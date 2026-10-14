@@ -5,7 +5,7 @@ import { concatHex, decodeFunctionData, encodeFunctionData, getAddress, maxUint2
 import { BUILDER_CODE, BUILDER_DATA_SUFFIX } from "../chainPublic.ts";
 import { ERC20_MIN_ABI } from "../launchpad/abi.ts";
 import { EARN_VAULT_ABI } from "./abi.ts";
-import { EARN_BATCH_CAPABILITIES, approveCall, batchHash, canBatch, depositCall, redeemCall, withdrawCall } from "./calls.ts";
+import { EARN_BATCH_CAPABILITIES, allowanceSlot, approveCall, approvedState, batchHash, canBatch, depositCall, redeemCall, withdrawCall } from "./calls.ts";
 import { EARN_VAULTS } from "./vaults.ts";
 
 const vault = EARN_VAULTS.base!;
@@ -46,6 +46,16 @@ test("deposits, withdrawals and redemptions all pay and return to the same walle
 
 test("a batching wallet is asked to tag its own operation too, and may decline", () => {
   assert.deepEqual(EARN_BATCH_CAPABILITIES, { dataSuffix: { value: BUILDER_DATA_SUFFIX, optional: true } });
+});
+
+test("the allowance override targets allowed[owner][vault] in USDC's slot-10 mapping", () => {
+  // vector from `cast index address <vault> $(cast index address 0x…a1 10)`
+  assert.equal(allowanceSlot("0x00000000000000000000000000000000000000A1", vault.address, 10n), "0x225d826c47ad7eee9e6a5f77df704b43c0a9c35932432324101796966f514eec");
+  assert.equal(vault.assetAllowanceSlot, 10n);
+  // case never matters (and a mixed-case address with an off checksum does not throw)
+  assert.equal(allowanceSlot("0x00000000000000000000000000000000000000a1", vault.address.toLowerCase() as `0x${string}`, 10n), allowanceSlot("0x00000000000000000000000000000000000000A1", vault.address, 10n));
+  const o = approvedState(vault, "0x00000000000000000000000000000000000000A1", 250_000_000n);
+  assert.deepEqual(o, [{ address: vault.asset, stateDiff: [{ slot: "0x225d826c47ad7eee9e6a5f77df704b43c0a9c35932432324101796966f514eec", value: `0x${(250_000_000).toString(16).padStart(64, "0")}` }] }]);
 });
 
 test("a batch counts as done only when the wallet reports success for every call", () => {

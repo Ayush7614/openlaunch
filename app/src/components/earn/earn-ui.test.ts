@@ -18,7 +18,9 @@ test("every wallet write is credited to the builder code", () => {
   assert.ok(direct.length >= 1);
   for (const w of direct) assert.match(w, /dataSuffix: BUILDER_DATA_SUFFIX/, w);
   const simulated = hook.match(/simulateContract\(\{[^}]*\}/g) ?? [];
-  assert.equal(simulated.length, 3); // deposit, redeem, withdraw
+  // batch preflight: deposit, approve, deposit with the allowance override; one-at-a-time deposit; redeem and
+  // withdraw on each path
+  assert.equal(simulated.length, 8);
   for (const s of simulated) assert.match(s, /dataSuffix: BUILDER_DATA_SUFFIX/, s);
   // a prepared request is only ever sent as simulated (the suffix travels inside it)
   assert.equal((hook.match(/writeContract\(request\)/g) ?? []).length, 3);
@@ -71,6 +73,18 @@ test("a deposit pause is derived from a polled read, never stored, so it cannot 
   // a failed send-time check refreshes the polled read so the form shows the pause at once
   const require = hook.slice(hook.indexOf("async function requireTerms("));
   assert.match(require, /if \(!check\.ok\) \{\s*void terms\.refetch\(\);[^\n]*\n\s*throw new Error\(pausedCopy\(check\.reason\)\);/);
+});
+
+test("a batch is simulated before its one prompt, like every other send", () => {
+  const deposit = hook.slice(hook.indexOf("async function deposit()"), hook.indexOf("async function withdraw()"));
+  assert.match(deposit, /if \(\(await batching\(account\)\) && \(await preflightBatch\(pub, account, value, short\)\)\) \{\s*(?:\/\/[^\n]*\n\s*)*outcome = await sendBatch\(/);
+  const withdraw = hook.slice(hook.indexOf("async function withdraw()"), hook.indexOf("async function recheck()"));
+  const batchBranch = withdraw.slice(withdraw.indexOf("if (await batching(account)) {"));
+  assert.ok(batchBranch.indexOf("simulateContract(") < batchBranch.indexOf("sendBatch("));
+  // the override is trusted only after it is seen to take
+  const preflight = hook.slice(hook.indexOf("async function preflightBatch("));
+  assert.match(preflight, /if \(seen !== value\) return false;/);
+  assert.ok(preflight.indexOf("if (seen !== value) return false;") < preflight.indexOf("stateOverride });"));
 });
 
 test("an upgrade-to-smart-account prompt is never triggered", () => {

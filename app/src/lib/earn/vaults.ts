@@ -19,6 +19,12 @@ export type EarnVault = {
   asset: Address;
   assetSymbol: "USDC";
   assetDecimals: 6;
+  /**
+   * The storage slot of the asset's `allowed[owner][spender]` mapping. Used only to simulate a smart wallet's
+   * [approve, deposit] batch before its one prompt (lib/earn/calls.ts approvedState). The app checks the override took
+   * effect before trusting the simulation, so a wrong slot falls back to the one-at-a-time path instead of misleading.
+   */
+  assetAllowanceSlot: bigint;
   shareDecimals: 18;
   /** The vault's own on-chain name. */
   name: string;
@@ -42,6 +48,8 @@ const BASE_VAULT: EarnVault = {
   asset: BASE_USDC,
   assetSymbol: "USDC",
   assetDecimals: 6,
+  // Circle FiatToken v2.2: `allowed` is mapping slot 10 (verified on a Base fork and by the opt-in live test)
+  assetAllowanceSlot: 10n,
   shareDecimals: 18,
   name: "Steakhouse Prime USDC",
   curator: "Steakhouse Financial",

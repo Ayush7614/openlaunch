@@ -6,7 +6,7 @@ import { zeroAddress, type Address } from "viem";
 import { BUILDER_DATA_SUFFIX } from "@/lib/chainPublic";
 import { ERC20_MIN_ABI } from "@/lib/launchpad/abi";
 import { EARN_VAULT_ABI } from "@/lib/earn/abi";
-import { EARN_BATCH_CAPABILITIES, approveCall, batchHash, canBatch, depositCall, redeemCall, withdrawCall } from "@/lib/earn/calls";
+import { EARN_BATCH_CAPABILITIES, approveCall, approvedState, batchHash, canBatch, depositCall, redeemCall, withdrawCall } from "@/lib/earn/calls";
 import { fmtAmount, withdrawPlan } from "@/lib/earn/math";
 import { NOT_CONFIRMED_YET, isBusy, revertedCopy, type EarnPhase } from "@/lib/earn/phase";
 import { pausedCopy, termsCheck, type LiveTerms } from "@/lib/earn/terms";
@@ -16,7 +16,7 @@ import { EARN_VAULTS } from "@/lib/earn/vaults";
  * Runs the real deposit / withdraw / recheck code from useEarn.ts (extracted from the source, like
  * transaction-safety.test.ts) against inert wallets and RPCs: no real wallet, chain or transaction.
  */
-const FLOW = ["ensureAccount", "walletFor", "batching", "requireTerms", "unconfirmed", "settleTx", "sendBatch", "finish", "deposit", "withdraw", "recheck"] as const;
+const FLOW = ["ensureAccount", "walletFor", "batching", "requireTerms", "preflightBatch", "unconfirmed", "settleTx", "sendBatch", "finish", "deposit", "withdraw", "recheck"] as const;
 type Flow = Record<(typeof FLOW)[number], (...args: unknown[]) => Promise<void>>;
 
 function load(bindings: Record<string, unknown>): Flow {
@@ -59,8 +59,13 @@ function world(o: {
   callsStatus?: () => Promise<unknown>;
   waitForCalls?: () => Promise<unknown>;
   tab?: "deposit" | "withdraw";
+  /** false: the node ignores the allowance override (as if the token's storage moved) */
+  overrideTakes?: boolean;
+  /** which simulations revert, by function name and whether the allowance override was applied */
+  reverts?: (fn: string, withOverride: boolean) => boolean;
 } = {}) {
   const phases: EarnPhase[] = [];
+  const events: string[] = [];
   const writes: { functionName?: string; account?: unknown }[] = [];
   const walletRequests: unknown[] = [];
   const batches: unknown[] = [];
@@ -70,13 +75,18 @@ function world(o: {
   const termsQueue = [...(o.terms ?? [])];
   let refetches = 0;
   const pub = {
-    readContract: async ({ address, functionName }: { address: string; functionName: string }) => {
+    readContract: async ({ address, functionName, stateOverride }: { address: string; functionName: string; stateOverride?: { stateDiff: { value: string }[] }[] }) => {
+      if (stateOverride) return o.overrideTakes === false ? 0n : BigInt(stateOverride[0].stateDiff[0].value);
       o.onRead?.(functionName, { account, mounted });
       if (functionName === "allowance") return o.allowance ?? 10_000_000_000n;
       if (functionName === "balanceOf") return address === vault.asset ? 10_000_000_000n : 957_000_000_000_000_000_000n;
       throw new Error(`unexpected read ${functionName}`);
     },
-    simulateContract: async (args: { functionName: string }) => ({ request: { ...args } }),
+    simulateContract: async (args: { functionName: string; stateOverride?: unknown }) => {
+      events.push(`simulate:${args.functionName}${args.stateOverride ? "+override" : ""}`);
+      if (o.reverts?.(args.functionName, Boolean(args.stateOverride))) throw new Error(`${args.functionName} would revert`);
+      return { request: { ...args } };
+    },
     waitForTransactionReceipt: async ({ hash }: { hash: string }) => {
       if (hash === "0xapprove") {
         o.afterApproval?.({ account });
@@ -106,18 +116,18 @@ function world(o: {
       if (!o.batching) throw new Error("wallet_getCapabilities is not supported");
       return { atomic: { status: "supported" } };
     },
-    sendCalls: async (_config: unknown, req: unknown) => { batches.push(req); return { id: "0xbatch" }; },
+    sendCalls: async (_config: unknown, req: unknown) => { events.push("sendCalls"); batches.push(req); return { id: "0xbatch" }; },
     waitForCallsStatus: () => (o.waitForCalls ?? (async () => ({ status: "success", receipts: [{ status: "success", transactionHash: "0xt" }] })))(),
     getCallsStatus: () => (o.callsStatus ?? (async () => ({ status: "pending" })))(),
     readTerms: async () => termsQueue.shift() ?? reviewed,
-    termsCheck, pausedCopy, approveCall, depositCall, redeemCall, withdrawCall, batchHash, canBatch, withdrawPlan, fmtAmount,
+    termsCheck, pausedCopy, approveCall, approvedState, depositCall, redeemCall, withdrawCall, batchHash, canBatch, withdrawPlan, fmtAmount,
     EARN_BATCH_CAPABILITIES, ERC20_MIN_ABI, EARN_VAULT_ABI, BUILDER_DATA_SUFFIX, NOT_CONFIRMED_YET, revertedCopy,
     setPhase: (p: EarnPhase) => phases.push(p), setText: () => {}, setAll: () => {}, toast: () => {},
     friendlyError: (e: Error) => e.message,
   };
   if (o.tab === "withdraw") Object.assign(bindings, { amount: 1_000_000_000n });
   const flow = load(bindings);
-  return { flow, phases, writes, walletRequests, batches, account, mounted, lock, refetches: () => refetches, last: () => phases.at(-1)!, rebind: (extra: Record<string, unknown>) => load({ ...bindings, ...extra }) };
+  return { flow, phases, events, writes, walletRequests, batches, account, mounted, lock, refetches: () => refetches, last: () => phases.at(-1)!, rebind: (extra: Record<string, unknown>) => load({ ...bindings, ...extra }) };
 }
 
 test("a deposit whose receipt cannot be read stays unconfirmed, and the form cannot send it again", async () => {
@@ -156,6 +166,8 @@ test("Check again: no receipt keeps it unconfirmed with a note; a receipt settle
 test("a smart-wallet batch is one atomic, builder-tagged request; an unreadable status stays unconfirmed until the wallet's final answer", async () => {
   const w = world({ batching: true, allowance: 0n, waitForCalls: timeout });
   await w.flow.deposit();
+  // the whole batch simulated before the one prompt: the approval, then the deposit with the allowance in place
+  assert.deepEqual(w.events, ["simulate:approve", "simulate:deposit+override", "sendCalls"]);
   assert.equal(w.batches.length, 1);
   const req = w.batches[0] as { account: Address; calls: { to: Address }[]; capabilities: unknown; forceAtomic: boolean };
   assert.equal(req.account, A);
@@ -176,6 +188,43 @@ test("a smart-wallet batch is one atomic, builder-tagged request; an unreadable 
   const failed = world({ phase: pending, callsStatus: async () => ({ status: "failure", receipts: [] }) });
   await failed.flow.recheck();
   assert.equal(failed.last().k, "error");
+});
+
+test("a batch deposit that would revert, with the allowance in place, stops before the wallet's prompt", async () => {
+  const w = world({ batching: true, allowance: 0n, reverts: (fn, withOverride) => fn === "deposit" && withOverride });
+  await w.flow.deposit();
+  assert.deepEqual(w.events, ["simulate:approve", "simulate:deposit+override"]);
+  assert.equal(w.batches.length, 0);
+  assert.equal(w.writes.length, 0);
+  assert.deepEqual(w.last(), { k: "error", message: "deposit would revert" });
+});
+
+test("when the allowance override does not take, a batching wallet gets the simulated one-at-a-time path", async () => {
+  const w = world({ batching: true, allowance: 0n, overrideTakes: false });
+  await w.flow.deposit();
+  assert.equal(w.batches.length, 0, "no batch sent on an unverified simulation");
+  assert.deepEqual(w.writes.map((x) => x.functionName), ["approve", "deposit"]);
+  assert.deepEqual(w.events, ["simulate:approve", "simulate:deposit"]); // the batch's approval check, then the real deposit simulation after the approval
+  assert.equal(w.last().k, "done");
+});
+
+test("an approved batching wallet's single deposit is simulated before its prompt", async () => {
+  const w = world({ batching: true });
+  await w.flow.deposit();
+  assert.deepEqual(w.events, ["simulate:deposit", "sendCalls"]);
+  assert.equal((w.batches[0] as { calls: unknown[] }).calls.length, 1);
+  assert.equal(w.last().k, "done");
+});
+
+test("a batching wallet's withdrawal is simulated before its prompt, and a revert sends nothing", async () => {
+  const ok = world({ tab: "withdraw", batching: true });
+  await ok.flow.withdraw();
+  assert.deepEqual(ok.events, ["simulate:redeem", "sendCalls"]);
+  const bad = world({ tab: "withdraw", batching: true, reverts: (fn) => fn === "redeem" });
+  await bad.flow.withdraw();
+  assert.deepEqual(bad.events, ["simulate:redeem"]);
+  assert.equal(bad.batches.length, 0);
+  assert.equal(bad.last().k, "error");
 });
 
 test("every wallet prompt is bound to the account that started the deposit", async () => {

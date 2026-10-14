@@ -10,7 +10,7 @@ The feature is **off unless the runtime secret `EARN=on` is set**. Off, `GET /ap
 - **Calls** (`app/src/lib/earn/calls.ts`): plain ERC-4626 on the vault. `deposit(assets, wallet)`, `withdraw(assets, wallet, wallet)` for part, `redeem(allShares, wallet, wallet)` for everything (so no dust share is left). The approval is `approve(vault, exactAmount)` on USDC. No SDK, no router, no bundler.
 - **Reads**: the wallet's USDC, allowance, shares and what they redeem for are read in the browser through the same-origin `/api/rpc` proxy. The vault's public figures (rate, size, fees, terms) come from `GET /api/earn`, which reads the chain on the server, once per 10 minutes. No third-party API: the CSP and `SECURITY.md` are unchanged.
 - **Rate**: what one share actually gained over about the last 30 days, annualised (simple, not compounded), from `convertToAssets` at two blocks and their real timestamps. It is net of the vault's fees and excludes any external rewards. It needs a node that serves historical state; without one the rate shows as unavailable and everything else still works.
-- **Writes** follow the trade panel: a synchronous lock before the first await, a network switch if needed, a simulation before every signature, then the receipt. One-at-a-time wallets: approve (only when the allowance is short), then deposit. Smart wallets that already execute atomic batches (`wallet_getCapabilities` → `atomic.status: "supported"`): one `wallet_sendCalls` with approve + deposit, atomic, so a failed deposit takes the approval back with it. A wallet that would first need an EIP-7702 upgrade (`"ready"`) takes the one-at-a-time path.
+- **Writes** follow the trade panel: a synchronous lock before the first await, a network switch if needed, a simulation before every signature, then the receipt. One-at-a-time wallets: approve (only when the allowance is short), then deposit. Smart wallets that already execute atomic batches (`wallet_getCapabilities` → `atomic.status: "supported"`): one `wallet_sendCalls` with approve + deposit, atomic, so a failed deposit takes the approval back with it. The batch is simulated before its one prompt too: the approval, then the deposit with the approval's only effect (the allowance) applied as a state override on USDC (`allowed` mapping, slot 10, `assetAllowanceSlot`). The override is trusted only after a read shows it took; otherwise the wallet gets the one-at-a-time path, where each call is simulated on its own. A deposit that reverts with the allowance in place stops before any prompt. A withdrawal batch is one call, simulated first. A wallet that would first need an EIP-7702 upgrade (`"ready"`) takes the one-at-a-time path.
 
 ## Builder code
 
@@ -35,7 +35,7 @@ Base's Dashboard reports lending TVL per builder code. Check a real transaction 
 
 - Base only, one vault, USDC only. No borrowing, no "earned so far" figure (it needs deposit history the app does not index), no country restrictions (the switch is global).
 - The vault is a third party. Its availability, liquidity, rate and solvency are not guaranteed by openlaunch.
-- The batch path for smart wallets is covered by unit tests of the exact calls and capability, not yet by a real wallet.
+- The batch path for smart wallets is covered by unit and flow tests (exact calls, capability, preflight) and the live test proves the allowance override lands in Base USDC's storage, but it has not yet been run with a real wallet.
 
 ## Development and verification
 

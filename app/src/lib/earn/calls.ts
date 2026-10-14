@@ -1,4 +1,4 @@
-import { concatHex, encodeFunctionData, type Address, type Hex } from "viem";
+import { concatHex, encodeAbiParameters, encodeFunctionData, keccak256, numberToHex, type Address, type Hex, type StateOverride } from "viem";
 import { ERC20_MIN_ABI } from "../launchpad/abi.ts";
 import { BUILDER_DATA_SUFFIX } from "../chainPublic.ts";
 import { EARN_VAULT_ABI } from "./abi.ts";
@@ -36,6 +36,22 @@ export function withdrawCall(vault: EarnVault, assets: bigint, owner: Address): 
 /** Burn `shares` (every share, for "withdraw all") for the asset, back to the same wallet. */
 export function redeemCall(vault: EarnVault, shares: bigint, owner: Address): EarnCall {
   return { to: vault.address, data: tagged(encodeFunctionData({ abi: EARN_VAULT_ABI, functionName: "redeem", args: [shares, owner, owner] })) };
+}
+
+/** The storage slot of `allowed[owner][spender]` in a Solidity mapping-of-mappings at `mappingSlot`. */
+export function allowanceSlot(owner: Address, spender: Address, mappingSlot: bigint): Hex {
+  // lowercased: the encoding ignores case, and viem rejects a mixed-case address whose checksum is off
+  const inner = keccak256(encodeAbiParameters([{ type: "address" }, { type: "uint256" }], [owner.toLowerCase() as Address, mappingSlot]));
+  return keccak256(encodeAbiParameters([{ type: "address" }, { type: "bytes32" }], [spender.toLowerCase() as Address, inner]));
+}
+
+/**
+ * The approval's only effect, as a state override: the vault allowed exactly `amount` of the owner's asset. With it a
+ * simulation runs the deposit as the batch will, right after its approval, so the whole [approve, deposit] batch is
+ * simulated before the wallet's one prompt.
+ */
+export function approvedState(vault: EarnVault, owner: Address, amount: bigint): StateOverride {
+  return [{ address: vault.asset, stateDiff: [{ slot: allowanceSlot(owner, vault.address, vault.assetAllowanceSlot), value: numberToHex(amount, { size: 32 }) }] }];
 }
 
 /**
