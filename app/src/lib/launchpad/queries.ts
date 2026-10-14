@@ -2,7 +2,7 @@ import "server-only";
 import { cache } from "react";
 import { maybeDb } from "@/lib/db";
 import { CHAIN_KEYS, DEFAULT_CHAIN, chainIdOf, chainKeyOf, type ChainKey } from "@/lib/chainPublic";
-import { quoteInfo as staticQuoteInfo, quoteUsdOf, type Quote, NATIVE_QUOTES, fixedUsdQuotes, quotesWithKey } from "./config";
+import { quoteInfo as staticQuoteInfo, quoteUsdOf, hasPriceSource, type Quote, NATIVE_QUOTES, fixedUsdQuotes, quotesWithKey } from "./config";
 import { ensureRegistry, stockByAddress, stockList, stockUsdInUse } from "./stocksServer";
 import { unlistedQuote, type QuoteTokenMeta } from "./unlisted-quote";
 import { memo } from "./memo";
@@ -129,7 +129,8 @@ function quoteInfo(chain: ChainKey, address: string, st: PriceState = priceState
   if (q.key === "museworld") return { ...q, usd: st.museworld };
   if (q.key !== "other") return q;
   const stock = stockByAddress(chain, address);
-  if (stock) return { key: "stock", address: stock.address as Quote["address"], symbol: stock.symbol, decimals: stock.decimals, usd: st.stocks.get(stock.address) ?? null, name: stock.name, logo: stock.logo };
+  // a stock nothing prices says so: its missing USD is not an outage (hasPriceSource)
+  if (stock) return { key: "stock", address: stock.address as Quote["address"], symbol: stock.symbol, decimals: stock.decimals, usd: st.stocks.get(stock.address) ?? null, name: stock.name, logo: stock.logo, ...(stock.priced ? {} : { unpriced: true }) };
   return unlistedQuote(address, st.quoteTokens.get(`${chainIdOf(chain)}:${address.toLowerCase()}`) ?? null, st.stockSymbols.get(chain) ?? []);
 }
 
@@ -563,9 +564,9 @@ export async function getLaunchTotals(ethUsd: number | null = null): Promise<Lau
     const q = quoteInfo(chain, r.quote);
     const usd = quoteUsd(q, ethUsd);
     const qu = usd ?? 0;
-    // a quote that normally prices (ETH, GITLAWB, TWIG, a registry stock) but has no price this instant → the USD sums undercount;
-    // an unlisted ERC-20 (key "other") is unpriced by design and is left out of the USD figures silently, as always
-    if (usd === null && q.key !== "other" && (BigInt(r.volume) > 0n || BigInt(r.burned) > 0n || BigInt(r.creators) > 0n)) t.usd_partial = true;
+    // a quote that normally prices (ETH, GITLAWB, TWIG, a stock with a feed) but has no price this instant → the USD sums undercount;
+    // an unlisted ERC-20 (key "other") and a stock without a feed are unpriced by design and are left out of the USD figures silently, as always
+    if (usd === null && hasPriceSource(q) && (BigInt(r.volume) > 0n || BigInt(r.burned) > 0n || BigInt(r.creators) > 0n)) t.usd_partial = true;
     t.launches += Number(r.launches);
     t.trades += Number(r.trades);
     t.volume_usd += units(r.volume, q.decimals) * qu;
@@ -803,14 +804,15 @@ export async function getTrending(ethUsd: number | null = null): Promise<Trendin
 
 /**
  * The quote pricing the lists use, as a function, for code that prices many launches at once (season points):
- * decimals and USD per whole quote unit (null = unpriced) for a launch's quote on its chain.
+ * decimals and USD per whole quote unit (null = unpriced) for a launch's quote on its chain. `priced` is false for a
+ * quote nothing prices (an unlisted ERC-20, a stock without a feed): its null USD will not come back, so do not wait for it.
  */
-export async function quotePricer(ethUsd: number | null): Promise<(chain: ChainKey, quote: string) => { key: string; decimals: number; usd: number | null }> {
+export async function quotePricer(ethUsd: number | null): Promise<(chain: ChainKey, quote: string) => { key: string; decimals: number; usd: number | null; priced: boolean }> {
   await withStocks();
   // one snapshot for the caller's whole run: a page refresh loading new prices meanwhile must not change it halfway
   const snap = priceState();
   return (chain, quote) => {
     const q = quoteInfo(chain, quote, snap);
-    return { key: q.key, decimals: q.decimals, usd: quoteUsd(q, ethUsd) };
+    return { key: q.key, decimals: q.decimals, usd: quoteUsd(q, ethUsd), priced: hasPriceSource(q) };
   };
 }

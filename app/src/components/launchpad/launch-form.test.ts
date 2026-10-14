@@ -138,6 +138,20 @@ test("stock quote: one blocking message, a chip that names the issuer, a way out
   assert.match(source, /<p className=\{helper\}>\{CHAIN_COPY\[chain\]\.stock\?\.issuer\}<\/p>/);
 });
 
+test("stock picker: a one-page list says how many stocks there are, and a stock without a USD price explains the stock-unit cap", () => {
+  // the registry's size comes from the server with each page: the form never hard-codes a count or a ticker list that goes stale
+  assert.match(source, /const d = \(await res\.json\(\)\) as \{ stocks: Quote\[\]; stocksTotal\?: number \};/);
+  assert.match(source, /setStockHits\(d\.stocks \?\? \[\]\);\s*setStockTotal\(d\.stocksTotal \?\? 0\);/);
+  assert.doesNotMatch(source, /\d+ Coinbase tokenized stocks/);
+  assert.match(source, /empty: "No match\. Search a ticker or a company name, e\.g\. NVDA, AMD or Netflix\."/);
+  // shown only for an empty search with more stocks than the page: a typed search already narrows, a picked stock hides the list
+  assert.match(source, /\{!stock && !stockQ\.trim\(\) && stockHits\.length > 0 && stockTotal > stockHits\.length \? \(\s*<p className=\{helper\}>\s*Showing \{stockHits\.length\} of \{stockTotal\}\. Search a ticker or a company name for the rest\.\s*<\/p>\s*\) : null\}/);
+  // the total belongs to one chain's registry, like the hits: switching chains drops both
+  assert.match(source, /setStockHits\(\[\]\);\s*setStockTotal\(0\);/);
+  // most Coinbase stocks have no price feed: the cap box then takes stock units, and one line says so (never for ETH or a priced stock)
+  assert.match(source, /\{quote\.key === "stock" && entry\.unit === "quote" \? \(\s*<p className=\{helper\}>\s*\{quote\.symbol\} has no USD price here: enter the starting market cap in \{quote\.symbol\}\.\s*<\/p>\s*\) : null\}/);
+});
+
 test("beneficiary split: recipients come from the tested helper, and the summary reflects the split", () => {
   // custom mode is the split editor; its rules live in lib/launchpad/recipients.ts, never inline in the form
   assert.match(source, /const split = useMemo\(\(\) => buildRecipients\(rows\), \[rows\]\);/);

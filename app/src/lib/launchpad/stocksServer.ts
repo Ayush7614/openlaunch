@@ -3,19 +3,21 @@ import { maybeDb } from "@/lib/db";
 import { publicClient } from "@/lib/chain";
 import { CHAIN_KEYS, chainKeyOf, type ChainKey } from "@/lib/chainPublic";
 import { STOCK_PRICE_URL, STOCK_REGISTRY_URL, parseRegistry, stockUsd, type StockQuote } from "./stocks";
-import { BASE_STOCKS, baseStockByAddress, feedUsd, stockTileSvg } from "./baseStocks";
+import { BASE_STOCKS, baseStockByAddress, feedUsd, pricedBaseStocks, stockTileSvg } from "./baseStocks";
 
 /**
  * Stock quote assets, server-side only. Two registries, one shape:
  *   - robinhood: Robinhood Stock Tokens from Robinhood's registry (fetched, parsed defensively,
  *     cached 10 min); prices from Robinhood's quote API, cached 30s, only for quotes in use.
- *   - base: Coinbase tokenized stocks (B20) from the static list in baseStocks.ts (docs.base.org);
- *     prices from Chainlink's on-chain feeds via one multicall, cached 60s.
+ *   - base: Coinbase tokenized stocks (B20) from the static list in baseStocks.ts (Coinbase's registry);
+ *     prices from Chainlink's on-chain feeds via one multicall, cached 60s. A stock without a feed
+ *     has no USD price and no read is made for it.
  * An address is a stock ONLY if it is in a registry (never trust on-chain names).
  * Everything fails soft: on error the last good copy stays; with none, stocks are simply not
  * offered and existing stock-quoted launches show no USD.
  */
-export type Stock = { chain: ChainKey; address: string; symbol: string; name: string; decimals: number; logo: string | null };
+/** `priced`: something prices the stock in USD (every Robinhood Stock Token; on Base only the stocks with a Chainlink feed). */
+export type Stock = { chain: ChainKey; address: string; symbol: string; name: string; decimals: number; logo: string | null; priced: boolean };
 
 type Cache = { at: number; list: StockQuote[]; byAddress: Map<string, StockQuote> };
 let registry: Cache | null = null;
@@ -63,17 +65,17 @@ export function stockByAddress(chain: ChainKey, address: string): Stock | null {
   const a = address.toLowerCase();
   if (STOCK_SOURCE[chain] === "coinbase-b20") {
     const s = baseStockByAddress(a);
-    return s ? { chain, address: s.address, symbol: s.symbol, name: s.name, decimals: s.decimals, logo: stockTileSvg(s.symbol) } : null;
+    return s ? { chain, address: s.address, symbol: s.symbol, name: s.name, decimals: s.decimals, logo: stockTileSvg(s.symbol), priced: s.feed !== null } : null;
   }
   if (STOCK_SOURCE[chain] !== "robinhood-registry") return null;
   const s = registry?.byAddress.get(a);
-  return s ? { chain, address: s.address, symbol: s.symbol, name: s.name, decimals: s.decimals, logo: s.logo } : null;
+  return s ? { chain, address: s.address, symbol: s.symbol, name: s.name, decimals: s.decimals, logo: s.logo, priced: true } : null;
 }
 
 export function stockList(chain: ChainKey): Stock[] {
-  if (STOCK_SOURCE[chain] === "coinbase-b20") return BASE_STOCKS.map((s) => ({ chain, address: s.address, symbol: s.symbol, name: s.name, decimals: s.decimals, logo: stockTileSvg(s.symbol) }));
+  if (STOCK_SOURCE[chain] === "coinbase-b20") return BASE_STOCKS.map((s) => ({ chain, address: s.address, symbol: s.symbol, name: s.name, decimals: s.decimals, logo: stockTileSvg(s.symbol), priced: s.feed !== null }));
   if (STOCK_SOURCE[chain] !== "robinhood-registry") return [];
-  return (registry?.list ?? []).map((s) => ({ chain, address: s.address, symbol: s.symbol, name: s.name, decimals: s.decimals, logo: s.logo }));
+  return (registry?.list ?? []).map((s) => ({ chain, address: s.address, symbol: s.symbol, name: s.name, decimals: s.decimals, logo: s.logo, priced: true }));
 }
 
 async function fetchRobinhoodPrice(s: StockQuote): Promise<number | null> {
@@ -92,10 +94,10 @@ const AGGREGATOR_ABI = [
   { type: "function", name: "latestRoundData", stateMutability: "view", inputs: [], outputs: [{ type: "uint80" }, { type: "int256" }, { type: "uint256" }, { type: "uint256" }, { type: "uint80" }] },
 ] as const;
 
-/** Chainlink feeds for a set of Base stock addresses in one multicall (feeds are ordinary contracts: any RPC works). */
+/** Chainlink feeds for a set of Base stock addresses in one multicall (feeds are ordinary contracts: any RPC works). Stocks without a feed are left out. */
 async function fetchBasePrices(addresses: string[]): Promise<Map<string, number | null>> {
   const out = new Map<string, number | null>();
-  const stocks = addresses.map((a) => baseStockByAddress(a)).filter((s): s is NonNullable<typeof s> => s !== null);
+  const stocks = pricedBaseStocks(addresses);
   if (stocks.length === 0) return out;
   try {
     const res = await publicClient("base").multicall({
