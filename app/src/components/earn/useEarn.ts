@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { useBalance, useConfig, useReadContract, useSwitchChain } from "wagmi";
+import { useBalance, useConfig, useReadContract, useReadContracts, useSwitchChain } from "wagmi";
 import { getCapabilities, getPublicClient, getWalletClient, sendCalls, waitForCallsStatus } from "wagmi/actions";
 import type { Address, Hex } from "viem";
 import { useHydratedAccount } from "@/lib/useHydratedAccount";
@@ -10,7 +10,7 @@ import { ERC20_MIN_ABI } from "@/lib/launchpad/abi";
 import { EARN_VAULT_ABI } from "@/lib/earn/abi";
 import { EARN_BATCH_CAPABILITIES, approveCall, canBatch, depositCall, redeemCall, withdrawCall, type EarnCall } from "@/lib/earn/calls";
 import { cleanAmountInput, depositProblem, fmtAmount, maxInput, parseAmount, withdrawPlan, withdrawProblem } from "@/lib/earn/math";
-import { pausedCopy, readTerms, termsCheck } from "@/lib/earn/terms";
+import { pausedCopy, readTerms, termsCheck, type TermsCheck } from "@/lib/earn/terms";
 import type { EarnVault } from "@/lib/earn/vaults";
 import { friendlyError } from "@/lib/errors";
 import { toast } from "@/components/launchpad/TxToasts";
@@ -66,9 +66,25 @@ export default function useEarn(vault: EarnVault, initialTab: EarnTab) {
   // "Withdraw all" stays all even as interest grows the position after the tap, so no dust share is left behind
   const [all, setAll] = useState(false);
   const [phase, setPhase] = useState<EarnPhase>({ k: "idle" });
-  // set when the pre-deposit check finds the vault's terms changed since review
-  const [paused, setPaused] = useState<string | null>(null);
   const lock = useRef(false);
+  // The vault's terms, re-read every minute while the card is open (one multicall). The pause is derived from this on
+  // every render (lib/earn/terms.ts depositPause), never stored, so it lifts by itself when the terms are back.
+  const at = { address: vault.address, abi: EARN_VAULT_ABI, chainId } as const;
+  const terms = useReadContracts({
+    contracts: [
+      { ...at, functionName: "asset" },
+      { ...at, functionName: "performanceFee" },
+      { ...at, functionName: "managementFee" },
+      { ...at, functionName: "receiveSharesGate" },
+      { ...at, functionName: "sendSharesGate" },
+      { ...at, functionName: "receiveAssetsGate" },
+      { ...at, functionName: "sendAssetsGate" },
+    ],
+    allowFailure: false,
+    query: { refetchInterval: 60_000 },
+  });
+  const t = terms.data;
+  const liveTerms: TermsCheck | null = t ? termsCheck(vault, { asset: t[0], performanceFee: t[1], managementFee: t[2], gates: [t[3], t[4], t[5], t[6]] }) : null;
 
   const decimals = vault.assetDecimals;
   const typed = parseAmount(text, decimals);
@@ -136,10 +152,11 @@ export default function useEarn(vault: EarnVault, initialTab: EarnTab) {
     try {
       if (!onChain) await switchChainAsync({ chainId });
       const pub = getPublicClient(config, { chainId })!;
-      const terms = termsCheck(vault, await readTerms(pub, vault));
-      if (!terms.ok) {
-        setPaused(terms.reason);
-        throw new Error(pausedCopy(terms.reason));
+      // authoritative: read fresh at send time, whatever the polled terms said
+      const check = termsCheck(vault, await readTerms(pub, vault));
+      if (!check.ok) {
+        void terms.refetch(); // the form shows the pause now, not at the next poll
+        throw new Error(pausedCopy(check.reason));
       }
       const [balance, allowance] = await Promise.all([
         pub.readContract({ address: vault.asset, abi: ERC20_MIN_ABI, functionName: "balanceOf", args: [address] }),
@@ -233,7 +250,8 @@ export default function useEarn(vault: EarnVault, initialTab: EarnTab) {
     amount,
     problem,
     needsApproval,
-    paused,
+    /** The live vault against the reviewed terms; null until the first read lands (or if it fails). */
+    liveTerms,
     phase,
     busy,
     reset: () => { if (!busy) setPhase({ k: "idle" }); },

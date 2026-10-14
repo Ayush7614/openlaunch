@@ -43,6 +43,16 @@ test("both actions lock before their first await and simulate before any signatu
   assert.ok(deposit.indexOf("simulateContract(") < deposit.indexOf("writeContract(request)"));
 });
 
+test("a deposit pause is derived from a polled read, never stored, so it cannot stick after the terms recover", () => {
+  assert.doesNotMatch(hook, /setPaused|useState<string \| null>/);
+  assert.match(hook, /useReadContracts\(\{[\s\S]*?query: \{ refetchInterval: 60_000 \}/);
+  for (const fn of ["asset", "performanceFee", "managementFee", "receiveSharesGate", "sendSharesGate", "receiveAssetsGate", "sendAssetsGate"]) assert.match(hook, new RegExp(`functionName: "${fn}"`), fn);
+  assert.match(panel, /const pauseReason = depositPause\(e\.liveTerms, snapshot\?\.terms \?\? null\);/);
+  // a failed send-time check refreshes the polled read so the form shows the pause at once
+  const deposit = hook.slice(hook.indexOf("async function deposit()"), hook.indexOf("async function withdraw()"));
+  assert.match(deposit, /if \(!check\.ok\) \{\s*void terms\.refetch\(\);[^\n]*\n\s*throw new Error\(pausedCopy\(check\.reason\)\);/);
+});
+
 test("an upgrade-to-smart-account prompt is never triggered", () => {
   assert.match(calls, /c\.atomic\?\.status === "supported"/);
   assert.doesNotMatch(calls, /status === "ready"/);

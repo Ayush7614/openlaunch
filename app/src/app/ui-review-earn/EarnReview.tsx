@@ -17,7 +17,7 @@ const snapshot: EarnVaultSnapshot = { rate: 0.0436, rateFrom: "2026-09-14T08:49:
 const noop = () => {};
 const base: EarnView = {
   vault, isConnected: true, onChain: true, switching: false, tab: "deposit", text: "", all: false, amount: null, problem: "Enter an amount", needsApproval: null,
-  paused: null, phase: { k: "idle" }, busy: false, balance: 1_250_500_000n, shares: 0n, position: 0n, unreadable: false, noGas: false,
+  liveTerms: { ok: true }, phase: { k: "idle" }, busy: false, balance: 1_250_500_000n, shares: 0n, position: 0n, unreadable: false, noGas: false,
   setTab: noop, setAmount: noop, setMax: noop, reset: noop, switchToVaultChain: async () => {}, submit: async () => {},
 };
 const typed = (text: string, amount: bigint): Partial<EarnView> => ({ text, amount, problem: null });
@@ -39,7 +39,7 @@ const scenes: { id: string; title: string; view: Partial<EarnView>; snap?: EarnV
   { id: "withdraw_part", title: "Withdraw part", view: { tab: "withdraw", ...deposited, ...typed("120", 120_000_000n) } },
   { id: "error_liquidity", title: "Vault short of free funds", view: { tab: "withdraw", ...deposited, ...typed("500", 500_000_000n), all: true, phase: { k: "error", message: "The vault cannot pay out that much right now: most of it is lent out. Try a smaller amount, or try again later." } } },
   { id: "done_withdraw", title: "Withdrawn", view: { tab: "withdraw", phase: { k: "done", hash, tab: "withdraw", amount: 500_000_000n } } },
-  { id: "paused", title: "Vault terms changed", view: { ...typed("250", 250_000_000n), paused: "The vault now keeps 10% of the interest it earns." } },
+  { id: "paused", title: "Vault terms changed", view: { ...typed("250", 250_000_000n), liveTerms: { ok: false, reason: "The vault now keeps 10% of the interest it earns." } } },
   { id: "no_rate", title: "Rate unavailable, no gas", view: { noGas: true }, snap: null },
 ];
 

@@ -5,7 +5,7 @@ import { ArrowRight, ArrowUpRight, Check, CircleAlert, LoaderCircle, PauseCircle
 import { ToggleGroup, ToggleGroupItem } from "@/components/vendor/toggle-group";
 import { CHAIN_LABELS, explorerAddress, explorerTx } from "@/lib/chainPublic";
 import { fmtAmount, fmtFeePct, fmtRate } from "@/lib/earn/math";
-import { pausedCopy } from "@/lib/earn/terms";
+import { depositPause, pausedCopy } from "@/lib/earn/terms";
 import type { EarnVaultSnapshot } from "@/lib/earn/info";
 import type { Earn, EarnTab } from "./useEarn";
 import styles from "./EarnDialog.module.css";
@@ -29,7 +29,7 @@ export default function EarnPanel({ view: e, snapshot, onConnect }: { view: Earn
   const sym = v.assetSymbol;
   const amt = (raw: bigint) => fmtAmount(raw, v.assetDecimals);
   const deposit = e.tab === "deposit";
-  const pauseReason = e.paused ?? (snapshot && !snapshot.terms.ok ? snapshot.terms.reason : null);
+  const pauseReason = depositPause(e.liveTerms, snapshot?.terms ?? null);
   const everything = !deposit && (e.all || (e.amount !== null && e.position !== undefined && e.position > 0n && e.amount >= e.position));
   const vaultFee = snapshot ? snapshot.performanceFeePct : 0;
 

@@ -32,6 +32,16 @@ export async function readTerms(client: Pick<PublicClient, "readContract">, vaul
   return { asset, performanceFee, managementFee, gates };
 }
 
+/**
+ * Why deposits are paused right now, or null. The browser's own read of the vault (re-read every minute while the card
+ * is open) wins over the server's figures, which can be up to 10 minutes old; until it arrives the server's stand.
+ * Derived on every render, never stored, so a pause lifts by itself once the vault is back to the reviewed terms.
+ */
+export function depositPause(live: TermsCheck | null, server: TermsCheck | null): string | null {
+  const t = live ?? server;
+  return t && !t.ok ? t.reason : null;
+}
+
 /** The sentence under a paused deposit form. */
 export function pausedCopy(reason: string): string {
   return `Deposits are paused here: ${reason} openlaunch listed this vault without that and has not reviewed the change. Withdrawals stay open.`;

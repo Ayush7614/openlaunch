@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { zeroAddress } from "viem";
-import { pausedCopy, termsCheck, type LiveTerms } from "./terms.ts";
+import { depositPause, pausedCopy, termsCheck, type LiveTerms } from "./terms.ts";
 import { EARN_VAULTS } from "./vaults.ts";
 
 const vault = EARN_VAULTS.base!;
@@ -25,6 +25,18 @@ test("any change that costs or restricts a depositor stops deposits with the rea
     gates[i] = "0x00000000000000000000000000000000000000aa";
     assert.deepEqual(termsCheck(vault, { ...asListed, gates }), { ok: false, reason: "The vault now restricts who may use it." });
   }
+});
+
+test("the pause follows the freshest read, so it lifts once the vault is back to the reviewed terms", () => {
+  const changed = { ok: false as const, reason: "The vault now restricts who may use it." };
+  // the browser's own read wins over the server's (up to 10 minutes old) in both directions
+  assert.equal(depositPause({ ok: true }, changed), null);
+  assert.equal(depositPause(changed, { ok: true }), changed.reason);
+  // until the browser's read lands, the server's stands
+  assert.equal(depositPause(null, changed), changed.reason);
+  assert.equal(depositPause(null, { ok: true }), null);
+  // neither known: no pause shown (the send-time check still guards the deposit itself)
+  assert.equal(depositPause(null, null), null);
 });
 
 test("the paused notice says withdrawals stay open", () => {
