@@ -2,7 +2,7 @@
 
 A card on the **/me** dashboard lets a wallet put its own USDC into one reviewed lending vault on Base and take it out again. The vault is **Steakhouse Prime USDC**, a Morpho Vault V2 run by Steakhouse Financial (`0xbeef0e0834849aCC03f0089F01f4F1Eeb06873C9`). Funds go from the wallet straight into the vault and back. Openlaunch adds no contract, holds no key, takes no fee and never has custody.
 
-The feature is **off unless the runtime secret `EARN=on` is set**. Off, `GET /api/earn` answers `{ "enabled": false }` and the card and the ⌘K entry do not appear. `fly secrets set EARN=on` turns it on (the app restarts, no rebuild); unsetting it or any other value is the kill switch.
+The feature is **off unless the runtime secret `EARN=on` is set**. Off, `GET /api/earn` answers `{ "enabled": false }` and the card and the ⌘K entry do not appear. `fly secrets set EARN=on` turns it on (the app restarts, no rebuild); unsetting it or any other value is the kill switch. The browser does not remember the answer: open tabs pick up a switch-off on their next /me visit or ⌘K open, without a reload (a /me page left open keeps its card until then). It cannot stop anyone using the vault directly; it removes openlaunch's door to it.
 
 ## How it works
 

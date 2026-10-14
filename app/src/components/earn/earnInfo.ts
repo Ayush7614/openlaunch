@@ -3,24 +3,25 @@
 import { useEffect, useState } from "react";
 import type { EarnInfo } from "@/lib/earn/info";
 
-/** The one request per page load, shared by every caller. */
+/** The request in flight, shared by every caller that asks before it settles. */
 let pending: Promise<EarnInfo> | null = null;
 
 /**
- * GET /api/earn, once per page load and shared by everything that asks (the /me card, the ⌘K list). A failed request
- * reads as "off" and is not remembered, so the next caller tries again.
+ * GET /api/earn, shared while in flight (the /me card and the ⌘K list asking at once make one request). A settled
+ * answer is not remembered: every later caller reads the switch as it is now, so turning EARN off takes effect on the
+ * next /me visit or ⌘K open, without a reload. A failed request reads as "off".
  */
 export function loadEarnInfo(): Promise<EarnInfo> {
   pending ??= fetch("/api/earn", { cache: "no-store" })
     .then((r) => (r.ok ? (r.json() as Promise<EarnInfo>) : Promise.reject(new Error(String(r.status)))))
-    .catch((): EarnInfo => {
+    .catch((): EarnInfo => ({ enabled: false }))
+    .finally(() => {
       pending = null;
-      return { enabled: false };
     });
   return pending;
 }
 
-/** The answer, or null until it arrives. `active` false skips the request (the ⌘K list asks only once opened). */
+/** The answer, or null until it arrives; asked again on each mount or (re)activation. `active` false skips it (the ⌘K list asks when opened). */
 export function useEarnInfo(active = true): EarnInfo | null {
   const [info, setInfo] = useState<EarnInfo | null>(null);
   useEffect(() => {
