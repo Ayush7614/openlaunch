@@ -43,6 +43,7 @@ const scenes: { id: string; title: string; view: Partial<EarnView>; snap?: EarnV
   { id: "no_rate", title: "Rate unavailable, no gas", view: { noGas: true }, snap: null },
 ];
 
+/** The sheet drawn in place (no modal), with one scene's synthetic state. */
 function Panel({ view, snap }: { view: EarnView; snap: EarnVaultSnapshot | null }) {
   return (
     <div className={`${styles.panel} ${styles.static}`}>
@@ -54,6 +55,7 @@ function Panel({ view, snap }: { view: EarnView; snap: EarnVaultSnapshot | null 
   );
 }
 
+/** Every scene, or one with ?scene=<id> (?scene=card for the /me card); ?dark=1 or 0 picks the theme. */
 export default function EarnReview() {
   const params = useSearchParams();
   const only = params.get("scene");

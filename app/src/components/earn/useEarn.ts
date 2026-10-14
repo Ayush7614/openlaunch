@@ -54,6 +54,7 @@ export function useEarnPosition(vault: EarnVault, address: Address | undefined) 
   };
 }
 
+/** Earn's form state, its reads and its two actions for one vault and the connected wallet (see the file comment). */
 export default function useEarn(vault: EarnVault, initialTab: EarnTab) {
   const config = useConfig();
   const chainId = CHAINS[vault.chain].id;
@@ -94,7 +95,9 @@ export default function useEarn(vault: EarnVault, initialTab: EarnTab) {
   const problem = tab === "deposit" ? depositProblem({ amount, balance: position.balance }) : withdrawProblem({ amount, shares: position.shares, position: position.position });
   const needsApproval = tab === "deposit" && amount !== null && position.allowance !== undefined ? position.allowance < amount : null;
 
+  /** An edit clears a finished or failed result, so the form reads fresh. */
   const settle = () => { if (phase.k === "done" || phase.k === "error") setPhase({ k: "idle" }); };
+  /** Switches between Deposit and Withdraw with an empty amount; ignored while a transaction is in flight. */
   function setTab(next: EarnTab) {
     if (busy) return;
     setTabState(next);
@@ -102,11 +105,13 @@ export default function useEarn(vault: EarnVault, initialTab: EarnTab) {
     setAll(false);
     settle();
   }
+  /** The amount field's text, cleaned (lib/earn/math.ts cleanAmountInput); typing ends a "withdraw all". */
   function setAmount(raw: string) {
     setText(cleanAmountInput(raw, decimals));
     setAll(false);
     settle();
   }
+  /** Max: the whole wallet balance on Deposit; on Withdraw, the whole position as "withdraw all". */
   function setMax() {
     if (tab === "deposit") setText(maxInput(position.balance ?? 0n, decimals));
     else {
@@ -116,6 +121,7 @@ export default function useEarn(vault: EarnVault, initialTab: EarnTab) {
     settle();
   }
 
+  /** The explicit "Switch to Base" step, before the form offers to send anything. */
   async function switchToVaultChain() {
     try {
       await switchChainAsync({ chainId });
@@ -144,6 +150,7 @@ export default function useEarn(vault: EarnVault, initialTab: EarnTab) {
     return receipts.at(-1)?.transactionHash ?? null;
   }
 
+  /** Deposits the amount: fresh terms and balance checks, an exact approval only if short, simulate, send, receipt. */
   async function deposit() {
     if (!address || amount === null || problem || busy || lock.current) return;
     // Lock before the first await, including the network switch and the vault check.
@@ -193,6 +200,7 @@ export default function useEarn(vault: EarnVault, initialTab: EarnTab) {
     }
   }
 
+  /** Withdraws per withdrawPlan: every share for "withdraw all", else exactly the amount; simulate, send, receipt. */
   async function withdraw() {
     const plan = withdrawPlan({ amount, shares: position.shares, position: position.position });
     if (!address || !plan || problem || busy || lock.current) return;

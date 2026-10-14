@@ -12,6 +12,7 @@ import { fmtFeePct, managementFeeYearPct, wadPct } from "./math.ts";
 export type LiveTerms = { asset: Address; performanceFee: bigint; managementFee: bigint; gates: readonly Address[] };
 export type TermsCheck = { ok: true } | { ok: false; reason: string };
 
+/** Whether the live vault still matches what was reviewed; the first difference found is the reason. */
 export function termsCheck(vault: EarnVault, live: LiveTerms): TermsCheck {
   if (live.asset.toLowerCase() !== vault.asset.toLowerCase()) return { ok: false, reason: `The vault no longer takes ${vault.assetSymbol}.` };
   if (live.performanceFee > vault.reviewed.performanceFee) return { ok: false, reason: `The vault now keeps ${fmtFeePct(wadPct(live.performanceFee))} of the interest it earns.` };

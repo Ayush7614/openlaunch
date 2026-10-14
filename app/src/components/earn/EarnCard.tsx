@@ -28,6 +28,7 @@ export default function EarnCard({ address }: { address: Address }) {
   return <EarnCardLive key={address.toLowerCase()} vault={vault} snapshot={entry.snapshot} />;
 }
 
+/** The card for one wallet: owns the Earn state, so the sheet can close and reopen without losing a transaction. */
 function EarnCardLive({ vault, snapshot }: { vault: EarnVault; snapshot: EarnVaultSnapshot | null }) {
   const earn = useEarn(vault, "deposit");
   // the dialog mounts on first open and stays mounted, like the bridge panel
@@ -38,6 +39,7 @@ function EarnCardLive({ vault, snapshot }: { vault: EarnVault; snapshot: EarnVau
   useEffect(() => {
     if (window.location.hash === "#earn") section.current?.scrollIntoView({ block: "center" });
   }, []);
+  /** Opens the sheet on the tab of the button pressed. */
   function show(tab: EarnTab) {
     // a transaction in flight keeps its tab and progress; otherwise open on the button pressed, with a clean form
     if (!earn.busy) {

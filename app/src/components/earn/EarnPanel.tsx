@@ -19,10 +19,12 @@ function compactAssets(raw: string, decimals: number): string {
   return new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(n);
 }
 
+/** "Sep 14": a read's date for the rate's tooltip, in UTC like the chain. */
 function day(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 }
 
+/** The sheet's body: figures, Deposit/Withdraw, amount, vault facts, notices, the one action and the risk line. */
 export default function EarnPanel({ view: e, snapshot, onConnect }: { view: EarnView; snapshot: EarnVaultSnapshot | null; onConnect: () => void }) {
   const v = e.vault;
   const network = CHAIN_LABELS[v.chain];

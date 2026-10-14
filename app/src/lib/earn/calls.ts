@@ -15,6 +15,7 @@ import type { EarnVault } from "./vaults.ts";
  */
 export type EarnCall = { to: Address; data: Hex };
 
+/** Calldata with the builder-code suffix appended after the ABI arguments. */
 const tagged = (data: Hex): Hex => concatHex([data, BUILDER_DATA_SUFFIX]);
 
 /** Allow the vault to take exactly `amount` of the asset. Never more: an unspent exact allowance is the worst case. */

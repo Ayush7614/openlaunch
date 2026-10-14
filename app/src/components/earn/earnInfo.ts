@@ -3,12 +3,13 @@
 import { useEffect, useState } from "react";
 import type { EarnInfo } from "@/lib/earn/info";
 
+/** The one request per page load, shared by every caller. */
+let pending: Promise<EarnInfo> | null = null;
+
 /**
  * GET /api/earn, once per page load and shared by everything that asks (the /me card, the ⌘K list). A failed request
  * reads as "off" and is not remembered, so the next caller tries again.
  */
-let pending: Promise<EarnInfo> | null = null;
-
 export function loadEarnInfo(): Promise<EarnInfo> {
   pending ??= fetch("/api/earn", { cache: "no-store" })
     .then((r) => (r.ok ? (r.json() as Promise<EarnInfo>) : Promise.reject(new Error(String(r.status)))))
