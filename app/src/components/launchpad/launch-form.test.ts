@@ -140,14 +140,17 @@ test("stock quote: one blocking message, a chip that names the issuer, a way out
 
 test("stock picker: a one-page list says how many stocks there are, and a stock without a USD price explains the stock-unit cap", () => {
   // the registry's size comes from the server with each page: the form never hard-codes a count or a ticker list that goes stale
-  assert.match(source, /const d = \(await res\.json\(\)\) as \{ stocks: Quote\[\]; stocksTotal\?: number \};/);
-  assert.match(source, /setStockHits\(d\.stocks \?\? \[\]\);\s*setStockTotal\(d\.stocksTotal \?\? 0\);/);
+  assert.match(source, /const d = \(await res\.json\(\)\) as \{ stocks: Quote\[\]; stocksTotal\?: number; stocksMatched\?: number \};/);
+  // a reply from a server that does not send the match count yet (mid-deploy) reads as "nothing left out"
+  assert.match(source, /setStockHits\(d\.stocks \?\? \[\]\);\s*setStockTotal\(d\.stocksTotal \?\? 0\);\s*setStockMatched\(d\.stocksMatched \?\? 0\);\s*setStockAnswered\(stockQ\);/);
   assert.doesNotMatch(source, /\d+ Coinbase tokenized stocks/);
   assert.match(source, /empty: "No match\. Search a ticker or a company name, e\.g\. NVDA, AMD or Netflix\."/);
-  // shown only for an empty search with more stocks than the page: a typed search already narrows, a picked stock hides the list
-  assert.match(source, /\{!stock && !stockQ\.trim\(\) && stockHits\.length > 0 && stockTotal > stockHits\.length \? \(\s*<p className=\{helper\}>\s*Showing \{stockHits\.length\} of \{stockTotal\}\. Search a ticker or a company name for the rest\.\s*<\/p>\s*\) : null\}/);
-  // the total belongs to one chain's registry, like the hits: switching chains drops both
-  assert.match(source, /setStockHits\(\[\]\);\s*setStockTotal\(0\);/);
+  // how many the page leaves out: against the registry for an empty search, against the matches for a typed one ("S" matches more than fit).
+  // Counted only when the page answers the text as typed (a reply still on its way describes the old text) and no stock is picked.
+  assert.match(source, /const stockMore = !stock && stockAnswered === stockQ && stockHits\.length > 0 \? Math\.max\(0, \(stockQ\.trim\(\) \? stockMatched : stockTotal\) - stockHits\.length\) : 0;/);
+  assert.match(source, /\{stockMore > 0 \? \(\s*<p className=\{helper\}>\s*\{stockQ\.trim\(\) \? `Showing \$\{stockHits\.length\} of \$\{stockHits\.length \+ stockMore\} matches\. Keep typing to narrow it down\.` : `Showing \$\{stockHits\.length\} of \$\{stockHits\.length \+ stockMore\}\. Search a ticker or a company name for the rest\.`\}\s*<\/p>\s*\) : null\}/);
+  // the counts belong to one chain's registry, like the hits: switching chains drops them all
+  assert.match(source, /setStockHits\(\[\]\);\s*setStockTotal\(0\);\s*setStockMatched\(0\);\s*setStockAnswered\(null\);/);
   // most Coinbase stocks have no price feed: the cap box then takes stock units, and one line says so (never for ETH or a priced stock)
   assert.match(source, /\{quote\.key === "stock" && entry\.unit === "quote" \? \(\s*<p className=\{helper\}>\s*\{quote\.symbol\} has no USD price here: enter the starting market cap in \{quote\.symbol\}\.\s*<\/p>\s*\) : null\}/);
 });

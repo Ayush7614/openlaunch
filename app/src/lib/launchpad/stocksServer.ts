@@ -60,20 +60,29 @@ export async function ensureRegistry(): Promise<Cache | null> {
 import { STOCK_SOURCE } from "./config";
 export { STOCK_SOURCE, type StockSource } from "./config";
 
-/** Synchronous registry lookup for any chain (call ensureRegistry() first in the request for robinhood). */
+/** The Base list never changes at run time, so its rows (each with a tile logo) are built once per chain that uses it, not on every call. */
+const baseRows = new Map<ChainKey, { list: readonly Stock[]; byAddress: Map<string, Stock> }>();
+function baseStocksFor(chain: ChainKey) {
+  let rows = baseRows.get(chain);
+  if (!rows) {
+    const list = BASE_STOCKS.map((s): Stock => ({ chain, address: s.address, symbol: s.symbol, name: s.name, decimals: s.decimals, logo: stockTileSvg(s.symbol), priced: s.feed !== null }));
+    rows = { list, byAddress: new Map(list.map((s) => [s.address, s])) };
+    baseRows.set(chain, rows);
+  }
+  return rows;
+}
+
+/** Synchronous registry lookup for any chain (call ensureRegistry() first in the request for robinhood). The row is shared: read it, do not change it. */
 export function stockByAddress(chain: ChainKey, address: string): Stock | null {
   const a = address.toLowerCase();
-  if (STOCK_SOURCE[chain] === "coinbase-b20") {
-    const s = baseStockByAddress(a);
-    return s ? { chain, address: s.address, symbol: s.symbol, name: s.name, decimals: s.decimals, logo: stockTileSvg(s.symbol), priced: s.feed !== null } : null;
-  }
+  if (STOCK_SOURCE[chain] === "coinbase-b20") return baseStocksFor(chain).byAddress.get(a) ?? null;
   if (STOCK_SOURCE[chain] !== "robinhood-registry") return null;
   const s = registry?.byAddress.get(a);
   return s ? { chain, address: s.address, symbol: s.symbol, name: s.name, decimals: s.decimals, logo: s.logo, priced: true } : null;
 }
 
-export function stockList(chain: ChainKey): Stock[] {
-  if (STOCK_SOURCE[chain] === "coinbase-b20") return BASE_STOCKS.map((s) => ({ chain, address: s.address, symbol: s.symbol, name: s.name, decimals: s.decimals, logo: stockTileSvg(s.symbol), priced: s.feed !== null }));
+export function stockList(chain: ChainKey): readonly Stock[] {
+  if (STOCK_SOURCE[chain] === "coinbase-b20") return baseStocksFor(chain).list;
   if (STOCK_SOURCE[chain] !== "robinhood-registry") return [];
   return (registry?.list ?? []).map((s) => ({ chain, address: s.address, symbol: s.symbol, name: s.name, decimals: s.decimals, logo: s.logo, priced: true }));
 }

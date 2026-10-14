@@ -182,6 +182,8 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
   const [stockQ, setStockQ] = useState("");
   const [stockHits, setStockHits] = useState<Quote[]>([]);
   const [stockTotal, setStockTotal] = useState(0); // how many stocks the chain's registry holds; the list below shows one page of them
+  const [stockMatched, setStockMatched] = useState(0); // how many match the search in all
+  const [stockAnswered, setStockAnswered] = useState<string | null>(null); // the search text the page shown answers
   // GITLAWB's USD is live: the page fetched it server-side (same as ethUsd); the static config carries null. TWIG unwraps 1:1 to GITLAWB, so it takes the same price (gitlawbLinkedUsd).
   const staticQuote: Quote = quoteKey === "stock" && stock ? stock : (cfg.quotes.find((q) => q.key === quoteKey) ?? cfg.quotes[0]);
   const linkedUsd = gitlawbLinkedUsd(staticQuote.key, gitlawbUsd);
@@ -203,10 +205,12 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
     const t = setTimeout(async () => {
       try {
         const res = await fetch(`/api/quotes?chain=${chain}&q=${encodeURIComponent(stockQ)}`, { cache: "no-store" });
-        const d = (await res.json()) as { stocks: Quote[]; stocksTotal?: number };
+        const d = (await res.json()) as { stocks: Quote[]; stocksTotal?: number; stocksMatched?: number };
         if (alive) {
           setStockHits(d.stocks ?? []);
           setStockTotal(d.stocksTotal ?? 0);
+          setStockMatched(d.stocksMatched ?? 0);
+          setStockAnswered(stockQ);
         }
       } catch {
         if (alive) setStockHits([]);
@@ -217,6 +221,8 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
       clearTimeout(t);
     };
   }, [chain, quoteKey, stockQ]);
+  // How many stocks the page leaves out. Only once the page answers the search as typed: a reply still on its way says nothing about the new text.
+  const stockMore = !stock && stockAnswered === stockQ && stockHits.length > 0 ? Math.max(0, (stockQ.trim() ? stockMatched : stockTotal) - stockHits.length) : 0;
   const config = useConfig();
   const { address, isConnected, chainId } = useHydratedAccount();
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -529,6 +535,8 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                         setStockQ("");
                         setStockHits([]);
                         setStockTotal(0);
+                        setStockMatched(0);
+                        setStockAnswered(null);
                         setMcapPick(null);
                         setCustomMcap("");
                       }}
@@ -662,10 +670,10 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                       {stockHits.length === 0 ? <li className="text-xs text-muted">{CHAIN_COPY[chain].stock?.empty}</li> : null}
                     </ul>
                   ) : null}
-                  {/* an empty search lists one page only: say how many more there are, or the rest of the registry stays invisible */}
-                  {!stock && !stockQ.trim() && stockHits.length > 0 && stockTotal > stockHits.length ? (
+                  {/* the list is one page: say how many more there are, or the rest stays invisible (a broad search like "S" has more matches than fit) */}
+                  {stockMore > 0 ? (
                     <p className={helper}>
-                      Showing {stockHits.length} of {stockTotal}. Search a ticker or a company name for the rest.
+                      {stockQ.trim() ? `Showing ${stockHits.length} of ${stockHits.length + stockMore} matches. Keep typing to narrow it down.` : `Showing ${stockHits.length} of ${stockHits.length + stockMore}. Search a ticker or a company name for the rest.`}
                     </p>
                   ) : null}
                   <p className={helper}>{CHAIN_COPY[chain].stock?.issuer}</p>
