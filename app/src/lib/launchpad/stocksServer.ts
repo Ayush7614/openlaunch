@@ -3,7 +3,7 @@ import { maybeDb } from "@/lib/db";
 import { b20Client, publicClient } from "@/lib/chain";
 import { CHAIN_KEYS, chainKeyOf, type ChainKey } from "@/lib/chainPublic";
 import { STOCK_PRICE_URL, STOCK_REGISTRY_URL, parseRegistry, stockUsd, type StockQuote } from "./stocks";
-import { BASE_STOCKS, BASE_STOCK_REGISTRY_URL, feedUsd, issuedFromSupply, mergeBaseStocks, parseBaseRegistry, pricedBaseStocks, stockTileSvg, type BaseStock } from "./baseStocks";
+import { BASE_STOCKS, baseRegistryPageUrl, feedUsd, issuedFromSupply, mergeBaseStocks, pricedBaseStocks, readBaseRegistry, stockTileSvg, type BaseStock } from "./baseStocks";
 
 /**
  * Stock quote assets, server-side only. Two registries, one shape:
@@ -73,9 +73,11 @@ const BASE_REGISTRY_RETRY = 60_000;
 
 async function fetchBaseRegistry(): Promise<void> {
   try {
-    const res = await fetch(BASE_STOCK_REGISTRY_URL, { headers: { accept: "application/json", "user-agent": "openlaunch.lol" }, signal: AbortSignal.timeout(8_000), cache: "no-store" });
-    if (!res.ok) throw new Error(`base registry ${res.status}`);
-    const live = parseBaseRegistry(await res.json());
+    const live = await readBaseRegistry(async (pageToken) => {
+      const res = await fetch(baseRegistryPageUrl(pageToken), { headers: { accept: "application/json", "user-agent": "openlaunch.lol" }, signal: AbortSignal.timeout(8_000), cache: "no-store" });
+      if (!res.ok) throw new Error(`base registry ${res.status}`);
+      return res.json();
+    });
     if (live.length === 0) throw new Error("base registry empty");
     const next = mergeBaseStocks(baseList, live);
     if (next !== baseList) console.info(`[stocks] coinbase registry added ${next.length - baseList.length} Base stock(s): ${next.filter((s) => !baseList.includes(s)).map((s) => s.symbol).join(", ")}`);

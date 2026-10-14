@@ -18,11 +18,11 @@ test("base list: static until a good registry read, then only grows; a failed re
   const warn = t.mock.method(console, "warn", () => {});
   const info = t.mock.method(console, "info", () => {});
   const coinbaseWarnings = () => warn.mock.calls.filter((c) => String(c.arguments[0]).includes("coinbase registry")).length; // Robinhood's registry warns on its own
-  let reply: () => Response = () => Response.json({ tokens: [...BASE_STOCKS.filter((s) => s.symbol !== "COINc").map((s) => coinbaseRow(s.symbol, s.address, `${s.name}, Inc.`))] });
+  let reply: (url: string) => Response = () => Response.json({ tokens: [...BASE_STOCKS.filter((s) => s.symbol !== "COINc").map((s) => coinbaseRow(s.symbol, s.address, `${s.name}, Inc.`))] });
   const asked: string[] = [];
   t.mock.method(globalThis, "fetch", async (url: unknown) => {
     asked.push(String(url));
-    return String(url) === BASE_STOCK_REGISTRY_URL ? reply() : Response.json({ assets: [] });
+    return String(url).startsWith(BASE_STOCK_REGISTRY_URL) ? reply(String(url)) : Response.json({ assets: [] });
   });
 
   // before any read: the static list, nothing fetched by a lookup
@@ -85,6 +85,23 @@ test("base list: static until a good registry read, then only grows; a failed re
   assert.equal(asked.filter((u) => u === BASE_STOCK_REGISTRY_URL).length, 5);
   assert.equal(stockList("base"), grown);
   assert.ok(stockByAddress("base", NEW));
+
+  // a registry over two pages: the second is fetched with the first page's token, and its stock is added
+  const PAGED = "0xb200000000000000000000abcdef0123456789ab";
+  reply = (url) => Response.json(url === BASE_STOCK_REGISTRY_URL ? { tokens: [coinbaseRow("NVDAc", NVDA, "NVIDIA")], next_page_token: "MHhi+/2=" } : { tokens: [coinbaseRow("PAGEc", PAGED, "Paged Stock Inc.")] });
+  t.mock.timers.tick(10 * 60_000);
+  await refreshBaseRegistry();
+  assert.deepEqual(asked.slice(-2), [BASE_STOCK_REGISTRY_URL, `${BASE_STOCK_REGISTRY_URL}&page_token=MHhi%2B%2F2%3D`]);
+  assert.equal(stockByAddress("base", PAGED)?.name, "Paged Stock");
+  assert.equal(stockList("base").length, 148);
+  // ...and when a later page fails, nothing from the read is used (the list stays, retried after a minute)
+  const LOST = "0xb200000000000000000000abcdef0123456789ac";
+  reply = (url) => (url === BASE_STOCK_REGISTRY_URL ? Response.json({ tokens: [coinbaseRow("LOSTc", LOST, "Lost")], next_page_token: "p2" }) : new Response("bad gateway", { status: 502 }));
+  t.mock.timers.tick(10 * 60_000);
+  await refreshBaseRegistry();
+  assert.equal(stockByAddress("base", LOST), null);
+  assert.equal(stockList("base").length, 148);
+  assert.equal(coinbaseWarnings(), 3);
 });
 
 test("other chains never read Coinbase's registry and never see its stocks", async () => {

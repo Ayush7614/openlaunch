@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { isAddress } from "viem";
-import { BASE_STOCKS, BASE_STOCK_MAX_FEED_AGE_S, BASE_STOCK_SEARCH_LIMIT, baseStockByAddress, cleanStockName, feedUsd, isB20Address, isB20RpcError, issuedFromSupply, mergeBaseStocks, parseBaseRegistry, parseRoundData, pricedBaseStocks, responseHasB20Error, searchBaseStocks, stockTileSvg, underlyingTicker } from "./baseStocks.ts";
+import { BASE_STOCKS, BASE_STOCK_MAX_FEED_AGE_S, BASE_STOCK_SEARCH_LIMIT, baseStockByAddress, BASE_STOCK_REGISTRY_URL, baseRegistryPageUrl, cleanStockName, feedUsd, isB20Address, isB20RpcError, issuedFromSupply, mergeBaseStocks, parseBaseRegistry, readBaseRegistry, parseRoundData, pricedBaseStocks, responseHasB20Error, searchBaseStocks, stockTileSvg, underlyingTicker } from "./baseStocks.ts";
 
 const symbols = (list: readonly { symbol: string }[]) => list.map((s) => s.symbol);
 /** The 13 stocks Chainlink publishes a "Coinbase <TICKER>" feed for on Base. */
@@ -175,6 +175,11 @@ test("parseBaseRegistry: keeps well-formed B20 stock rows, lowercased, with no f
     { symbol: "NONc", name: "NON", address: "0xb200000000000000000000abcdef0123456789d2", feed: null, decimals: 8 },
   ]);
   for (const junk of [null, 42, "x", [], { tokens: "x" }, { data: [row("NEWc", NEW)] }]) assert.deepEqual(parseBaseRegistry(junk), [], JSON.stringify(junk));
+  // decimals must be a whole number or a string of digits: Number() would read null, "" and false as 0, true as 1, [8] as 8
+  for (const decimals of [null, undefined, "", " ", false, true, [8], 8.5, "8.0", "-1", -1, 19, "x"]) {
+    assert.deepEqual(parseBaseRegistry({ tokens: [row("NEWc", NEW, { decimals })] }), [], `decimals ${JSON.stringify(decimals)}`);
+  }
+  assert.equal(parseBaseRegistry({ tokens: [row("NEWc", NEW, { decimals: 0 })] })[0]?.decimals, 0, "a real 0 is still a number");
   assert.deepEqual(parseBaseRegistry({ tokens: Array.from({ length: 1001 }, () => row("NEWc", NEW)) }), [], "a reply far larger than the registry is not the registry");
 });
 
@@ -192,6 +197,38 @@ test("mergeBaseStocks: the registry can only add; it never relabels, unprices or
   const tickers = merged.map((s) => underlyingTicker(s.symbol));
   assert.deepEqual(tickers, [...tickers].sort(), "still sorted by ticker");
   assert.equal(mergeBaseStocks(merged, [added]), merged, "already there: nothing new");
+  // two new rows for one stock (say, across registry pages): the first wins, by address and by symbol
+  const twice = mergeBaseStocks(BASE_STOCKS, [added, { ...added }, { ...added, name: "Other", address: "0xb200000000000000000000abcdef0123456789fd" }]);
+  assert.equal(twice.length, BASE_STOCKS.length + 1);
+  assert.equal(twice.find((s) => s.symbol === "NEWc"), added);
+});
+
+test("readBaseRegistry: follows next_page_token through every page; a partial or looping read throws instead of passing for the registry", async () => {
+  assert.equal(baseRegistryPageUrl(null), BASE_STOCK_REGISTRY_URL);
+  assert.equal(baseRegistryPageUrl("ab+/="), `${BASE_STOCK_REGISTRY_URL}&page_token=ab%2B%2F%3D`, "the token is URL-encoded");
+  const NEW2 = "0xb200000000000000000000abcdef0123456789bb";
+  const pages: Record<string, unknown> = {
+    first: { tokens: [row("NEWc", NEW), row("AAPLc", BASE_STOCKS[1].address)], next_page_token: "p2" },
+    p2: { tokens: [row("NEXc", NEW2), row("NEWc", NEW)], next_page_token: "" },
+  };
+  const asked: (string | null)[] = [];
+  const rows = await readBaseRegistry(async (token) => {
+    asked.push(token);
+    return pages[token ?? "first"];
+  });
+  assert.deepEqual(asked, [null, "p2"]);
+  assert.deepEqual(rows.map((r) => r.symbol), ["NEWc", "AAPLc", "NEXc"], "both pages, NEWc once");
+  for (const end of [undefined, null, ""]) assert.equal((await readBaseRegistry(async () => ({ tokens: [row("NEWc", NEW)], next_page_token: end }))).length, 1, `next_page_token ${JSON.stringify(end)} ends it`);
+
+  const fails = async (name: string, getPage: (token: string | null) => Promise<unknown>, message: RegExp) => assert.rejects(readBaseRegistry(getPage), message, name);
+  await fails("a page without a token list", async (t) => (t === null ? { tokens: [], next_page_token: "p2" } : { error: "rate limited" }), /page 2 has no token list/);
+  await fails("a token that comes round again", async (t) => ({ tokens: [], next_page_token: t === "a" ? "b" : "a" }), /repeated next_page_token/);
+  await fails("a token that is not a string", async () => ({ tokens: [], next_page_token: 7 }), /bad or repeated next_page_token/);
+  let n = 0;
+  await fails("more than 10 pages", async () => ({ tokens: [], next_page_token: `p${++n}` }), /more than 10 pages/);
+  await fails("more than 1000 rows in all", async (t) => ({ tokens: Array.from({ length: 600 }, () => row("NEWc", NEW)), next_page_token: t === null ? "p2" : undefined }), /more than 1000 rows/);
+  await fails("a failed page fetch", async (t) => { if (t) throw new Error("base registry 502"); return { tokens: [], next_page_token: "p2" }; }, /502/);
+  assert.equal(n, 10, "stopped at the tenth page");
 });
 
 test("issuedFromSupply: supply above zero is issued, zero is not, a failed or odd read says nothing", () => {

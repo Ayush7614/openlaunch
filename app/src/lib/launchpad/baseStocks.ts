@@ -189,10 +189,16 @@ export function baseStockByAddress(address: string): BaseStock | null {
   return BY_ADDRESS.get(address.toLowerCase()) ?? null;
 }
 
-/** Coinbase's public registry of its tokenized stocks (no key; docs.base.org/sdks/tokenized-stocks). */
+/** Coinbase's public registry of its tokenized stocks (no key; docs.base.org/sdks/tokenized-stocks), first page. A reply with `next_page_token` continues at `page_token`. */
 export const BASE_STOCK_REGISTRY_URL = "https://api.coinbase.com/v1/tokenized-stocks?page_size=500";
-/** A reply with more rows than this is not the registry. */
+/** A registry with more rows or pages than this is not the registry. */
 const MAX_REGISTRY_ROWS = 1000;
+const MAX_REGISTRY_PAGES = 10;
+
+/** The URL of a registry page: the first one, or the one a `next_page_token` points at. */
+export function baseRegistryPageUrl(pageToken: string | null): string {
+  return pageToken === null ? BASE_STOCK_REGISTRY_URL : `${BASE_STOCK_REGISTRY_URL}&page_token=${encodeURIComponent(pageToken)}`;
+}
 /** A ticker ("U", "GOOGL", "BRK.B") and the issuer's "c". */
 const BASE_STOCK_SYMBOL = /^[A-Z]{1,5}(\.[A-Z])?c$/;
 const LEGAL_SUFFIX = /(?:,?\s+(?:Inc\.?|Incorporated|Corp\.?|Corporation|Ltd\.?|Limited|plc|S\.A\.?|SA\/NV|N\.V\.?|A\/S|SE|AG|PBC|L\.P\.?|&\s+Co\.?|Co\.?))+$/i;
@@ -221,13 +227,38 @@ export function parseBaseRegistry(json: unknown): BaseStock[] {
     const address = typeof t.contract_address === "string" ? t.contract_address.toLowerCase() : "";
     const symbol = typeof t.symbol === "string" ? t.symbol.trim() : "";
     if (!isB20Address(address) || !BASE_STOCK_SYMBOL.test(symbol) || seen.has(address) || seen.has(symbol)) continue;
-    const decimals = Number(t.decimals);
+    // a number, or a string of digits: never null, "", true or [8], which Number() would turn into 0, 1 or 8
+    const decimals = typeof t.decimals === "number" ? t.decimals : typeof t.decimals === "string" && /^\d{1,2}$/.test(t.decimals) ? Number(t.decimals) : NaN;
     if (!Number.isInteger(decimals) || decimals < 0 || decimals > 18) continue;
     const name = typeof t.name === "string" ? cleanStockName(t.name) : "";
     seen.add(address).add(symbol);
     out.push({ symbol, name: /^[\p{L}\p{N} .,&'!()-]{2,40}$/u.test(name) ? name : underlyingTicker(symbol), address, feed: null, decimals });
   }
   return out;
+}
+
+/**
+ * Read the whole registry: every page, following `next_page_token`, parsed as one list (so a stock repeated across pages
+ * is kept once). Throws on a page with no token list, a page token seen before, or more than MAX_REGISTRY_PAGES pages or
+ * MAX_REGISTRY_ROWS rows, so a partial read never stands in for the registry. `getPage` fetches one page's JSON.
+ */
+export async function readBaseRegistry(getPage: (pageToken: string | null) => Promise<unknown>): Promise<BaseStock[]> {
+  const items: unknown[] = [];
+  const seen = new Set<string>();
+  let pageToken: string | null = null;
+  for (let page = 1; ; page++) {
+    const json = (await getPage(pageToken)) as { tokens?: unknown; next_page_token?: unknown } | null;
+    if (!Array.isArray(json?.tokens)) throw new Error(`registry page ${page} has no token list`);
+    items.push(...json.tokens);
+    if (items.length > MAX_REGISTRY_ROWS) throw new Error(`registry has more than ${MAX_REGISTRY_ROWS} rows`);
+    const next = json.next_page_token;
+    if (next === undefined || next === null || next === "") break;
+    if (typeof next !== "string" || seen.has(next)) throw new Error(`registry page ${page} has a bad or repeated next_page_token`);
+    if (page === MAX_REGISTRY_PAGES) throw new Error(`registry has more than ${MAX_REGISTRY_PAGES} pages`);
+    seen.add(next);
+    pageToken = next;
+  }
+  return parseBaseRegistry({ tokens: items });
 }
 
 /**
@@ -238,7 +269,14 @@ export function parseBaseRegistry(json: unknown): BaseStock[] {
 export function mergeBaseStocks(known: readonly BaseStock[], live: readonly BaseStock[]): readonly BaseStock[] {
   const addresses = new Set(known.map((s) => s.address));
   const symbols = new Set(known.map((s) => s.symbol.toUpperCase()));
-  const added = live.filter((s) => !addresses.has(s.address) && !symbols.has(s.symbol.toUpperCase()));
+  const added: BaseStock[] = [];
+  for (const s of live) {
+    const symbol = s.symbol.toUpperCase();
+    if (addresses.has(s.address) || symbols.has(symbol)) continue; // listed, or already added from an earlier row: the first wins
+    addresses.add(s.address);
+    symbols.add(symbol);
+    added.push(s);
+  }
   if (added.length === 0) return known;
   const ticker = (s: BaseStock) => underlyingTicker(s.symbol);
   return [...known, ...added].sort((a, b) => (ticker(a) < ticker(b) ? -1 : ticker(a) > ticker(b) ? 1 : 0));
