@@ -155,6 +155,15 @@ test("stock picker: a one-page list says how many stocks there are, and a stock 
   assert.match(source, /\{quote\.key === "stock" && entry\.unit === "quote" \? \(\s*<p className=\{helper\}>\s*\{quote\.symbol\} has no USD price here: enter the starting market cap in \{quote\.symbol\}\.\s*<\/p>\s*\) : null\}/);
 });
 
+test("stock picker: a stock nobody holds yet is marked in the list, and picking it says why nobody can buy with it yet", () => {
+  // only a confirmed "none issued" (issued === false) is marked; a stock the server could not read (null) or never reads (Robinhood) is not
+  assert.match(source, /title=\{h\.issued === false \? `\$\{h\.name\}: none issued yet` : h\.name\}/);
+  assert.match(source, /\{h\.issued === false \? <span className="font-normal text-muted">not issued yet<\/span> : null\}/);
+  // a warning, not a block: the launch works and trading starts once the issuer puts some in circulation
+  assert.match(source, /\{stock\?\.issued === false \? \(\s*<p className=\{helper\}>\s*None of \{stock\.symbol\} has been issued yet, so nobody holds any and nobody can buy your token with it until Coinbase issues some\. You can still launch now\.\s*<\/p>\s*\) : null\}/);
+  assert.doesNotMatch(source, /issued === true|issued !== false|!\w+\.issued\b/, "never read a missing or unknown flag as \"not issued\"");
+});
+
 test("beneficiary split: recipients come from the tested helper, and the summary reflects the split", () => {
   // custom mode is the split editor; its rules live in lib/launchpad/recipients.ts, never inline in the form
   assert.match(source, /const split = useMemo\(\(\) => buildRecipients\(rows\), \[rows\]\);/);

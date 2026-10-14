@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { isChainKey } from "@/lib/chainPublic";
 import { launchpad } from "@/lib/launchpad/config";
-import { STOCK_SOURCE, ensureRegistry, stockList, stockPrices } from "@/lib/launchpad/stocksServer";
+import { STOCK_SOURCE, ensureRegistry, stockIssued, stockList, stockPrices } from "@/lib/launchpad/stocksServer";
 import { searchStocks } from "@/lib/launchpad/stocks";
 import { BASE_STOCK_SEARCH_LIMIT, searchBaseStocks, stockTileSvg } from "@/lib/launchpad/baseStocks";
 import { memo } from "@/lib/launchpad/memo";
@@ -10,13 +10,14 @@ import { gitlawbLinkedUsd } from "@/lib/launchpad/twig";
 
 export const dynamic = "force-dynamic";
 
-type StockHit = { key: "stock"; address: string; symbol: string; name: string; decimals: number; usd: number | null; logo: string | null };
+type StockHit = { key: "stock"; address: string; symbol: string; name: string; decimals: number; usd: number | null; logo: string | null; issued: boolean | null };
 
 /**
  * GET /api/quotes?chain=<base|robinhood|arc>[&q=AAPL] → quote assets the launch form may offer on that chain:
  * the fixed ones (ETH, USDG, USDC, TWIG, GITLAWB — TWIG and GITLAWB with GITLAWB's live USD) plus tokenized stocks from that chain's registry (with live USD where the stock has a price):
  * Coinbase tokenized stocks on Base, Robinhood Stock Tokens on Robinhood Chain, none on Arc.
  * `stocks` is one page of matches; `stocksMatched` is how many match the search in all and `stocksTotal` how many the chain's registry holds, so the form can say there are more.
+ * Each stock's `issued` says whether any of it is in circulation: false = none yet (nobody can buy with it), null = not known (Robinhood, or no good read yet).
  * Only registry addresses are ever labelled as stocks.
  */
 export async function GET(req: Request) {
@@ -48,8 +49,12 @@ export async function GET(req: Request) {
       matched = all.length;
       hits = all.slice(0, 12);
     }
-    const px = await stockPrices(chain, hits.map((h) => h.address));
-    return { stocks: hits.map((h) => ({ key: "stock" as const, address: h.address, symbol: h.symbol, name: h.name, decimals: h.decimals, usd: px.get(h.address) ?? null, logo: h.logo })), stocksTotal: stockList(chain).length, stocksMatched: matched };
+    const [px, issued] = await Promise.all([stockPrices(chain, hits.map((h) => h.address)), stockIssued(chain)]);
+    return {
+      stocks: hits.map((h) => ({ key: "stock" as const, address: h.address, symbol: h.symbol, name: h.name, decimals: h.decimals, usd: px.get(h.address) ?? null, logo: h.logo, issued: issued.get(h.address) ?? null })),
+      stocksTotal: stockList(chain).length,
+      stocksMatched: matched,
+    };
   });
   return NextResponse.json({ fixed, stocks, stocksTotal, stocksMatched }, { headers: { "cache-control": "no-store" } });
 }

@@ -1,9 +1,9 @@
 import "server-only";
 import { maybeDb } from "@/lib/db";
-import { publicClient } from "@/lib/chain";
+import { b20Client, publicClient } from "@/lib/chain";
 import { CHAIN_KEYS, chainKeyOf, type ChainKey } from "@/lib/chainPublic";
 import { STOCK_PRICE_URL, STOCK_REGISTRY_URL, parseRegistry, stockUsd, type StockQuote } from "./stocks";
-import { BASE_STOCKS, baseStockByAddress, feedUsd, pricedBaseStocks, stockTileSvg } from "./baseStocks";
+import { BASE_STOCKS, feedUsd, issuedFromSupply, pricedBaseStocks, stockTileSvg } from "./baseStocks";
 
 /**
  * Stock quote assets, server-side only. Two registries, one shape:
@@ -122,6 +122,48 @@ async function fetchBasePrices(addresses: string[]): Promise<Map<string, number 
     console.warn("[stocks] chainlink multicall failed:", err instanceof Error ? err.message : err);
   }
   return out;
+}
+
+const SUPPLY_ABI = [{ type: "function", name: "totalSupply", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] }] as const;
+
+/**
+ * Which Base stocks Coinbase has issued (address → supply above zero), so the launch form can mark the ones nobody holds yet.
+ * One multicall of totalSupply() over the whole list on the B20-capable node, cached 10 min: a cold cache waits for the read,
+ * a stale one answers the last good copy and refreshes behind it, and a failed read keeps that copy and is retried after a
+ * minute, not on every request. With no good read yet the map is empty and no stock is marked either way.
+ */
+type Supply = { at: number; issued: ReadonlyMap<string, boolean> };
+let supply: Supply | null = null;
+let supplyInflight: Promise<void> | null = null;
+const SUPPLY_TTL = 10 * 60_000;
+const SUPPLY_RETRY = 60_000;
+const NO_SUPPLY_INFO: ReadonlyMap<string, boolean> = new Map();
+
+async function refreshBaseSupply(chain: ChainKey): Promise<void> {
+  const list = baseStocksFor(chain).list;
+  let issued: Map<string, boolean> | null = null;
+  try {
+    const res = await b20Client().multicall({
+      contracts: list.map((s) => ({ address: s.address as `0x${string}`, abi: SUPPLY_ABI, functionName: "totalSupply" as const })),
+      allowFailure: true,
+    });
+    issued = issuedFromSupply(list.map((s) => s.address), res);
+    if (issued.size === 0) throw new Error("every totalSupply read failed");
+  } catch (err) {
+    console.warn("[stocks] supply multicall failed:", err instanceof Error ? err.message : err);
+    issued = null;
+  }
+  supply = issued ? { at: Date.now(), issued } : { at: Date.now() - SUPPLY_TTL + SUPPLY_RETRY, issued: supply?.issued ?? NO_SUPPLY_INFO };
+}
+
+/** Issued or not, per stock address, where known. Only Coinbase's B20 stocks (Base) are read: every other chain answers an empty map. */
+export async function stockIssued(chain: ChainKey): Promise<ReadonlyMap<string, boolean>> {
+  if (STOCK_SOURCE[chain] !== "coinbase-b20") return NO_SUPPLY_INFO;
+  if (!supply || Date.now() - supply.at >= SUPPLY_TTL) {
+    supplyInflight ??= refreshBaseSupply(chain).finally(() => (supplyInflight = null));
+    if (!supply) await supplyInflight;
+  }
+  return supply?.issued ?? NO_SUPPLY_INFO;
 }
 
 /** USD per token for stock addresses on a chain (cached per chain TTL). */

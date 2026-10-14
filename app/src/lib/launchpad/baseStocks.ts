@@ -216,6 +216,20 @@ export function searchBaseStocks(q: string, limit = 12): BaseStock[] {
     .map((x) => x.s);
 }
 
+/**
+ * Which stocks the issuer has put in circulation, from `totalSupply()` reads over `addresses` (same order): true when
+ * there is supply, false when the read found none (nobody holds the stock yet, so nobody can buy with it). A failed
+ * read says nothing either way, so its address is left out.
+ */
+export function issuedFromSupply(addresses: readonly string[], reads: readonly { status: string; result?: unknown }[]): Map<string, boolean> {
+  const out = new Map<string, boolean>();
+  addresses.forEach((a, i) => {
+    const r = reads[i];
+    if (r?.status === "success" && typeof r.result === "bigint") out.set(a.toLowerCase(), r.result > 0n);
+  });
+  return out;
+}
+
 /** Decode Chainlink `latestRoundData()` return data (5 × 32-byte words). */
 export function parseRoundData(hex: string): { answer: bigint; updatedAt: number } | null {
   const h = hex.startsWith("0x") ? hex.slice(2) : hex;
