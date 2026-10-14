@@ -656,7 +656,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                               setCustomMcap("");
                             }}
                             className="inline-flex items-center gap-1.5 h-8 pl-1.5 pr-2.5 rounded-full border border-line bg-card text-xs font-semibold text-ink hover:border-ink/40"
-                            title={h.name}
+                            title={h.issued === false ? `${h.name}: none issued yet` : h.name}
                           >
                             {h.logo ? (
                               // eslint-disable-next-line @next/next/no-img-element
@@ -664,11 +664,18 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                             ) : null}
                             {h.symbol}
                             {h.usd ? <span className="font-mono font-normal text-muted">{fmtUsd(h.usd)}</span> : null}
+                            {h.issued === false ? <span className="font-normal text-muted">not issued yet</span> : null}
                           </button>
                         </li>
                       ))}
                       {stockHits.length === 0 ? <li className="text-xs text-muted">{CHAIN_COPY[chain].stock?.empty}</li> : null}
                     </ul>
+                  ) : null}
+                  {/* a listed stock with no supply: the launch works, but until the issuer puts some in circulation nobody holds any to buy with */}
+                  {stock?.issued === false ? (
+                    <p className={helper}>
+                      None of {stock.symbol} has been issued yet, so nobody holds any and nobody can buy your token with it until Coinbase issues some. You can still launch now.
+                    </p>
                   ) : null}
                   {/* the list is one page: say how many more there are, or the rest stays invisible (a broad search like "S" has more matches than fit) */}
                   {stockMore > 0 ? (

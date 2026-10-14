@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { isAddress } from "viem";
-import { BASE_STOCKS, BASE_STOCK_MAX_FEED_AGE_S, BASE_STOCK_SEARCH_LIMIT, baseStockByAddress, feedUsd, isB20Address, isB20RpcError, parseRoundData, pricedBaseStocks, responseHasB20Error, searchBaseStocks, stockTileSvg, underlyingTicker } from "./baseStocks.ts";
+import { BASE_STOCKS, BASE_STOCK_MAX_FEED_AGE_S, BASE_STOCK_SEARCH_LIMIT, baseStockByAddress, feedUsd, isB20Address, isB20RpcError, issuedFromSupply, parseRoundData, pricedBaseStocks, responseHasB20Error, searchBaseStocks, stockTileSvg, underlyingTicker } from "./baseStocks.ts";
 
 const symbols = (list: readonly { symbol: string }[]) => list.map((s) => s.symbol);
 /** The 13 stocks Chainlink publishes a "Coinbase <TICKER>" feed for on Base. */
@@ -123,6 +123,18 @@ test("feedUsd: 8-dec answer → USD; stale, future, zero or negative → null", 
   assert.equal(feedUsd({ answer: 0n, updatedAt: now }, now), null);
   assert.equal(feedUsd({ answer: -1n, updatedAt: now }, now), null);
   assert.equal(feedUsd(null, now), null);
+});
+
+test("issuedFromSupply: supply above zero is issued, zero is not, a failed or odd read says nothing", () => {
+  const [a, b, c, d] = BASE_STOCKS.slice(0, 4).map((s) => s.address);
+  const out = issuedFromSupply([a.toUpperCase().replace("0X", "0x"), b, c, d], [
+    { status: "success", result: 12_345n },
+    { status: "success", result: 0n },
+    { status: "failure" },
+    { status: "success", result: "0" },
+  ]);
+  assert.deepEqual(Object.fromEntries(out), { [a]: true, [b]: false }, "keys are lowercase; c failed and d is not a uint");
+  assert.equal(issuedFromSupply([a, b], [{ status: "success", result: 1n }]).has(b), false, "a missing read says nothing");
 });
 
 test("B20 RPC error detection (single + batch)", () => {

@@ -24,7 +24,7 @@ export const MAX_RECIPIENTS = 7;
  * is false only for an unlisted quote whose decimals have not been read yet: its 18 is a placeholder and it must not trade.
  * `unpriced` is true only for a registry stock nothing prices (a Coinbase stock without a Chainlink feed): its null `usd` is the normal state, not an outage.
  */
-export type Quote = { key: "eth" | "usdg" | "usdc" | "gitlawb" | "twig" | "museworld" | "stock" | "other"; address: Address; symbol: string; decimals: number; usd: number | null /* fixed USD price (stables); live for stocks, GITLAWB and TWIG (server-filled) */; name?: string; logo?: string | null; decimalsKnown?: boolean; unpriced?: boolean };
+export type Quote = { key: "eth" | "usdg" | "usdc" | "gitlawb" | "twig" | "museworld" | "stock" | "other"; address: Address; symbol: string; decimals: number; usd: number | null /* fixed USD price (stables); live for stocks, GITLAWB and TWIG (server-filled) */; name?: string; logo?: string | null; decimalsKnown?: boolean; unpriced?: boolean; issued?: boolean | null /* stocks, from /api/quotes: false = none in circulation yet */ };
 export type V4 = { poolManager: Address; positionManager: Address; stateView: Address; quoter: Address; universalRouter: Address; permit2: Address; swapLayout: "v1" | "v2" };
 export type ChainLaunchpad = { key: ChainKey; factory: Address | null; locker: Address | null; v4: V4; quotes: Quote[]; configured: boolean };
 

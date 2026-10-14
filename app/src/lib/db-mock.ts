@@ -24,6 +24,9 @@ type MockState = {
   transportOutage: boolean;
   // What getLaunchTotals' one aggregation over bb_launches returns: a row per (chain, quote).
   launchTotalsRows: { chain_id: number; quote: string; launches: bigint; trades: bigint; volume: string; burned: string; creators: string }[];
+  // What the B20 node (chain-mock's b20Client) answers to totalSupply(), per address; "fail" = that call fails, null = the node is down.
+  b20Supply: Record<string, bigint | "fail"> | null;
+  b20SupplyReads: number;
 };
 
 declare global {
@@ -41,6 +44,8 @@ export function resetMock() {
     verifyResult: true,
     transportOutage: false,
     launchTotalsRows: [],
+    b20Supply: null,
+    b20SupplyReads: 0,
   };
 }
 
