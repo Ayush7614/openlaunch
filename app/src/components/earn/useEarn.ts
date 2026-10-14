@@ -8,7 +8,7 @@ import { useHydratedAccount } from "@/lib/useHydratedAccount";
 import { BUILDER_DATA_SUFFIX, CHAINS } from "@/lib/chainPublic";
 import { ERC20_MIN_ABI } from "@/lib/launchpad/abi";
 import { EARN_VAULT_ABI } from "@/lib/earn/abi";
-import { EARN_BATCH_CAPABILITIES, approveCall, approvedState, batchHash, canBatch, depositCall, redeemCall, withdrawCall, type EarnCall } from "@/lib/earn/calls";
+import { BATCH_FAILED, EARN_BATCH_CAPABILITIES, approveCall, approvedState, batchHash, canBatch, depositCall, redeemCall, withdrawCall, type EarnCall } from "@/lib/earn/calls";
 import { cleanAmountInput, depositProblem, fmtAmount, maxInput, parseAmount, withdrawPlan, withdrawProblem } from "@/lib/earn/math";
 import { NOT_CONFIRMED_YET, isBusy, revertedCopy, type EarnOutcome, type EarnPhase, type EarnSent, type EarnTab } from "@/lib/earn/phase";
 import { liveCheck, pausedCopy, readTerms, termsCheck } from "@/lib/earn/terms";
@@ -354,9 +354,11 @@ export default function useEarn(vault: EarnVault, initialTab: EarnTab) {
         else finish(p.tab, p.amount, p.sent.hash);
       } else {
         const status = await getCallsStatus(config, { id: p.sent.id }).catch(() => null);
-        // only "success" or "failure" is final; no answer, "pending" or anything else keeps it unconfirmed
-        if (status?.status !== "success" && status?.status !== "failure") setPhase({ ...p, checking: false, note: NOT_CONFIRMED_YET });
-        else finish(p.tab, p.amount, batchHash(status));
+        // only "success" or "failure" is final; no answer, "pending" or anything else keeps it unconfirmed.
+        // A success whose receipts include a revert makes batchHash throw: an error too, never done.
+        if (status?.status === "success") finish(p.tab, p.amount, batchHash(status));
+        else if (status?.status === "failure") setPhase({ k: "error", message: BATCH_FAILED });
+        else setPhase({ ...p, checking: false, note: NOT_CONFIRMED_YET });
       }
     } catch (err) {
       setPhase({ k: "error", message: friendlyError(err) });

@@ -6,7 +6,7 @@ import { zeroAddress, type Address } from "viem";
 import { BUILDER_DATA_SUFFIX } from "@/lib/chainPublic";
 import { ERC20_MIN_ABI } from "@/lib/launchpad/abi";
 import { EARN_VAULT_ABI } from "@/lib/earn/abi";
-import { EARN_BATCH_CAPABILITIES, approveCall, approvedState, batchHash, canBatch, depositCall, redeemCall, withdrawCall } from "@/lib/earn/calls";
+import { BATCH_FAILED, EARN_BATCH_CAPABILITIES, approveCall, approvedState, batchHash, canBatch, depositCall, redeemCall, withdrawCall } from "@/lib/earn/calls";
 import { fmtAmount, withdrawPlan } from "@/lib/earn/math";
 import { NOT_CONFIRMED_YET, isBusy, revertedCopy, type EarnPhase } from "@/lib/earn/phase";
 import { pausedCopy, termsCheck, type LiveTerms } from "@/lib/earn/terms";
@@ -74,6 +74,7 @@ function world(o: {
   const lock = { current: false };
   const termsQueue = [...(o.terms ?? [])];
   let refetches = 0;
+  let toasts = 0;
   const pub = {
     readContract: async ({ address, functionName, stateOverride }: { address: string; functionName: string; stateOverride?: { stateDiff: { value: string }[] }[] }) => {
       if (stateOverride) return o.overrideTakes === false ? 0n : BigInt(stateOverride[0].stateDiff[0].value);
@@ -121,13 +122,13 @@ function world(o: {
     getCallsStatus: () => (o.callsStatus ?? (async () => ({ status: "pending" })))(),
     readTerms: async () => termsQueue.shift() ?? reviewed,
     termsCheck, pausedCopy, approveCall, approvedState, depositCall, redeemCall, withdrawCall, batchHash, canBatch, withdrawPlan, fmtAmount,
-    EARN_BATCH_CAPABILITIES, ERC20_MIN_ABI, EARN_VAULT_ABI, BUILDER_DATA_SUFFIX, NOT_CONFIRMED_YET, revertedCopy,
-    setPhase: (p: EarnPhase) => phases.push(p), setText: () => {}, setAll: () => {}, toast: () => {},
+    BATCH_FAILED, EARN_BATCH_CAPABILITIES, ERC20_MIN_ABI, EARN_VAULT_ABI, BUILDER_DATA_SUFFIX, NOT_CONFIRMED_YET, revertedCopy,
+    setPhase: (p: EarnPhase) => phases.push(p), setText: () => {}, setAll: () => {}, toast: () => { toasts++; },
     friendlyError: (e: Error) => e.message,
   };
   if (o.tab === "withdraw") Object.assign(bindings, { amount: 1_000_000_000n });
   const flow = load(bindings);
-  return { flow, phases, events, writes, walletRequests, batches, account, mounted, lock, refetches: () => refetches, last: () => phases.at(-1)!, rebind: (extra: Record<string, unknown>) => load({ ...bindings, ...extra }) };
+  return { flow, phases, events, writes, walletRequests, batches, account, mounted, lock, refetches: () => refetches, toasts: () => toasts, last: () => phases.at(-1)!, rebind: (extra: Record<string, unknown>) => load({ ...bindings, ...extra }) };
 }
 
 test("a deposit whose receipt cannot be read stays unconfirmed, and the form cannot send it again", async () => {
@@ -185,9 +186,18 @@ test("a smart-wallet batch is one atomic, builder-tagged request; an unreadable 
   const done = world({ phase: pending, callsStatus: async () => ({ status: "success", receipts: [{ status: "success", transactionHash: "0xt" }] }) });
   await done.flow.recheck();
   assert.deepEqual(done.last(), { k: "done", hash: "0xt", tab: "deposit", amount: 250_000_000n });
+  assert.equal(done.toasts(), 1);
+  // a batch the wallet reports as failed is an error: never "done", no success toast, nothing marked as deposited
   const failed = world({ phase: pending, callsStatus: async () => ({ status: "failure", receipts: [] }) });
   await failed.flow.recheck();
-  assert.equal(failed.last().k, "error");
+  assert.deepEqual(failed.last(), { k: "error", message: BATCH_FAILED });
+  assert.ok(!failed.phases.some((p) => p.k === "done"));
+  assert.equal(failed.toasts(), 0);
+  // so is a "success" whose receipts include a revert
+  const partial = world({ phase: pending, callsStatus: async () => ({ status: "success", receipts: [{ status: "reverted", transactionHash: "0xt" }] }) });
+  await partial.flow.recheck();
+  assert.deepEqual(partial.last(), { k: "error", message: BATCH_FAILED });
+  assert.equal(partial.toasts(), 0);
 });
 
 test("a batch deposit that would revert, with the allowance in place, stops before the wallet's prompt", async () => {

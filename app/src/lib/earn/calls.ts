@@ -60,9 +60,15 @@ export function approvedState(vault: EarnVault, owner: Address, amount: bigint):
  */
 export function batchHash(result: { status?: string; receipts?: readonly { status?: string; transactionHash?: Hex }[] }): Hex | null {
   const receipts = result.receipts ?? [];
-  if (result.status !== "success" || receipts.some((r) => r.status !== "success")) throw new Error("Your wallet reports the transaction failed. Nothing moved; check its activity before trying again.");
+  if (result.status !== "success" || receipts.some((r) => r.status !== "success")) throw new Error(BATCH_FAILED);
   return receipts.at(-1)?.transactionHash ?? null;
 }
+
+/**
+ * A batch the wallet reports as failed. Not "reverted on-chain": a batch can fail before it reaches the chain, so
+ * whether gas was charged is not known. Atomic, so nothing in it took effect.
+ */
+export const BATCH_FAILED = "Your wallet reports the transaction failed. Nothing moved; check its activity before trying again.";
 
 /** The EIP-5792 capability that asks a batching wallet to tag its own operation with the builder code. */
 export const EARN_BATCH_CAPABILITIES = { dataSuffix: { value: BUILDER_DATA_SUFFIX, optional: true } } as const;
