@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { zeroAddress } from "viem";
-import { depositPause, pausedCopy, termsCheck, type LiveTerms } from "./terms.ts";
+import { depositPause, liveCheck, pausedCopy, termsCheck, type LiveTerms } from "./terms.ts";
 import { EARN_VAULTS } from "./vaults.ts";
 
 const vault = EARN_VAULTS.base!;
@@ -37,6 +37,20 @@ test("the pause follows the freshest read, so it lifts once the vault is back to
   assert.equal(depositPause(null, { ok: true }), null);
   // neither known: no pause shown (the send-time check still guards the deposit itself)
   assert.equal(depositPause(null, null), null);
+});
+
+test("a failed latest poll gives no live answer, even though wagmi keeps the last good data", () => {
+  const z = zeroAddress;
+  const good = [vault.asset, 0n, 0n, z, z, z, z] as const;
+  const feeRaised = [vault.asset, 100_000_000_000_000_000n, 0n, z, z, z, z] as const;
+  assert.equal(liveCheck(vault, undefined, false), null);
+  assert.deepEqual(liveCheck(vault, good, false), { ok: true });
+  assert.equal(liveCheck(vault, good, true), null);
+  assert.equal(liveCheck(vault, feeRaised, false)?.ok, false);
+  // so the server's check decides while the live read is failing, in both directions
+  const changed = { ok: false as const, reason: "The vault now restricts who may use it." };
+  assert.equal(depositPause(liveCheck(vault, good, true), changed), changed.reason);
+  assert.equal(depositPause(liveCheck(vault, feeRaised, true), { ok: true }), null);
 });
 
 test("the paused notice says withdrawals stay open", () => {

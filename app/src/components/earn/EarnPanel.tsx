@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { ArrowRight, ArrowUpRight, Check, CircleAlert, LoaderCircle, PauseCircle, Wallet } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Check, CircleAlert, Clock3, LoaderCircle, PauseCircle, Wallet } from "lucide-react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/vendor/toggle-group";
 import { CHAIN_LABELS, explorerAddress, explorerTx } from "@/lib/chainPublic";
 import { fmtAmount, fmtFeePct, fmtRate } from "@/lib/earn/math";
@@ -34,6 +34,29 @@ export default function EarnPanel({ view: e, snapshot, onConnect }: { view: Earn
   const pauseReason = depositPause(e.liveTerms, snapshot?.terms ?? null);
   const everything = !deposit && (e.all || (e.amount !== null && e.position !== undefined && e.position > 0n && e.amount >= e.position));
   const vaultFee = snapshot ? snapshot.performanceFeePct : 0;
+
+  if (e.phase.k === "unconfirmed") {
+    const p = e.phase;
+    const what = p.tab === "deposit" ? "deposit" : "withdrawal";
+    return (
+      <div>
+        <div className={styles.done} role="status">
+          <span className={`${styles.doneIcon} ${styles.waitIcon}`}><Clock3 size={26} aria-hidden /></span>
+          <h3>Sent, not confirmed yet</h3>
+          <p>Your wallet sent the {what} of {amt(p.amount)} {sym}, but its confirmation could not be read. It may still go through. Do not send it again until this is settled.</p>
+        </div>
+        <div className={styles.actions}>
+          {p.sent.kind === "tx" ? <a className={styles.externalAction} href={explorerTx(v.chain, p.sent.hash)} target="_blank" rel="noreferrer">View the transaction<ArrowUpRight size={17} aria-hidden /></a> : <p className={styles.notice}>It was sent as one batch from your wallet; your wallet’s activity shows whether it went through.</p>}
+          {p.note ? <p className={styles.notice} role="status">{p.note}</p> : null}
+          <button type="button" className={styles.primary} onClick={() => void e.recheck()} disabled={p.checking}>
+            {p.checking ? <LoaderCircle size={17} className={styles.spinner} aria-hidden /> : null}
+            {p.checking ? "Checking…" : "Check again"}
+          </button>
+        </div>
+        <p className={styles.disclaimer}>Closing this sheet keeps the check. Reloading the page forgets it, so look at your wallet’s activity before sending again.</p>
+      </div>
+    );
+  }
 
   if (e.phase.k === "done") {
     const p = e.phase;

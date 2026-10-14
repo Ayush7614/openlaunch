@@ -33,6 +33,19 @@ export async function readTerms(client: Pick<PublicClient, "readContract">, vaul
   return { asset, performanceFee, managementFee, gates };
 }
 
+/** The seven polled reads, in the order the card asks for them. */
+export type PolledTerms = readonly [Address, bigint, bigint, Address, Address, Address, Address];
+
+/**
+ * The browser's polled read as a terms check, or null when there is none to trust: not read yet, or the latest poll
+ * failed. A failed refetch keeps the last good data around (wagmi documents `data` as the last success), and that older
+ * read must not outrank the server's check.
+ */
+export function liveCheck(vault: EarnVault, data: PolledTerms | undefined, failed: boolean): TermsCheck | null {
+  if (!data || failed) return null;
+  return termsCheck(vault, { asset: data[0], performanceFee: data[1], managementFee: data[2], gates: [data[3], data[4], data[5], data[6]] });
+}
+
 /**
  * Why deposits are paused right now, or null. The browser's own read of the vault (re-read every minute while the card
  * is open) wins over the server's figures, which can be up to 10 minutes old; until it arrives the server's stand.

@@ -5,7 +5,7 @@ import { concatHex, decodeFunctionData, encodeFunctionData, getAddress, maxUint2
 import { BUILDER_CODE, BUILDER_DATA_SUFFIX } from "../chainPublic.ts";
 import { ERC20_MIN_ABI } from "../launchpad/abi.ts";
 import { EARN_VAULT_ABI } from "./abi.ts";
-import { EARN_BATCH_CAPABILITIES, approveCall, canBatch, depositCall, redeemCall, withdrawCall } from "./calls.ts";
+import { EARN_BATCH_CAPABILITIES, approveCall, batchHash, canBatch, depositCall, redeemCall, withdrawCall } from "./calls.ts";
 import { EARN_VAULTS } from "./vaults.ts";
 
 const vault = EARN_VAULTS.base!;
@@ -46,6 +46,13 @@ test("deposits, withdrawals and redemptions all pay and return to the same walle
 
 test("a batching wallet is asked to tag its own operation too, and may decline", () => {
   assert.deepEqual(EARN_BATCH_CAPABILITIES, { dataSuffix: { value: BUILDER_DATA_SUFFIX, optional: true } });
+});
+
+test("a batch counts as done only when the wallet reports success for every call", () => {
+  assert.equal(batchHash({ status: "success", receipts: [{ status: "success", transactionHash: "0x01" }, { status: "success", transactionHash: "0x02" }] }), "0x02");
+  assert.equal(batchHash({ status: "success", receipts: [] }), null);
+  assert.throws(() => batchHash({ status: "failure", receipts: [] }), /failed/);
+  assert.throws(() => batchHash({ status: "success", receipts: [{ status: "reverted", transactionHash: "0x01" }] }), /failed/);
 });
 
 test("only wallets that already batch take the batch path; an EIP-7702 upgrade prompt is never triggered", () => {

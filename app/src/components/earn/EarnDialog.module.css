@@ -49,6 +49,9 @@
 .doneIcon { display: inline-flex; align-items: center; justify-content: center; height: 52px; width: 52px; border-radius: 50%; background: var(--color-up-soft); color: var(--color-up); }
 .done h3 { margin: 14px 0 8px; font-size: 20px; font-weight: 600; letter-spacing: -.025em; }
 .done p { color: var(--color-body); font-size: 13px; line-height: 1.65; }
+.waitIcon { background: var(--color-warm-soft); color: var(--color-warm-ink); }
+.actions { display: grid; gap: 12px; margin-top: 18px; }
+.actions .externalAction, .actions .notice { margin: 0; }
 .externalAction { display: flex; align-items: center; justify-content: space-between; min-height: 46px; margin-top: 18px; padding: 0 14px; border: 1px solid var(--color-line-strong); border-radius: 10px; font-size: 13px; font-weight: 500; transition: background 160ms; }
 .secondary { display: flex; align-items: center; justify-content: center; min-height: 44px; width: 100%; margin-top: 10px; color: var(--color-brand); font-size: 13px; font-weight: 500; cursor: pointer; }
 

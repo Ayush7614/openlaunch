@@ -28,7 +28,7 @@ test("every wallet write is credited to the builder code", () => {
 
 test("approvals are exact: no unlimited allowance anywhere in Earn", () => {
   for (const src of allEarn) assert.doesNotMatch(src, /maxUint256|maxUint160|2n \*\* 256n/);
-  assert.match(hook, /functionName: "approve", args: \[vault\.address, amount\]/);
+  assert.match(hook, /functionName: "approve", args: \[vault\.address, value\]/);
 });
 
 test("both actions lock before their first await and simulate before any signature", () => {
@@ -39,8 +39,26 @@ test("both actions lock before their first await and simulate before any signatu
     assert.ok(lockAt < body.indexOf("await "), `${name} awaits before locking`);
   }
   const deposit = hook.slice(hook.indexOf("async function deposit()"), hook.indexOf("async function withdraw()"));
-  assert.ok(deposit.indexOf("termsCheck(vault, await readTerms(pub, vault))") < deposit.indexOf("sendBatch("), "terms are checked before any send");
+  assert.ok(deposit.indexOf("await requireTerms(pub)") < deposit.indexOf("batching("), "terms are checked before any send");
+  // and again once an approval has confirmed, right before the deposit is prepared
+  const afterApproval = deposit.slice(deposit.indexOf("functionName: \"approve\""));
+  assert.ok(afterApproval.indexOf("await requireTerms(pub)") > 0 && afterApproval.indexOf("await requireTerms(pub)") < afterApproval.indexOf("simulateContract("));
   assert.ok(deposit.indexOf("simulateContract(") < deposit.indexOf("writeContract(request)"));
+});
+
+test("every prompt is bound to the initiating account; an unreadable receipt is never a retryable failure", () => {
+  assert.match(hook, /getWalletClient\(config, \{ chainId, account \}\)/);
+  assert.match(hook, /wallet\.writeContract\(\{ account, address: vault\.asset/);
+  assert.doesNotMatch(hook, /getWalletClient\(config, \{ chainId \}\)/);
+  for (const name of ["walletFor", "batching", "sendBatch"]) {
+    const body = hook.slice(hook.indexOf(`function ${name}(`));
+    assert.match(body.slice(0, 200), /ensureAccount\(account\)/, name);
+  }
+  // the deposit and withdrawal receipts go through settleTx, which turns a failed wait into "unconfirmed"
+  assert.equal((hook.match(/outcome = await settleTx\(pub, hash, /g) ?? []).length, 2);
+  assert.match(hook.slice(hook.indexOf("async function settleTx(")), /catch \{\s*setPhase\(unconfirmed\(tab, amount, \{ kind: "tx", hash \}\)\);/);
+  assert.match(hook.slice(hook.indexOf("async function sendBatch(")), /catch \{\s*setPhase\(unconfirmed\(tab, amount, \{ kind: "batch", id \}\)\);/);
+  assert.match(hook, /const busy = isBusy\(phase\);/);
 });
 
 test("a deposit pause is derived from a polled read, never stored, so it cannot stick after the terms recover", () => {
@@ -48,9 +66,11 @@ test("a deposit pause is derived from a polled read, never stored, so it cannot 
   assert.match(hook, /useReadContracts\(\{[\s\S]*?query: \{ refetchInterval: 60_000 \}/);
   for (const fn of ["asset", "performanceFee", "managementFee", "receiveSharesGate", "sendSharesGate", "receiveAssetsGate", "sendAssetsGate"]) assert.match(hook, new RegExp(`functionName: "${fn}"`), fn);
   assert.match(panel, /const pauseReason = depositPause\(e\.liveTerms, snapshot\?\.terms \?\? null\);/);
+  // a failed latest poll is no live answer (wagmi keeps the last good data through a failed refetch)
+  assert.match(hook, /const liveTerms = liveCheck\(vault, terms\.data, terms\.isError\);/);
   // a failed send-time check refreshes the polled read so the form shows the pause at once
-  const deposit = hook.slice(hook.indexOf("async function deposit()"), hook.indexOf("async function withdraw()"));
-  assert.match(deposit, /if \(!check\.ok\) \{\s*void terms\.refetch\(\);[^\n]*\n\s*throw new Error\(pausedCopy\(check\.reason\)\);/);
+  const require = hook.slice(hook.indexOf("async function requireTerms("));
+  assert.match(require, /if \(!check\.ok\) \{\s*void terms\.refetch\(\);[^\n]*\n\s*throw new Error\(pausedCopy\(check\.reason\)\);/);
 });
 
 test("an upgrade-to-smart-account prompt is never triggered", () => {

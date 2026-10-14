@@ -38,6 +38,16 @@ export function redeemCall(vault: EarnVault, shares: bigint, owner: Address): Ea
   return { to: vault.address, data: tagged(encodeFunctionData({ abi: EARN_VAULT_ABI, functionName: "redeem", args: [shares, owner, owner] })) };
 }
 
+/**
+ * A batch's final status as the transaction hash to show (the last receipt's; null when the wallet reports none).
+ * Anything but success with every receipt successful throws: that is a final failure, after which sending again is safe.
+ */
+export function batchHash(result: { status?: string; receipts?: readonly { status?: string; transactionHash?: Hex }[] }): Hex | null {
+  const receipts = result.receipts ?? [];
+  if (result.status !== "success" || receipts.some((r) => r.status !== "success")) throw new Error("Your wallet reports the transaction failed. Nothing moved; check its activity before trying again.");
+  return receipts.at(-1)?.transactionHash ?? null;
+}
+
 /** The EIP-5792 capability that asks a batching wallet to tag its own operation with the builder code. */
 export const EARN_BATCH_CAPABILITIES = { dataSuffix: { value: BUILDER_DATA_SUFFIX, optional: true } } as const;
 

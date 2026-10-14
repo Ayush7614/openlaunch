@@ -18,7 +18,7 @@ const noop = () => {};
 const base: EarnView = {
   vault, isConnected: true, onChain: true, switching: false, tab: "deposit", text: "", all: false, amount: null, problem: "Enter an amount", needsApproval: null,
   liveTerms: { ok: true }, phase: { k: "idle" }, busy: false, balance: 1_250_500_000n, shares: 0n, position: 0n, unreadable: false, noGas: false,
-  setTab: noop, setAmount: noop, setMax: noop, reset: noop, switchToVaultChain: async () => {}, submit: async () => {},
+  setTab: noop, setAmount: noop, setMax: noop, reset: noop, switchToVaultChain: async () => {}, submit: async () => {}, recheck: async () => {},
 };
 const typed = (text: string, amount: bigint): Partial<EarnView> => ({ text, amount, problem: null });
 const hash = `0x${"ab".repeat(32)}` as const;
@@ -34,6 +34,8 @@ const scenes: { id: string; title: string; view: Partial<EarnView>; snap?: EarnV
   { id: "approving", title: "Approving", view: { ...typed("250", 250_000_000n), needsApproval: true, phase: { k: "approving" }, busy: true } },
   { id: "signing", title: "Confirm in wallet", view: { ...typed("250", 250_000_000n), phase: { k: "signing" }, busy: true } },
   { id: "sent", title: "Confirming", view: { ...typed("250", 250_000_000n), phase: { k: "sent", hash }, busy: true } },
+  { id: "unconfirmed_tx", title: "Sent, confirmation unreadable", view: { busy: true, phase: { k: "unconfirmed", tab: "deposit", amount: 250_000_000n, sent: { kind: "tx", hash }, checking: false, note: null } } },
+  { id: "unconfirmed_batch", title: "Batch sent, still not confirmed", view: { busy: true, phase: { k: "unconfirmed", tab: "withdraw", amount: 500_000_000n, sent: { kind: "batch", id: "0x01" }, checking: false, note: "Still no confirmation. It can take a while when the network is busy; check again in a moment, or look at your wallet's activity." } } },
   { id: "done_deposit", title: "Deposited", view: { phase: { k: "done", hash, tab: "deposit", amount: 250_000_000n } } },
   { id: "withdraw_all", title: "Withdraw everything", view: { tab: "withdraw", ...deposited, text: "500", amount: 500_000_000n, all: true, problem: null } },
   { id: "withdraw_part", title: "Withdraw part", view: { tab: "withdraw", ...deposited, ...typed("120", 120_000_000n) } },
