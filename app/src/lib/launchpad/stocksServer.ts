@@ -3,15 +3,15 @@ import { maybeDb } from "@/lib/db";
 import { b20Client, publicClient } from "@/lib/chain";
 import { CHAIN_KEYS, chainKeyOf, type ChainKey } from "@/lib/chainPublic";
 import { STOCK_PRICE_URL, STOCK_REGISTRY_URL, parseRegistry, stockUsd, type StockQuote } from "./stocks";
-import { BASE_STOCKS, feedUsd, issuedFromSupply, pricedBaseStocks, stockTileSvg } from "./baseStocks";
+import { BASE_STOCKS, BASE_STOCK_REGISTRY_URL, feedUsd, issuedFromSupply, mergeBaseStocks, parseBaseRegistry, pricedBaseStocks, stockTileSvg, type BaseStock } from "./baseStocks";
 
 /**
  * Stock quote assets, server-side only. Two registries, one shape:
  *   - robinhood: Robinhood Stock Tokens from Robinhood's registry (fetched, parsed defensively,
  *     cached 10 min); prices from Robinhood's quote API, cached 30s, only for quotes in use.
- *   - base: Coinbase tokenized stocks (B20) from the static list in baseStocks.ts (Coinbase's registry);
- *     prices from Chainlink's on-chain feeds via one multicall, cached 60s. A stock without a feed
- *     has no USD price and no read is made for it.
+ *   - base: Coinbase tokenized stocks (B20): the static list in baseStocks.ts plus any stock Coinbase's registry
+ *     lists that it lacks (fetched in the background every 10 min; it can only add); prices from Chainlink's
+ *     on-chain feeds via one multicall, cached 60s. A stock without a feed has no USD price and no read is made for it.
  * An address is a stock ONLY if it is in a registry (never trust on-chain names).
  * Everything fails soft: on error the last good copy stays; with none, stocks are simply not
  * offered and existing stock-quoted launches show no USD.
@@ -39,8 +39,9 @@ async function fetchRegistry(): Promise<Cache | null> {
   }
 }
 
-/** Ensure the Robinhood registry copy exists (refreshing in the background when stale). Cheap when warm. */
+/** Ensure the Robinhood registry copy exists (refreshing in the background when stale), and start a Base list refresh if that is stale. Cheap when warm. */
 export async function ensureRegistry(): Promise<Cache | null> {
+  void refreshBaseRegistry();
   const stale = !registry || Date.now() - registry.at > REGISTRY_TTL;
   if (!registry) {
     registryInflight ??= fetchRegistry().finally(() => (registryInflight = null));
@@ -60,13 +61,51 @@ export async function ensureRegistry(): Promise<Cache | null> {
 import { STOCK_SOURCE } from "./config";
 export { STOCK_SOURCE, type StockSource } from "./config";
 
-/** The Base list never changes at run time, so its rows (each with a tile logo) are built once per chain that uses it, not on every call. */
-const baseRows = new Map<ChainKey, { list: readonly Stock[]; byAddress: Map<string, Stock> }>();
+/**
+ * The Base list: the static one, plus what Coinbase's registry adds (mergeBaseStocks only adds, so a stock never drops out
+ * while the app runs). Refreshed in the background every 10 min; a request never waits for it, so until the first good
+ * read the static list answers. A failed read keeps the list and is retried after a minute.
+ */
+let baseList: readonly BaseStock[] = BASE_STOCKS;
+let baseListAt = 0; // last good read; 0 = none yet
+let baseListInflight: Promise<void> | null = null;
+const BASE_REGISTRY_RETRY = 60_000;
+
+async function fetchBaseRegistry(): Promise<void> {
+  try {
+    const res = await fetch(BASE_STOCK_REGISTRY_URL, { headers: { accept: "application/json", "user-agent": "openlaunch.lol" }, signal: AbortSignal.timeout(8_000), cache: "no-store" });
+    if (!res.ok) throw new Error(`base registry ${res.status}`);
+    const live = parseBaseRegistry(await res.json());
+    if (live.length === 0) throw new Error("base registry empty");
+    const next = mergeBaseStocks(baseList, live);
+    if (next !== baseList) console.info(`[stocks] coinbase registry added ${next.length - baseList.length} Base stock(s): ${next.filter((s) => !baseList.includes(s)).map((s) => s.symbol).join(", ")}`);
+    baseList = next;
+    baseListAt = Date.now();
+  } catch (err) {
+    console.warn("[stocks] coinbase registry fetch failed:", err instanceof Error ? err.message : err);
+    baseListAt = Date.now() - REGISTRY_TTL + BASE_REGISTRY_RETRY;
+  }
+}
+
+/** Start a background refresh of the Base list when it is stale (resolves when that read is done; callers need not wait). */
+export function refreshBaseRegistry(): Promise<void> {
+  if (!baseListInflight && Date.now() - baseListAt >= REGISTRY_TTL) baseListInflight = fetchBaseRegistry().finally(() => (baseListInflight = null));
+  return baseListInflight ?? Promise.resolve();
+}
+
+/** The Base registry rows as they stand (static + added), for search. */
+export function baseStockList(): readonly BaseStock[] {
+  return baseList;
+}
+
+/** Base rows (each with a tile logo) are built once per stock and rebuilt only when the list grows, not on every call. */
+const baseRows = new Map<ChainKey, { from: readonly BaseStock[]; list: readonly Stock[]; byAddress: Map<string, Stock> }>();
 function baseStocksFor(chain: ChainKey) {
   let rows = baseRows.get(chain);
-  if (!rows) {
-    const list = BASE_STOCKS.map((s): Stock => ({ chain, address: s.address, symbol: s.symbol, name: s.name, decimals: s.decimals, logo: stockTileSvg(s.symbol), priced: s.feed !== null }));
-    rows = { list, byAddress: new Map(list.map((s) => [s.address, s])) };
+  if (!rows || rows.from !== baseList) {
+    const built = rows?.byAddress;
+    const list = baseList.map((s): Stock => built?.get(s.address) ?? { chain, address: s.address, symbol: s.symbol, name: s.name, decimals: s.decimals, logo: stockTileSvg(s.symbol), priced: s.feed !== null });
+    rows = { from: baseList, list, byAddress: new Map(list.map((s) => [s.address, s])) };
     baseRows.set(chain, rows);
   }
   return rows;

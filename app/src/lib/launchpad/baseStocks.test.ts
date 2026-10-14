@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { isAddress } from "viem";
-import { BASE_STOCKS, BASE_STOCK_MAX_FEED_AGE_S, BASE_STOCK_SEARCH_LIMIT, baseStockByAddress, feedUsd, isB20Address, isB20RpcError, issuedFromSupply, parseRoundData, pricedBaseStocks, responseHasB20Error, searchBaseStocks, stockTileSvg, underlyingTicker } from "./baseStocks.ts";
+import { BASE_STOCKS, BASE_STOCK_MAX_FEED_AGE_S, BASE_STOCK_SEARCH_LIMIT, baseStockByAddress, cleanStockName, feedUsd, isB20Address, isB20RpcError, issuedFromSupply, mergeBaseStocks, parseBaseRegistry, parseRoundData, pricedBaseStocks, responseHasB20Error, searchBaseStocks, stockTileSvg, underlyingTicker } from "./baseStocks.ts";
 
 const symbols = (list: readonly { symbol: string }[]) => list.map((s) => s.symbol);
 /** The 13 stocks Chainlink publishes a "Coinbase <TICKER>" feed for on Base. */
@@ -123,6 +123,75 @@ test("feedUsd: 8-dec answer → USD; stale, future, zero or negative → null", 
   assert.equal(feedUsd({ answer: 0n, updatedAt: now }, now), null);
   assert.equal(feedUsd({ answer: -1n, updatedAt: now }, now), null);
   assert.equal(feedUsd(null, now), null);
+});
+
+test("cleanStockName: the issuer's name the way the list writes it", () => {
+  const cases: [string, string][] = [
+    ["Tesla Inc.", "Tesla"],
+    ["Advanced Micro Devices, Inc.", "Advanced Micro Devices"],
+    ["Eli Lilly & Co", "Eli Lilly"],
+    ["Berkshire Hathaway Inc. Class B", "Berkshire Hathaway Class B"],
+    ["Eastman Kodak Company", "Eastman Kodak"],
+    ["The Hershey Company", "The Hershey Company"],
+    ["Papa John\u2019s International, Inc.", "Papa John's International"],
+    ["Novo Nordisk A/S", "Novo Nordisk"],
+    ["Anheuser-Busch InBev SA/NV", "Anheuser-Busch InBev"],
+    ["Banco Santander, S.A.", "Banco Santander"],
+    ["Planet Labs PBC", "Planet Labs"],
+    ["Arm Holdings plc", "Arm Holdings"],
+    ["  Sea   Limited ", "Sea"],
+  ];
+  for (const [raw, want] of cases) assert.equal(cleanStockName(raw), want, raw);
+  assert.equal(cleanStockName("A".repeat(60)).length, 40);
+});
+
+// one row of Coinbase's reply (api.coinbase.com/v1/tokenized-stocks), trimmed to the fields that are read
+const row = (symbol: string, address: string, extra: Record<string, unknown> = {}) => ({ contract_address: address, symbol, name: `${symbol.slice(0, -1)} Holdings, Inc.`, decimals: 8, isin: "US0000000000", ...extra });
+const NEW = "0xb200000000000000000000AbCdEf0123456789aa"; // a B20 address the static list does not have
+const NVDA = BASE_STOCKS.find((s) => s.symbol === "NVDAc")!;
+
+test("parseBaseRegistry: keeps well-formed B20 stock rows, lowercased, with no feed; drops everything else", () => {
+  const rows = parseBaseRegistry({
+    tokens: [
+      row("NEWc", NEW),
+      row("NEWc", "0xb200000000000000000000abcdef0123456789bb"), // repeated symbol: the first wins
+      row("DUPc", NEW), // repeated address
+      row("BADc", "0x1234567890123456789012345678901234567890"), // not B20
+      row("NVDA", "0xb200000000000000000000abcdef0123456789cc"), // no issuer "c"
+      row("nvdac", "0xb200000000000000000000abcdef0123456789cd"),
+      row("TOOLONGc", "0xb200000000000000000000abcdef0123456789ce"),
+      row("DECc", "0xb200000000000000000000abcdef0123456789cf", { decimals: 19 }),
+      row("DECc", "0xb200000000000000000000abcdef0123456789d0", { decimals: "8" }), // numeric string: accepted, and DECc is free again
+      row("ODDc", "0xb200000000000000000000abcdef0123456789d1", { name: "<img src=x onerror=alert(1)>" }),
+      row("NONc", "0xb200000000000000000000abcdef0123456789d2", { name: 42 }),
+      null,
+      "row",
+    ],
+  });
+  assert.deepEqual(rows, [
+    { symbol: "NEWc", name: "NEW Holdings", address: NEW.toLowerCase(), feed: null, decimals: 8 },
+    { symbol: "DECc", name: "DEC Holdings", address: "0xb200000000000000000000abcdef0123456789d0", feed: null, decimals: 8 },
+    { symbol: "ODDc", name: "ODD", address: "0xb200000000000000000000abcdef0123456789d1", feed: null, decimals: 8 },
+    { symbol: "NONc", name: "NON", address: "0xb200000000000000000000abcdef0123456789d2", feed: null, decimals: 8 },
+  ]);
+  for (const junk of [null, 42, "x", [], { tokens: "x" }, { data: [row("NEWc", NEW)] }]) assert.deepEqual(parseBaseRegistry(junk), [], JSON.stringify(junk));
+  assert.deepEqual(parseBaseRegistry({ tokens: Array.from({ length: 1001 }, () => row("NEWc", NEW)) }), [], "a reply far larger than the registry is not the registry");
+});
+
+test("mergeBaseStocks: the registry can only add; it never relabels, unprices or shadows a listed stock", () => {
+  assert.equal(mergeBaseStocks(BASE_STOCKS, []), BASE_STOCKS);
+  assert.equal(mergeBaseStocks(BASE_STOCKS, BASE_STOCKS.map((s) => ({ ...s, name: "Renamed", feed: null }))), BASE_STOCKS, "every address known: same list back, static names and feeds untouched");
+  const added = { symbol: "NEWc", name: "New", address: NEW.toLowerCase(), feed: null, decimals: 8 };
+  const spoof = { ...added, symbol: "NVDAc", address: "0xb200000000000000000000abcdef0123456789ff" };
+  const lower = { ...added, symbol: "aaplc", address: "0xb200000000000000000000abcdef0123456789fe" }; // AAPLc in other case
+  const merged = mergeBaseStocks(BASE_STOCKS, [spoof, added, lower, { ...NVDA, name: "Not Nvidia", feed: null }]);
+  assert.equal(merged.length, BASE_STOCKS.length + 1, "only the new stock");
+  assert.ok(merged.includes(added));
+  assert.equal(merged.find((s) => s.symbol === "NVDAc"), NVDA, "NVDAc stays the listed row, feed and all");
+  assert.ok(!merged.some((s) => s.address === spoof.address), "a second NVDAc at another address is dropped");
+  const tickers = merged.map((s) => underlyingTicker(s.symbol));
+  assert.deepEqual(tickers, [...tickers].sort(), "still sorted by ticker");
+  assert.equal(mergeBaseStocks(merged, [added]), merged, "already there: nothing new");
 });
 
 test("issuedFromSupply: supply above zero is issued, zero is not, a failed or odd read says nothing", () => {

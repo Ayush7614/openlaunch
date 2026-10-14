@@ -9,6 +9,8 @@
  * which the API leaves out but which exists on-chain, has a Chainlink feed and has launches quoted in it.
  * Names are the issuer's without the legal suffix ("Netflix Inc" → "Netflix"); the address is the identity.
  * Rows are sorted by underlying ticker. A stock the issuer has listed may have no supply yet.
+ * This list is the floor: at run time the server also reads Coinbase's registry and adds any stock listed there that this
+ * list lacks (parseBaseRegistry, mergeBaseStocks; stocksServer.ts). It only adds, so a stock never drops out of the app.
  *
  * Prices come from Chainlink's on-chain "Coinbase <TICKER>" feeds on Base (8 decimals, 24/5, the
  * feed holds the last close while markets are shut) — no third-party API, no key. Chainlink publishes a
@@ -187,6 +189,61 @@ export function baseStockByAddress(address: string): BaseStock | null {
   return BY_ADDRESS.get(address.toLowerCase()) ?? null;
 }
 
+/** Coinbase's public registry of its tokenized stocks (no key; docs.base.org/sdks/tokenized-stocks). */
+export const BASE_STOCK_REGISTRY_URL = "https://api.coinbase.com/v1/tokenized-stocks?page_size=500";
+/** A reply with more rows than this is not the registry. */
+const MAX_REGISTRY_ROWS = 1000;
+/** A ticker ("U", "GOOGL", "BRK.B") and the issuer's "c". */
+const BASE_STOCK_SYMBOL = /^[A-Z]{1,5}(\.[A-Z])?c$/;
+const LEGAL_SUFFIX = /(?:,?\s+(?:Inc\.?|Incorporated|Corp\.?|Corporation|Ltd\.?|Limited|plc|S\.A\.?|SA\/NV|N\.V\.?|A\/S|SE|AG|PBC|L\.P\.?|&\s+Co\.?|Co\.?))+$/i;
+
+/** The issuer's name the way this list writes it: no legal suffix ("Tesla Inc." → "Tesla", "Eli Lilly & Co" → "Eli Lilly"), plain apostrophes, at most 40 characters. */
+export function cleanStockName(name: string): string {
+  let s = name.normalize("NFKC").replace(/[\u2018\u2019\u02bc]/g, "'").replace(/\s+/g, " ").trim();
+  s = s.replace(/,?\s+(?:Inc\.?|Corp\.?|Corporation|Ltd\.?|plc)(?=\s+Class\s)/i, ""); // "Berkshire Hathaway Inc. Class B"
+  s = s.replace(LEGAL_SUFFIX, "");
+  if (!/^The\s/i.test(s)) s = s.replace(/\s+Company$/i, ""); // "Eastman Kodak Company", but "The Hershey Company" keeps it
+  return s.slice(0, 40).trim();
+}
+
+/**
+ * Coinbase's registry reply → stock rows, defensively. A row is kept only with a B20 address, a "<TICKER>c" symbol and
+ * 0-18 decimals; the first row wins a repeated address or symbol; a name that is not plain printable text becomes the ticker.
+ * No row gets a price feed: a feed is matched to a stock by hand, in the static list.
+ */
+export function parseBaseRegistry(json: unknown): BaseStock[] {
+  const items = (json as { tokens?: unknown } | null)?.tokens;
+  if (!Array.isArray(items) || items.length > MAX_REGISTRY_ROWS) return [];
+  const out: BaseStock[] = [];
+  const seen = new Set<string>();
+  for (const raw of items) {
+    const t = (raw ?? {}) as Record<string, unknown>;
+    const address = typeof t.contract_address === "string" ? t.contract_address.toLowerCase() : "";
+    const symbol = typeof t.symbol === "string" ? t.symbol.trim() : "";
+    if (!isB20Address(address) || !BASE_STOCK_SYMBOL.test(symbol) || seen.has(address) || seen.has(symbol)) continue;
+    const decimals = Number(t.decimals);
+    if (!Number.isInteger(decimals) || decimals < 0 || decimals > 18) continue;
+    const name = typeof t.name === "string" ? cleanStockName(t.name) : "";
+    seen.add(address).add(symbol);
+    out.push({ symbol, name: /^[\p{L}\p{N} .,&'!()-]{2,40}$/u.test(name) ? name : underlyingTicker(symbol), address, feed: null, decimals });
+  }
+  return out;
+}
+
+/**
+ * The static list plus the registry rows it lacks, sorted by ticker like the static list. The registry can only add: a
+ * listed address keeps its static row (name, feed), and a new address under a symbol already listed is dropped, so no
+ * reply can relabel, unprice or shadow a stock. Nothing new → the same list object back.
+ */
+export function mergeBaseStocks(known: readonly BaseStock[], live: readonly BaseStock[]): readonly BaseStock[] {
+  const addresses = new Set(known.map((s) => s.address));
+  const symbols = new Set(known.map((s) => s.symbol.toUpperCase()));
+  const added = live.filter((s) => !addresses.has(s.address) && !symbols.has(s.symbol.toUpperCase()));
+  if (added.length === 0) return known;
+  const ticker = (s: BaseStock) => underlyingTicker(s.symbol);
+  return [...known, ...added].sort((a, b) => (ticker(a) < ticker(b) ? -1 : ticker(a) > ticker(b) ? 1 : 0));
+}
+
 /** Address shape of a B20 token (does NOT mean it is a Coinbase stock — only the registry decides that). */
 export function isB20Address(address: string): boolean {
   return /^0x[0-9a-fA-F]{40}$/.test(address) && address.toLowerCase().startsWith(B20_PREFIX);
@@ -202,14 +259,14 @@ export function pricedBaseStocks(addresses: string[]): PricedBaseStock[] {
  * price feed lead and the rest keep registry (ticker) order, so "U" finds Uc ahead of UBERc. An empty query is the
  * whole registry in that order: the priced stocks fill the first page.
  */
-export function searchBaseStocks(q: string, limit = 12): BaseStock[] {
+export function searchBaseStocks(q: string, limit = 12, list: readonly BaseStock[] = BASE_STOCKS): BaseStock[] {
   const n = q.trim().toUpperCase().replace(/^\$/, "");
   const rank = (s: BaseStock): number => {
     if (!n || s.symbol.toUpperCase().startsWith(n)) return 0;
     // the ticker, not the symbol: every symbol ends in "c", so a "C" would otherwise match all of them
     return underlyingTicker(s.symbol).includes(n) || s.name.toUpperCase().includes(n) ? 1 : -1;
   };
-  return BASE_STOCKS.map((s) => ({ s, r: rank(s) }))
+  return list.map((s) => ({ s, r: rank(s) }))
     .filter((x) => x.r >= 0)
     .sort((a, b) => a.r - b.r || Number(b.s.feed !== null) - Number(a.s.feed !== null))
     .slice(0, limit)

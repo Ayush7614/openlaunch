@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { isChainKey } from "@/lib/chainPublic";
 import { launchpad } from "@/lib/launchpad/config";
-import { STOCK_SOURCE, ensureRegistry, stockIssued, stockList, stockPrices } from "@/lib/launchpad/stocksServer";
+import { STOCK_SOURCE, baseStockList, ensureRegistry, refreshBaseRegistry, stockIssued, stockList, stockPrices } from "@/lib/launchpad/stocksServer";
 import { searchStocks } from "@/lib/launchpad/stocks";
 import { BASE_STOCK_SEARCH_LIMIT, searchBaseStocks, stockTileSvg } from "@/lib/launchpad/baseStocks";
 import { memo } from "@/lib/launchpad/memo";
@@ -36,7 +36,8 @@ export async function GET(req: Request) {
     const source = STOCK_SOURCE[chain];
     if (source === null) return { stocks: [], stocksTotal: 0, stocksMatched: 0 };
     if (source === "coinbase-b20") {
-      const all = searchBaseStocks(q, Infinity);
+      void refreshBaseRegistry(); // background: the list as it stands answers now
+      const all = searchBaseStocks(q, Infinity, baseStockList());
       matched = all.length;
       hits = all.slice(0, BASE_STOCK_SEARCH_LIMIT).map((s) => ({ ...s, logo: stockTileSvg(s.symbol) }));
     } else {

@@ -180,7 +180,7 @@ async function loadQuoteTokens(): Promise<Map<string, QuoteTokenMeta>> {
 async function withStocks(): Promise<void> {
   gitlawbUsdNow = await gitlawbUsd(); // never throws; served from cache once warm (stale-while-revalidate)
   try {
-    await ensureRegistry(); // robinhood registry (fail-soft); the Base list is static
+    await ensureRegistry(); // robinhood registry (fail-soft); also starts a background refresh of the Base list
     stockUsdNow = await stockUsdInUse();
   } catch {
     /* fail soft: stocks show without USD */
