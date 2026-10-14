@@ -71,4 +71,6 @@ test("the points run waits for a missing price only when the quote has a price s
   assert.match(queries, /return \{ key: q\.key, decimals: q\.decimals, usd: quoteUsd\(q, ethUsd\), priced: hasPriceSource\(q\) \};/);
   assert.match(queries, /if \(usd === null && hasPriceSource\(q\) && \(/);
   assert.match(queries, /\.\.\.\(stock\.priced \? \{\} : \{ unpriced: true \}\)/);
+  // every launch row carries the same answer to the client (the wallet page's holdings total reads it)
+  assert.match(queries, /quote_decimals_known: q\.decimalsKnown !== false,\s*quote_priced: hasPriceSource\(q\),/);
 });

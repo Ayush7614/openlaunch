@@ -23,6 +23,10 @@ test("base: all 146 registry stocks resolve by address, each with 8 decimals and
   }
   assert.equal(stockByAddress("base", NFLX.toUpperCase().replace("0X", "0x"))?.symbol, "NFLXc", "case-insensitive");
   assert.equal(stockByAddress("base", NOT_A_STOCK), null, "the B20 shape alone is never a stock");
+  // the list is static: its rows and their logos are built once, not on every call
+  assert.equal(stockList("base"), list);
+  assert.equal(stockByAddress("base", NFLX), list.find((s) => s.symbol === "NFLXc"));
+  assert.equal(list.filter((s) => s.priced).length, 13);
 });
 
 test("a Base stock belongs to Base only: Arc has no registry, and Robinhood's is its own", () => {

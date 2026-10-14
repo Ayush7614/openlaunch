@@ -46,7 +46,7 @@ function isolatedRoute(robinhoodRegistry: number | null = 30) {
   }, exported);
   const get = async (query: string) => {
     const response = await exported.GET(new Request(`https://example.test/api/quotes?${query}`));
-    return { response, body: (await response.json()) as { fixed: { key: string; usd: number | null }[]; stocks: Hit[]; stocksTotal: number; error?: string } };
+    return { response, body: (await response.json()) as { fixed: { key: string; usd: number | null }[]; stocks: Hit[]; stocksTotal: number; stocksMatched: number; error?: string } };
   };
   return { get, calls };
 }
@@ -58,6 +58,7 @@ test("base, empty search: the first page is the 13 priced stocks, and the total 
   assert.equal(response.headers.get("cache-control"), "no-store");
   assert.deepEqual(body.stocks.map((s) => s.symbol), PRICED);
   assert.equal(body.stocksTotal, 146);
+  assert.equal(body.stocksMatched, 146, "an empty search matches the whole registry");
   for (const s of body.stocks) {
     assert.deepEqual(Object.keys(s).sort(), ["address", "decimals", "key", "logo", "name", "symbol", "usd"], "the stock shape the form reads, nothing else");
     assert.equal(s.key, "stock");
@@ -75,10 +76,17 @@ test("base, search: a newly listed stock is found by ticker or name; without a f
   const byTicker = (await get("chain=base&q=nflx")).body;
   assert.deepEqual(byTicker.stocks.map((s) => [s.symbol, s.name, s.address, s.usd]), [["NFLXc", "Netflix", "0xb20000000000000000000058b8c947e44011dfe6", null]]);
   assert.equal(byTicker.stocksTotal, 146);
+  assert.equal(byTicker.stocksMatched, 1);
   assert.deepEqual((await get("chain=base&q=berkshire%20hathaway%20class%20b")).body.stocks.map((s) => s.symbol), ["BRK.Bc"], "the query is cut to 12 characters and still finds it");
   const u = (await get("chain=base&q=u")).body.stocks;
   assert.equal(u[0].symbol, "Uc", "a one-letter ticker leads its longer namesakes");
   assert.equal(u.length, BASE_STOCK_SEARCH_LIMIT, "a broad search is capped at one page");
+  // ...and says how many it left out: "S" has more ticker matches alone than one page holds (the review's SOUNc / STZc case)
+  const s = (await get("chain=base&q=s")).body;
+  assert.equal(s.stocks.length, BASE_STOCK_SEARCH_LIMIT);
+  assert.equal(s.stocksMatched, searchBaseStocks("s", Infinity).length);
+  assert.ok(s.stocksMatched > 15 && s.stocksMatched < 146);
+  assert.ok(!s.stocks.some((x) => x.symbol === "STZc") && searchBaseStocks("s", Infinity).some((x) => x.symbol === "STZc"), "STZc matches but is off the page");
   const mixed = (await get("chain=base&q=pl")).body.stocks;
   assert.equal(mixed.find((s) => s.symbol === "AAPLc")?.usd, 105);
   assert.equal(mixed.find((s) => s.symbol === "PLTRc")?.usd, null);
@@ -89,6 +97,7 @@ test("base, no match: an empty page with the total, so the form can say what to 
   const { body } = await get("chain=base&q=zzz");
   assert.deepEqual(body.stocks, []);
   assert.equal(body.stocksTotal, 146);
+  assert.equal(body.stocksMatched, 0);
 });
 
 test("arc has no stock registry: no stocks, total 0, nothing looked up", async () => {
@@ -96,6 +105,7 @@ test("arc has no stock registry: no stocks, total 0, nothing looked up", async (
   const { body } = await get("chain=arc");
   assert.deepEqual(body.stocks, []);
   assert.equal(body.stocksTotal, 0);
+  assert.equal(body.stocksMatched, 0);
   assert.deepEqual(calls, { registry: 0, prices: [] });
 });
 
@@ -104,12 +114,17 @@ test("robinhood: one page of twelve from its own registry with that registry's t
   const { body } = await up.get("chain=robinhood");
   assert.equal(body.stocks.length, 12);
   assert.equal(body.stocksTotal, 30);
+  assert.equal(body.stocksMatched, 30);
   assert.ok(body.stocks.every((s) => s.key === "stock" && s.usd === 7 && s.decimals === 18));
   assert.equal(up.calls.registry, 1);
+  const narrowed = (await up.get("chain=robinhood&q=rh0")).body;
+  assert.equal(narrowed.stocks.length, 10, "RH00 to RH09");
+  assert.equal(narrowed.stocksMatched, 10);
   const down = isolatedRoute(null);
   const none = (await down.get("chain=robinhood")).body;
   assert.deepEqual(none.stocks, []);
   assert.equal(none.stocksTotal, 0);
+  assert.equal(none.stocksMatched, 0);
   assert.deepEqual(down.calls.prices, []);
 });
 

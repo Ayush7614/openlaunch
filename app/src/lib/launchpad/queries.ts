@@ -38,6 +38,7 @@ export type LaunchRow = {
   quote_symbol: string;
   quote_decimals: number;
   quote_decimals_known: boolean; // false only for an unlisted quote not read yet: quote_decimals is a placeholder, do not trade
+  quote_priced: boolean; // false when nothing prices the quote (an unlisted ERC-20, a stock without a feed): its null quote_usd is the normal state, not an outage
   pool_id: string;
   start_tick: number;
   lp_fee: number;
@@ -88,7 +89,7 @@ export type LaunchRow = {
   volume_24h_usd: number | null;
 };
 
-type Raw = Omit<LaunchRow, "chain" | "quote_key" | "quote_symbol" | "quote_decimals" | "quote_decimals_known" | "token_id" | "block_number" | "tick" | "trades_1h" | "traders_1h" | "traders_1h_ex" | "trades_24h" | "traders_24h_ex" | "last_outside_trade_at" | "live_tier" | "launcher_collapsed" | "price_quote" | "fdv_quote" | "change_from_launch" | "quote_usd" | "price_usd" | "fdv_usd" | "volume_usd" | "volume_1h_usd" | "volume_24h_usd"> & {
+type Raw = Omit<LaunchRow, "chain" | "quote_key" | "quote_symbol" | "quote_decimals" | "quote_decimals_known" | "quote_priced" | "token_id" | "block_number" | "tick" | "trades_1h" | "traders_1h" | "traders_1h_ex" | "trades_24h" | "traders_24h_ex" | "last_outside_trade_at" | "live_tier" | "launcher_collapsed" | "price_quote" | "fdv_quote" | "change_from_launch" | "quote_usd" | "price_usd" | "fdv_usd" | "volume_usd" | "volume_1h_usd" | "volume_24h_usd"> & {
   token_id: bigint;
   block_number: bigint;
   tick: number | null;
@@ -224,6 +225,7 @@ function shape(raw: Raw & { last_swap_block?: bigint; last_swap_log?: number; lo
     quote_symbol: q.symbol,
     quote_decimals: q.decimals,
     quote_decimals_known: q.decimalsKnown !== false,
+    quote_priced: hasPriceSource(q),
     token_id: Number(r.token_id),
     block_number: Number(r.block_number),
     tick,
