@@ -162,6 +162,8 @@ test("stock picker: a stock nobody holds yet is marked in the list, and picking 
   // a warning, not a block: the launch works and trading starts once the issuer puts some in circulation
   assert.match(source, /\{stock\?\.issued === false \? \(\s*<p className=\{helper\}>\s*None of \{stock\.symbol\} has been issued yet, so nobody holds any and nobody can buy your token with it until Coinbase issues some\. You can still launch now\.\s*<\/p>\s*\) : null\}/);
   assert.doesNotMatch(source, /issued === true|issued !== false|!\w+\.issued\b/, "never read a missing or unknown flag as \"not issued\"");
+  // and no first buy is suggested in it (first-buy.ts): the step says why instead of showing an amount nobody can hold
+  assert.match(source, /\) : suggestion\.reason === "not-issued" \? \(\s*<p className=\{helper\}>Nothing suggested: no \{quote\.symbol\} has been issued yet, so there is none to buy with\. The launch stays free\.<\/p>/);
 });
 
 test("beneficiary split: recipients come from the tested helper, and the summary reflects the split", () => {
