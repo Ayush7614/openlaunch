@@ -947,6 +947,8 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                   </dl>
                   <p className={helper}>Includes price impact and the pool fee; the exact amount is quoted on-chain right before the buy.</p>
                 </div>
+              ) : suggestion.reason === "not-issued" ? (
+                <p className={helper}>Nothing suggested: no {quote.symbol} has been issued yet, so there is none to buy with. The launch stays free.</p>
               ) : suggestion.reason === "insufficient" ? (
                 <p className={helper}>Suggested {fmtQuoteUnits(Number(defaultFirstBuy(quote)), quote.decimals)} {quote.symbol}, but this wallet {sharedGas ? `does not hold enough ${quote.symbol} for the buy plus its gas` : "holds only gas"}. The launch stays free; you can buy on the token page later.</p>
               ) : suggestion.reason === "no-gas" ? (
