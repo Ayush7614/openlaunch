@@ -21,7 +21,11 @@ export function loadEarnInfo(): Promise<EarnInfo> {
   return pending;
 }
 
-/** The answer, or null until it arrives; asked again on each mount or (re)activation. `active` false skips it (the ⌘K list asks when opened). */
+/**
+ * The answer, or null until it arrives; asked again on each mount or (re)activation. `active` false skips it (the ⌘K
+ * list asks when opened). Deactivating forgets the answer, so a reopened list shows nothing from the last open (say,
+ * an Earn entry since switched off) until the fresh answer lands.
+ */
 export function useEarnInfo(active = true): EarnInfo | null {
   const [info, setInfo] = useState<EarnInfo | null>(null);
   useEffect(() => {
@@ -32,7 +36,8 @@ export function useEarnInfo(active = true): EarnInfo | null {
     });
     return () => {
       alive = false;
+      setInfo(null);
     };
   }, [active]);
-  return info;
+  return active ? info : null;
 }
