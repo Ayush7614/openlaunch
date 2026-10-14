@@ -16,7 +16,7 @@ import { EARN_VAULTS } from "@/lib/earn/vaults";
  * Runs the real deposit / withdraw / recheck code from useEarn.ts (extracted from the source, like
  * transaction-safety.test.ts) against inert wallets and RPCs: no real wallet, chain or transaction.
  */
-const FLOW = ["ensureAccount", "walletFor", "batching", "requireTerms", "preflightBatch", "unconfirmed", "settleTx", "sendBatch", "finish", "deposit", "withdraw", "recheck"] as const;
+const FLOW = ["ensureAccount", "walletFor", "batching", "requireTerms", "preflightBatch", "unconfirmed", "settleTx", "sendBatch", "finish", "deposit", "withdraw", "recheck", "switchToVaultChain"] as const;
 type Flow = Record<(typeof FLOW)[number], (...args: unknown[]) => Promise<void>>;
 
 function load(bindings: Record<string, unknown>): Flow {
@@ -63,6 +63,8 @@ function world(o: {
   overrideTakes?: boolean;
   /** which simulations revert, by function name and whether the allowance override was applied */
   reverts?: (fn: string, withOverride: boolean) => boolean;
+  /** the wallet's answer to a network switch */
+  switchChain?: () => Promise<void>;
 } = {}) {
   const phases: EarnPhase[] = [];
   const events: string[] = [];
@@ -75,6 +77,7 @@ function world(o: {
   const termsQueue = [...(o.terms ?? [])];
   let refetches = 0;
   let toasts = 0;
+  let switches = 0;
   const pub = {
     readContract: async ({ address, functionName, stateOverride }: { address: string; functionName: string; stateOverride?: { stateDiff: { value: string }[] }[] }) => {
       if (stateOverride) return o.overrideTakes === false ? 0n : BigInt(stateOverride[0].stateDiff[0].value);
@@ -108,7 +111,8 @@ function world(o: {
     address: A, amount: 250_000_000n, phase: o.phase ?? { k: "idle" },
     position: { shares: 957_000_000_000_000_000_000n, position: 1_000_000_000n, refetch: async () => {} },
     terms: { refetch: async () => { refetches++; } },
-    switchChainAsync: async () => {},
+    switchChainAsync: () => { switches++; return (o.switchChain ?? (async () => {}))(); },
+    isBusy,
     getPublicClient: () => pub,
     getAccount: () => ({ address: account.value }),
     getWalletClient: async (_config: unknown, opts: unknown) => { walletRequests.push(opts); return wallet; },
@@ -123,12 +127,13 @@ function world(o: {
     readTerms: async () => termsQueue.shift() ?? reviewed,
     termsCheck, pausedCopy, approveCall, approvedState, depositCall, redeemCall, withdrawCall, batchHash, canBatch, withdrawPlan, fmtAmount,
     BATCH_FAILED, EARN_BATCH_CAPABILITIES, ERC20_MIN_ABI, EARN_VAULT_ABI, BUILDER_DATA_SUFFIX, NOT_CONFIRMED_YET, revertedCopy,
-    setPhase: (p: EarnPhase) => phases.push(p), setText: () => {}, setAll: () => {}, toast: () => { toasts++; },
+    // like React's setter: a value, or an updater given the current phase
+    setPhase: (p: EarnPhase | ((cur: EarnPhase) => EarnPhase)) => phases.push(typeof p === "function" ? p(phases.at(-1) ?? { k: "idle" }) : p), setText: () => {}, setAll: () => {}, toast: () => { toasts++; },
     friendlyError: (e: Error) => e.message,
   };
   if (o.tab === "withdraw") Object.assign(bindings, { amount: 1_000_000_000n });
   const flow = load(bindings);
-  return { flow, phases, events, writes, walletRequests, batches, account, mounted, lock, refetches: () => refetches, toasts: () => toasts, last: () => phases.at(-1)!, rebind: (extra: Record<string, unknown>) => load({ ...bindings, ...extra }) };
+  return { flow, phases, events, writes, walletRequests, batches, account, mounted, lock, refetches: () => refetches, toasts: () => toasts, switches: () => switches, last: () => phases.at(-1)!, rebind: (extra: Record<string, unknown>) => load({ ...bindings, ...extra }) };
 }
 
 test("a deposit whose receipt cannot be read stays unconfirmed, and the form cannot send it again", async () => {
@@ -281,6 +286,33 @@ test("a withdrawal whose receipt cannot be read stays unconfirmed too", async ()
   await w.flow.withdraw();
   assert.deepEqual(w.writes.map((x) => [x.functionName, x.account]), [["redeem", A]]);
   assert.deepEqual(w.last(), { k: "unconfirmed", tab: "withdraw", amount: 1_000_000_000n, sent: { kind: "tx", hash: "0xsent" }, checking: false, note: null });
+});
+
+test("the network switch is refused while a send is in flight or unsettled", async () => {
+  const w = world();
+  await w.rebind({ busy: true }).switchToVaultChain();
+  assert.equal(w.switches(), 0);
+  w.lock.current = true;
+  await w.flow.switchToVaultChain();
+  assert.equal(w.switches(), 0);
+  w.lock.current = false;
+  await w.flow.switchToVaultChain();
+  assert.equal(w.switches(), 1);
+});
+
+test("a switch rejected after a send became unconfirmed leaves it unconfirmed; when idle it shows the error", async () => {
+  let reject!: (e: Error) => void;
+  const w = world({ switchChain: () => new Promise<void>((_, r) => { reject = r; }) });
+  const pending = w.flow.switchToVaultChain();
+  // meanwhile a send was made and its confirmation could not be read
+  const unconfirmed: EarnPhase = { k: "unconfirmed", tab: "deposit", amount: 250_000_000n, sent: { kind: "tx", hash: "0xsent" }, checking: false, note: null };
+  w.phases.push(unconfirmed);
+  reject(new Error("User rejected the request."));
+  await pending;
+  assert.deepEqual(w.last(), unconfirmed, "the 'do not send again' state survives a late rejection");
+  const idle = world({ switchChain: async () => { throw new Error("User rejected the request."); } });
+  await idle.flow.switchToVaultChain();
+  assert.deepEqual(idle.last(), { k: "error", message: "User rejected the request." });
 });
 
 test("a card that unmounted mid-action stops before its next prompt", async () => {

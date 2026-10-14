@@ -132,12 +132,17 @@ export default function useEarn(vault: EarnVault, initialTab: EarnTab) {
     settle();
   }
 
-  /** The explicit "Switch to Base" step, before the form offers to send anything. */
+  /**
+   * The explicit "Switch to Base" step, before the form offers to send anything. Never while a send is in flight or
+   * unsettled, and a rejection that lands late can never replace such a state: it would unlock the form while a
+   * deposit may still go through.
+   */
   async function switchToVaultChain() {
+    if (busy || lock.current) return;
     try {
       await switchChainAsync({ chainId });
     } catch (err) {
-      setPhase({ k: "error", message: friendlyError(err) });
+      setPhase((current) => (isBusy(current) ? current : { k: "error", message: friendlyError(err) }));
     }
   }
 

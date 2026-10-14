@@ -73,18 +73,19 @@ export default function EarnPanel({ view: e, snapshot, onConnect }: { view: Earn
     );
   }
 
+  // a send in flight shows its progress even if the wallet changed network meanwhile: no switch offer until it settles
   const label = !e.isConnected ? "Connect wallet"
-    : !e.onChain ? (e.switching ? "Confirm the network switch…" : `Switch to ${network}`)
     : e.phase.k === "preparing" ? "Checking the vault…"
     : e.phase.k === "approving" ? `Allow exactly ${e.amount !== null ? amt(e.amount) : ""} ${sym} in your wallet…`
     : e.phase.k === "signing" ? "Confirm in your wallet…"
     : e.phase.k === "sent" ? `Confirming on ${network}…`
+    : !e.onChain ? (e.switching ? "Confirm the network switch…" : `Switch to ${network}`)
     : deposit && pauseReason ? "Deposits paused"
     : e.problem ? e.problem
     : deposit ? (e.needsApproval ? `Allow and deposit ${amt(e.amount!)} ${sym}` : `Deposit ${amt(e.amount!)} ${sym}`)
     : everything ? "Withdraw everything" : `Withdraw ${amt(e.amount!)} ${sym}`;
   const ready = e.isConnected && e.onChain && !e.busy && !e.problem && !(deposit && pauseReason);
-  const clickable = !e.isConnected || (!e.onChain && !e.switching) || ready;
+  const clickable = !e.isConnected || (!e.onChain && !e.switching && !e.busy) || ready;
   const onClick = !e.isConnected ? onConnect : !e.onChain ? e.switchToVaultChain : e.submit;
 
   return (

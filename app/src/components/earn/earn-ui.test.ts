@@ -87,6 +87,13 @@ test("a batch is simulated before its one prompt, like every other send", () => 
   assert.ok(preflight.indexOf("if (seen !== value) return false;") < preflight.indexOf("stateOverride });"));
 });
 
+test("while a send is in flight the button shows its progress, never a network-switch offer", () => {
+  assert.match(panel, /const clickable = !e\.isConnected \|\| \(!e\.onChain && !e\.switching && !e\.busy\) \|\| ready;/);
+  const label = panel.slice(panel.indexOf("const label = "), panel.indexOf("const ready = "));
+  assert.ok(label.indexOf('e.phase.k === "sent"') < label.indexOf("!e.onChain ?"), "progress labels come before the switch offer");
+  assert.match(hook.slice(hook.indexOf("async function switchToVaultChain(")), /^async function switchToVaultChain\(\) \{\s*if \(busy \|\| lock\.current\) return;/);
+});
+
 test("an upgrade-to-smart-account prompt is never triggered", () => {
   assert.match(calls, /c\.atomic\?\.status === "supported"/);
   assert.doesNotMatch(calls, /status === "ready"/);
