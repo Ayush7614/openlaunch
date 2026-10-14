@@ -22,6 +22,8 @@ type MockState = {
   // unreachable transport, so the RPC-outage path is exercised through viem
   // itself rather than a hand-rolled stub.
   transportOutage: boolean;
+  // What getLaunchTotals' one aggregation over bb_launches returns: a row per (chain, quote).
+  launchTotalsRows: { chain_id: number; quote: string; launches: bigint; trades: bigint; volume: string; burned: string; creators: string }[];
 };
 
 declare global {
@@ -38,6 +40,7 @@ export function resetMock() {
     verifyShouldThrow: false,
     verifyResult: true,
     transportOutage: false,
+    launchTotalsRows: [],
   };
 }
 
@@ -86,6 +89,11 @@ function fakeDb(strings: TemplateStringsArray, ...values: unknown[]): Promise<an
     if (new Date(row.expires_at).getTime() <= Date.now()) return Promise.resolve([] as any[]);
     row.used_at = new Date().toISOString();
     return Promise.resolve([{ nonce }] as any[]);
+  }
+
+  // platform totals (getLaunchTotals)
+  if (sql.includes("FROM bb_launches GROUP BY chain_id, quote")) {
+    return Promise.resolve(m.launchTotalsRows as any[]);
   }
 
   // launcher lookup (issueNonce and applySignedEdit)

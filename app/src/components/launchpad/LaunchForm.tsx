@@ -80,7 +80,7 @@ const CHAIN_COPY: Record<ChainKey, { blurb: string; gitlawbOrigin: string; stock
     stock: {
       pays: "Buyers pay with a Coinbase tokenized stock; fees are paid in that stock.",
       badge: "Coinbase stock",
-      empty: "No match. 13 Coinbase tokenized stocks are available on Base: NVDAc, AAPLc, TSLAc, METAc, GOOGLc, AMZNc, MSFTc, MSTRc, COINc, CRCLc, INTCc, SNDKc, SPCXc.",
+      empty: "No match. Search a ticker or a company name, e.g. NVDA, AMD or Netflix.",
       issuer: "Coinbase tokenized stocks are securities issued by Coinbase under Regulation S and are not offered to persons in the US, UK, Canada, Australia, Singapore or Switzerland. That is Coinbase's rule for the stock token, not ours. The pool itself is ordinary Uniswap v4.",
     },
   },
@@ -181,6 +181,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
   const [stock, setStock] = useState<Quote | null>(null);
   const [stockQ, setStockQ] = useState("");
   const [stockHits, setStockHits] = useState<Quote[]>([]);
+  const [stockTotal, setStockTotal] = useState(0); // how many stocks the chain's registry holds; the list below shows one page of them
   // GITLAWB's USD is live: the page fetched it server-side (same as ethUsd); the static config carries null. TWIG unwraps 1:1 to GITLAWB, so it takes the same price (gitlawbLinkedUsd).
   const staticQuote: Quote = quoteKey === "stock" && stock ? stock : (cfg.quotes.find((q) => q.key === quoteKey) ?? cfg.quotes[0]);
   const linkedUsd = gitlawbLinkedUsd(staticQuote.key, gitlawbUsd);
@@ -202,8 +203,11 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
     const t = setTimeout(async () => {
       try {
         const res = await fetch(`/api/quotes?chain=${chain}&q=${encodeURIComponent(stockQ)}`, { cache: "no-store" });
-        const d = (await res.json()) as { stocks: Quote[] };
-        if (alive) setStockHits(d.stocks ?? []);
+        const d = (await res.json()) as { stocks: Quote[]; stocksTotal?: number };
+        if (alive) {
+          setStockHits(d.stocks ?? []);
+          setStockTotal(d.stocksTotal ?? 0);
+        }
       } catch {
         if (alive) setStockHits([]);
       }
@@ -524,6 +528,7 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                         setStock(null);
                         setStockQ("");
                         setStockHits([]);
+                        setStockTotal(0);
                         setMcapPick(null);
                         setCustomMcap("");
                       }}
@@ -656,6 +661,12 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                       ))}
                       {stockHits.length === 0 ? <li className="text-xs text-muted">{CHAIN_COPY[chain].stock?.empty}</li> : null}
                     </ul>
+                  ) : null}
+                  {/* an empty search lists one page only: say how many more there are, or the rest of the registry stays invisible */}
+                  {!stock && !stockQ.trim() && stockHits.length > 0 && stockTotal > stockHits.length ? (
+                    <p className={helper}>
+                      Showing {stockHits.length} of {stockTotal}. Search a ticker or a company name for the rest.
+                    </p>
                   ) : null}
                   <p className={helper}>{CHAIN_COPY[chain].stock?.issuer}</p>
                 </div>
@@ -793,6 +804,12 @@ export default function LaunchForm({ ethUsd, gitlawbUsd = null, initialChain = D
                   <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-mono text-muted">{entry.unit === "usd" ? "USD" : quote.symbol}</span>
                 </div>
               </div>
+              {/* a stock without a price feed (most Coinbase stocks) has no dollar presets: say why the box wants stock units */}
+              {quote.key === "stock" && entry.unit === "quote" ? (
+                <p className={helper}>
+                  {quote.symbol} has no USD price here: enter the starting market cap in {quote.symbol}.
+                </p>
+              ) : null}
               {fdvPreview !== null && tokensPerEth !== null ? (
                 <p className="rounded-xl border border-line bg-paper px-4 py-3 text-sm text-body">
                   Opens at <span className="font-mono font-bold text-ink tnum">{cap(fdvPreview).main}</span>
