@@ -33,27 +33,33 @@ export async function GET(req: Request) {
   const { stocks, stocksTotal, stocksMatched } = await memo(`quotes:stocks:${chain}:${q.toUpperCase()}`, 30_000, async (): Promise<{ stocks: StockHit[]; stocksTotal: number; stocksMatched: number }> => {
     let hits: { address: string; symbol: string; name: string; decimals: number; logo: string | null }[];
     let matched: number;
+    // the total comes from the same list the search ran on: a registry refresh can land while prices are read below
+    let total: number;
     const source = STOCK_SOURCE[chain];
     if (source === null) return { stocks: [], stocksTotal: 0, stocksMatched: 0 };
     if (source === "coinbase-b20") {
       void refreshBaseRegistry(); // background: the list as it stands answers now
-      const all = searchBaseStocks(q, Infinity, baseStockList());
+      const list = baseStockList();
+      const all = searchBaseStocks(q, Infinity, list);
       matched = all.length;
+      total = list.length;
       hits = all.slice(0, BASE_STOCK_SEARCH_LIMIT).map((s) => ({ ...s, logo: stockTileSvg(s.symbol) }));
     } else {
       if (!(await ensureRegistry())) return { stocks: [], stocksTotal: 0, stocksMatched: 0 };
+      const list = stockList(chain);
       const all = searchStocks(
-        stockList(chain).map((s) => ({ ...s, multiplier: 1 })),
+        list.map((s) => ({ ...s, multiplier: 1 })),
         q,
         Infinity,
       );
       matched = all.length;
+      total = list.length;
       hits = all.slice(0, 12);
     }
     const [px, issued] = await Promise.all([stockPrices(chain, hits.map((h) => h.address)), stockIssued(chain)]);
     return {
       stocks: hits.map((h) => ({ key: "stock" as const, address: h.address, symbol: h.symbol, name: h.name, decimals: h.decimals, usd: px.get(h.address) ?? null, logo: h.logo, issued: issued.get(h.address) ?? null })),
-      stocksTotal: stockList(chain).length,
+      stocksTotal: total,
       stocksMatched: matched,
     };
   });

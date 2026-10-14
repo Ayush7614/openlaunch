@@ -18,11 +18,12 @@ const ISSUED = new Map([[addressOf("AAPLc"), true], [addressOf("COINc"), false],
 
 // Compile only the handler and hand it explicit imports: the registry, search and ranking are the real modules, the
 // server ones (prices, the Robinhood registry fetch, GITLAWB's price, the memo) are local fakes. No network, no database.
-function isolatedRoute(robinhoodRegistry: number | null = 30, baseAdded: BaseStock[] = []) {
+// `grow`: a registry refresh that lands while the route reads prices (one more stock on the chain asked about)
+function isolatedRoute(robinhoodRegistry: number | null = 30, baseAdded: BaseStock[] = [], grow = false) {
   const calls = { registry: 0, baseRefresh: 0, prices: [] as { chain: string; addresses: string[] }[], issued: [] as string[] };
   // the Base list as the server holds it: the static one plus what Coinbase's registry added
-  const baseList = [...BASE_STOCKS, ...baseAdded];
-  const robinhood = robinhoodRegistry === null ? null : Array.from({ length: robinhoodRegistry }, (_, i) => ({ chain: "robinhood" as ChainKey, address: "0x" + (i + 1).toString(16).padStart(40, "0"), symbol: `RH${String(i).padStart(2, "0")}`, name: `Robinhood ${i}`, decimals: 18, logo: null }));
+  let baseList: readonly BaseStock[] = [...BASE_STOCKS, ...baseAdded];
+  let robinhood = robinhoodRegistry === null ? null : Array.from({ length: robinhoodRegistry }, (_, i) => ({ chain: "robinhood" as ChainKey, address: "0x" + (i + 1).toString(16).padStart(40, "0"), symbol: `RH${String(i).padStart(2, "0")}`, name: `Robinhood ${i}`, decimals: 18, logo: null }));
   const imports: Record<string, unknown> = {
     "next/server": { NextResponse: { json: (body: unknown, options?: ResponseInit) => Response.json(body, options) } },
     "@/lib/chainPublic": { isChainKey },
@@ -36,6 +37,8 @@ function isolatedRoute(robinhoodRegistry: number | null = 30, baseAdded: BaseSto
       // like the real one on Base: a dollar price for a stock with a feed, nothing for the rest
       stockPrices: async (chain: ChainKey, addresses: string[]) => {
         calls.prices.push({ chain, addresses });
+        if (grow && chain === "base") baseList = [...baseList, { symbol: "LATEc", name: "Late Listing", address: "0xb200000000000000000000abcdef0123456789ee", feed: null, decimals: 8 }];
+        if (grow && chain === "robinhood" && robinhood) robinhood = [...robinhood, { ...robinhood[0], address: "0x" + "ee".repeat(20), symbol: "LATE" }];
         return new Map<string, number | null>(chain === "base" ? pricedBaseStocks(addresses).map((s) => [s.address, 100 + s.symbol.length]) : addresses.map((a) => [a, 7]));
       },
       // like the real one: Base only, and only what a supply read found
@@ -165,6 +168,15 @@ test("base: a stock Coinbase's registry added at run time is found, counted and 
   assert.deepEqual(body.stocks.map((s) => [s.symbol, s.name, s.usd]), [["NEWc", "New Robotics", null]]);
   assert.equal(body.stocksTotal, 147);
   assert.equal((await get("chain=base")).body.stocksTotal, 147);
+});
+
+test("a registry refresh landing mid-request: the total and the matches still describe the one list the search ran on", async () => {
+  const base = (await isolatedRoute(30, [], true).get("chain=base")).body;
+  assert.equal(base.stocksTotal, 146);
+  assert.equal(base.stocksMatched, 146, "an empty search matches the list it counted");
+  const rh = (await isolatedRoute(30, [], true).get("chain=robinhood")).body;
+  assert.equal(rh.stocksTotal, 30);
+  assert.equal(rh.stocksMatched, 30);
 });
 
 test("an unknown chain is refused", async () => {
