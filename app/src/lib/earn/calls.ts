@@ -1,0 +1,53 @@
+import { concatHex, encodeFunctionData, type Address, type Hex } from "viem";
+import { ERC20_MIN_ABI } from "../launchpad/abi.ts";
+import { BUILDER_DATA_SUFFIX } from "../chainPublic.ts";
+import { EARN_VAULT_ABI } from "./abi.ts";
+import type { EarnVault } from "./vaults.ts";
+
+/**
+ * The exact calls an Earn action sends (pure). Every one ends with openlaunch's ERC-8021 builder-code suffix, so Base
+ * credits the deposit, withdrawal and approval to bc_ly9ism19 (lib/chainPublic.ts). The suffix sits after the ABI
+ * arguments, where the token and the vault ignore it (the fork run in docs/earn.md proves both accept it).
+ *
+ * Wallets that send one transaction at a time get these through simulateContract + writeContract with
+ * `dataSuffix: BUILDER_DATA_SUFFIX` (the same bytes); smart wallets that batch get them through `sendCalls`, which also
+ * carries the code as the `dataSuffix` capability so the wallet tags its own operation too.
+ */
+export type EarnCall = { to: Address; data: Hex };
+
+const tagged = (data: Hex): Hex => concatHex([data, BUILDER_DATA_SUFFIX]);
+
+/** Allow the vault to take exactly `amount` of the asset. Never more: an unspent exact allowance is the worst case. */
+export function approveCall(vault: EarnVault, amount: bigint): EarnCall {
+  return { to: vault.asset, data: tagged(encodeFunctionData({ abi: ERC20_MIN_ABI, functionName: "approve", args: [vault.address, amount] })) };
+}
+
+/** Deposit `amount` of the asset; the shares go to `owner`, the wallet that pays. */
+export function depositCall(vault: EarnVault, amount: bigint, owner: Address): EarnCall {
+  return { to: vault.address, data: tagged(encodeFunctionData({ abi: EARN_VAULT_ABI, functionName: "deposit", args: [amount, owner] })) };
+}
+
+/** Take exactly `assets` out, back to the same wallet. */
+export function withdrawCall(vault: EarnVault, assets: bigint, owner: Address): EarnCall {
+  return { to: vault.address, data: tagged(encodeFunctionData({ abi: EARN_VAULT_ABI, functionName: "withdraw", args: [assets, owner, owner] })) };
+}
+
+/** Burn `shares` (every share, for "withdraw all") for the asset, back to the same wallet. */
+export function redeemCall(vault: EarnVault, shares: bigint, owner: Address): EarnCall {
+  return { to: vault.address, data: tagged(encodeFunctionData({ abi: EARN_VAULT_ABI, functionName: "redeem", args: [shares, owner, owner] })) };
+}
+
+/** The EIP-5792 capability that asks a batching wallet to tag its own operation with the builder code. */
+export const EARN_BATCH_CAPABILITIES = { dataSuffix: { value: BUILDER_DATA_SUFFIX, optional: true } } as const;
+
+/**
+ * Whether to send through `sendCalls`: only for a wallet that already executes atomic batches ("supported"), such as
+ * Coinbase Smart Wallet. "ready" means the wallet would first upgrade an ordinary account into a smart one (EIP-7702),
+ * a prompt nobody should meet in the middle of a deposit, so those wallets take the one-at-a-time path. Older wallets
+ * report the pre-2.0 `atomicBatch.supported` flag.
+ */
+export function canBatch(capabilities: unknown): boolean {
+  if (!capabilities || typeof capabilities !== "object") return false;
+  const c = capabilities as { atomic?: { status?: unknown }; atomicBatch?: { supported?: unknown } };
+  return c.atomic?.status === "supported" || c.atomicBatch?.supported === true;
+}
