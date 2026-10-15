@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { ArrowDownLeft, ArrowRight, ArrowUpRight, Coins, Hourglass, Layers3, LockKeyhole, PencilLine, RefreshCw, Wallet } from "lucide-react";
+import { ArrowDownLeft, ArrowRight, ArrowUpRight, Coins, Flame, Hourglass, Layers3, LockKeyhole, PencilLine, RefreshCw, Wallet } from "lucide-react";
 import { useConfig } from "wagmi";
 import { useHydratedAccount } from "@/lib/useHydratedAccount";
 import { getPublicClient, getWalletClient } from "wagmi/actions";
@@ -30,6 +30,8 @@ import ConnectWallet from "@/components/ConnectWallet";
 import ProfileIdentity from "@/components/profile/ProfileIdentity";
 import SeasonCard from "@/components/points/SeasonCard";
 import EarnCard from "@/components/earn/EarnCard";
+import { useBoostOn } from "./useBoostOn";
+import { BOOST_CHAIN } from "@/lib/launchpad/boost";
 import styles from "./MeDashboard.module.css";
 
 type Me = { wallet: string; ethUsd: number | null; launches: LaunchRow[]; tokens: (LaunchRow & { my_buys: number; my_sells: number; my_last_trade: string })[]; trades: WalletTrade[] };
@@ -53,6 +55,7 @@ export default function MeDashboard() {
 /** The dashboard for one connected wallet: its profile card, figures, launches, holdings and trades. */
 function WalletDashboard({ address, isConnected }: { address: Address | undefined; isConnected: boolean }) {
   const config = useConfig();
+  const boostOn = useBoostOn();
   const [me, setMe] = useState<Me | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [pending, setPending] = useState<Pending>({});
@@ -287,6 +290,12 @@ function WalletDashboard({ address, isConnected }: { address: Address | undefine
                     <button type="button" onClick={() => setEditing(l)} className={styles.quietButton} aria-label={`Edit ${l.symbol} details`}>
                       <PencilLine size={14} aria-hidden="true" />Edit
                     </button>
+                    {/* Boost opens the dialog on the token's page (Base only, while the switch is on) */}
+                    {boostOn && l.chain === BOOST_CHAIN ? (
+                      <Link href={`/t/${l.chain}/${l.token}?boost=1#boost`} className={styles.quietButton} aria-label={`Boost ${l.symbol} with TWIG`}>
+                        <Flame size={14} aria-hidden="true" />Boost
+                      </Link>
+                    ) : null}
                   </div>
               </li>
             );

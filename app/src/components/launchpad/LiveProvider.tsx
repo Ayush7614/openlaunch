@@ -5,6 +5,7 @@ import type { FeedItem, LaunchRow, LaunchSort, LaunchTotals, TrendingSnap, Volum
 import type { ChainKey } from "@/lib/chainPublic";
 import type { LaunchFilter } from "@/lib/launchpad/search";
 import type { PostRow } from "@/lib/launchpad/postsServer";
+import type { BoostLane } from "@/lib/launchpad/boostServer";
 
 /**
  * One poller for the whole page. Everything live (toasts, tape, hero totals,
@@ -26,6 +27,8 @@ export type Live = {
   has_more?: boolean | null;
   posts?: PostRow[];
   trending?: TrendingSnap;
+  /** The Boosted lane; absent from a machine that predates it (the lane then keeps what it had). */
+  boost?: BoostLane;
 };
 type ListParams = { sort: LaunchSort; window: VolumeWindow; chain: ChainKey | null; filter: LaunchFilter | null; limit: number };
 type Listener = (live: Live) => void;
