@@ -9,10 +9,11 @@ function boostSection(): string {
   if (!boostEnabled()) return "";
   return `
 ## Boost (Base, optional, paid in TWIG)
-A separate "Boosted" lane on the home page, ordered by TWIG sent to 0x000000000000000000000000000000000000dEaD in the last ${BOOST_WINDOW_H}h.
+A separate "Boosted" lane on the home page: the 5 tokens with the most TWIG sent to 0x000000000000000000000000000000000000dEaD for them in the last ${BOOST_WINDOW_H}h.
 It is not part of the ranking: sort=live and the Trending board count outside wallets only. Nothing is paid to openlaunch.
 To boost a launch: TWIG (${BOOST_TOKEN}).transfer(0x…dEaD, amount) with amount = whole * 10^18 + token_id
-(token_id = the launch's position id, the list API's token_id field; whole >= ${BOOST_FLOOR_TWIG}). The last 12 digits name the launch.
+(whole = a count of whole TWIG, at least ${BOOST_FLOOR_TWIG}; token_id = the launch's position id, the list API's token_id field,
+greater than 0 and less than 10^11). The last 12 digits name the launch; a transfer outside these bounds is not a boost.
 Then POST ${SITE_URL}/api/launch/sync?chain=base&tx=0x… to show it at once. Burns are final.
 - GET  ${SITE_URL}/api/boost?chain=base                (the lane: twig, boosts, last_at, expires_at, launch)
 - GET  ${SITE_URL}/api/boost?chain=base&token=0x…      (one token: twig in the window, place, hidden)

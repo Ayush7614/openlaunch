@@ -178,3 +178,17 @@ test("the lane moves only when something happens, and reduced motion keeps only 
   assert.match(css, /\.bb-boost-ring \{ animation: bb-boost-ring 2\.4s ease-out 1 both; \}/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{ \.bb-ember \{ display: none; \} \}/);
 });
+
+test("CodeRabbit round 1: the done screen, admin errors and the agent formula", () => {
+  // both ways a receipt can arrive settle with the same rule: never a hard-coded "it shows"
+  assert.equal((dialog.match(/await settle\(hash, whole, rc\.status === "success", showsAfter\(whole\)\);/g) ?? []).length, 2);
+  assert.doesNotMatch(dialog, /settle\([^)]*, true\)/);
+  assert.match(dialog, /const showsAfter = \(w: bigint\): boolean => !tagOk \|\| boostShowsNow\(entry, current, boostAmount\(w, tag\), inLane\);/);
+  // an error page that is not JSON still reports the HTTP failure; a bad lane read never throws from the effect
+  assert.match(admin, /const d = \(await res\.json\(\)\.catch\(\(\) => \(\{\}\)\)\) as \{ error\?: string \};/);
+  assert.match(admin, /throw new Error\(d\.error \?\? `request failed \(HTTP \$\{res\.status\}\)`\);/);
+  assert.match(admin, /const load = useCallback\(async \(\) => \{\n\s*try \{/);
+  // agents get the bounds the decoder enforces (isLaunchTag: 0 < tag < 10^11; whole TWIG >= the floor)
+  assert.match(llms, /whole = a count of whole TWIG, at least \$\{BOOST_FLOOR_TWIG\}/);
+  assert.match(llms, /greater than 0 and less than 10\^11/);
+});

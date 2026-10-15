@@ -79,6 +79,8 @@ export default function BoostDialog({ token, tokenId, symbol, name, twigUsd, cur
   // a full lane shows 5 tokens: say before the send whether this amount gets this one in, and what would
   const inLane = place !== null;
   const shows = raw === null || boostShowsNow(entry, current, raw, inLane);
+  /** Whether a sent boost of `w` whole TWIG brings the token into the lane: one rule for the done screen, however the receipt arrived. */
+  const showsAfter = (w: bigint): boolean => !tagOk || boostShowsNow(entry, current, boostAmount(w, tag), inLane);
   const neededWhole = !inLane && entry.full && entry.cutoff !== null ? (() => {
     const gap = BigInt(entry.cutoff) - current;
     return gap > 0n ? (gap + 10n ** 18n - 1n) / 10n ** 18n : 0n;
@@ -105,7 +107,7 @@ export default function BoostDialog({ token, tokenId, symbol, name, twigUsd, cur
         setPhase({ k: "unconfirmed", hash, whole, checking: false, note: null });
         return;
       }
-      await settle(hash, whole, rc.status === "success", shows);
+      await settle(hash, whole, rc.status === "success", showsAfter(whole));
     } catch (err) {
       setPhase({ k: "error", message: friendlyError(err) });
     } finally {
@@ -134,7 +136,7 @@ export default function BoostDialog({ token, tokenId, symbol, name, twigUsd, cur
     setPhase({ ...phase, checking: true, note: null });
     try {
       const rc = await getPublicClient(config, { chainId: BASE.id })!.getTransactionReceipt({ hash });
-      await settle(hash, whole, rc.status === "success", true);
+      await settle(hash, whole, rc.status === "success", showsAfter(whole));
     } catch {
       setPhase({ k: "unconfirmed", hash, whole, checking: false, note: "Not confirmed yet. Check your wallet's activity before sending anything again." });
     }

@@ -2,7 +2,7 @@
 
 A **Boosted** lane sits under the Trending board on the home page and on /base. It shows the 5 tokens with the most TWIG sent to `0x000000000000000000000000000000000000dEaD` for them in the last 24 hours. Nothing is paid to openlaunch or Twigpine: the TWIG is gone, and the GITLAWB behind it stays in the TWIG contract.
 
-The lane is a separate, labelled surface. **It is not part of the ranking**: the Live sort, the Trending board and `app/src/lib/launchpad/ranking.ts` never read boosts (`components/launchpad/boost-ui.test.ts` enforces it). A token still cannot buy its way into the facts-only ranking; it can only buy a place in a row that says it is paid.
+The lane is a separate, labelled surface. **It is not part of the ranking**: the Live sort, the Trending board and `app/src/lib/launchpad/ranking.ts` never read boosts (`app/src/components/launchpad/boost-ui.test.ts` enforces it). A token still cannot buy its way into the facts-only ranking; it can only buy a place in a row that says it is paid.
 
 The feature is **off unless the runtime secret `BOOST=on` is set**. Off, `GET /api/boost` answers `{ "enabled": false }`, and the lane, the token page line, the dialog, the /me link, the ⌘K entry, the rules entry and the llms.txt section do not appear. `fly secrets set BOOST=on` turns it on (the app restarts, no rebuild); unsetting it or any other value is the kill switch. Open tabs follow the switch on their next live poll (about 5 seconds). The indexer records boosts either way: they are on-chain burns whatever the switch says.
 
@@ -21,13 +21,13 @@ amount = whole TWIG × 10^18 + the launch's position id
 - **Window:** a token stays in the lane until 24 hours after its newest boost. Boosts on one token inside that time add up. Order: most TWIG in the window, then the newer boost, then the address.
 - **Lane size:** 5. A boost counts toward its token's total for 24 hours whether or not the token is shown; when the lane is full, a token shows once its total reaches the 5th place (a tie goes to the newer boost).
 - **Who:** anyone, for any Base launch. The booster recorded is the Transfer's own sender, so a smart wallet is credited, not its bundler.
-- **Base only:** TWIG exists only there (`TWIG_ADDRESSES` in `lib/launchpad/twig.ts`).
+- **Base only:** TWIG exists only there (`TWIG_ADDRESSES` in `app/src/lib/launchpad/twig.ts`).
 
 ## How it works
 
 - **Pure core** (`app/src/lib/launchpad/boost.ts`): the constants, the amount encoding and decoding, the Max amount under a balance, the Transfer-log decoder, the lane order, the time left, the moderation message and every sentence the feature shows.
-- **Indexing** (`lib/launchpad/indexer.ts`): each Base range adds one log query, TWIG `Transfer` with `to = 0x…dEaD`. The receipt path (`POST /api/launch/sync?chain=base&tx=…`, which the dialog calls after the receipt) applies the same logs at once. Rows land in `bb_boosts` as raw facts (sender, amount, tag, block, time). The launch locker's own fee burns are skipped: they are fees, already counted.
-- **Reading** (`lib/launchpad/boostServer.ts`): the lane joins `bb_boosts` to `bb_launches` by `(chain_id, token_id = tag)` at read time, so a boost indexed before its launch still counts once the launch is in. It is cached for 5 seconds per machine; a sync that indexed a boost and an admin hide drop that cache, so the next read on that machine is fresh. `GET /api/boost?chain=base` and `GET /api/boost?chain=base&token=0x…` serve the same data; the token read also says whether the lane is full and what its 5th place holds.
+- **Indexing** (`app/src/lib/launchpad/indexer.ts`): each Base range adds one log query, TWIG `Transfer` with `to = 0x…dEaD`. The receipt path (`POST /api/launch/sync?chain=base&tx=…`, which the dialog calls after the receipt) applies the same logs at once. Rows land in `bb_boosts` as raw facts (sender, amount, tag, block, time). The launch locker's own fee burns are skipped: they are fees, already counted.
+- **Reading** (`app/src/lib/launchpad/boostServer.ts`): the lane joins `bb_boosts` to `bb_launches` by `(chain_id, token_id = tag)` at read time, so a boost indexed before its launch still counts once the launch is in. It is cached for 5 seconds per machine; a sync that indexed a boost and an admin hide drop that cache, so the next read on that machine is fresh. `GET /api/boost?chain=base` and `GET /api/boost?chain=base&token=0x…` serve the same data; the token read also says whether the lane is full and what its 5th place holds.
 - **Live poll:** every `/api/launch/live` answer carries `boost_on` (one boolean, seeded by the root layout, so /me and ⌘K are right on first paint). The lane's cards come only with `?boost=1`, which the poll adds while a lane is on screen.
 - **Totals:** while the switch is on, the hero's "TWIG burned" adds boosts that name a launch to the fee burns; its label splits the two.
 

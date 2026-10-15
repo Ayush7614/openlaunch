@@ -25,9 +25,14 @@ export default function BoostAdmin() {
   const [lane, setLane] = useState<BoostLane | null>(null);
   const [target, setTarget] = useState("");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // a failed or unreadable answer (a proxy's HTML page) keeps the last list on screen; it never throws from the effect
   const load = useCallback(async () => {
-    const res = await fetch(`/api/boost?chain=${BOOST_CHAIN}`, { cache: "no-store" }).catch(() => null);
-    if (res?.ok) setLane((await res.json()) as BoostLane);
+    try {
+      const res = await fetch(`/api/boost?chain=${BOOST_CHAIN}`, { cache: "no-store" });
+      if (res.ok) setLane((await res.json()) as BoostLane);
+    } catch {
+      // keep the last lane
+    }
   }, []);
   useEffect(() => {
     const id = setTimeout(() => void load(), 0);
@@ -42,8 +47,9 @@ export default function BoostAdmin() {
       const wallet = await getWalletClient(config, { chainId: CHAINS[BOOST_CHAIN].id });
       const signature = await wallet.signMessage({ message: buildBoostModMessage({ action, token, wallet: address, nonce: n, ts }) });
       const res = await fetch("/api/boost/mod", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, token, wallet: address, nonce: n, ts, signature }) });
-      const d = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(d.error ?? "failed");
+      // an error page that is not JSON (a 502 from the proxy) still reports the HTTP failure, not a parse error
+      const d = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(d.error ?? `request failed (HTTP ${res.status})`);
       setMsg({ ok: true, text: `${action === "hide" ? "Hidden" : "Shown again"}: ${token}` });
       // a hidden card leaves the list at once; the next read (fresh on the machine that took the write) confirms it
       if (action === "hide") setLane((l) => (l?.enabled ? { ...l, items: l.items.filter((b) => b.token !== token.toLowerCase()) } : l));
