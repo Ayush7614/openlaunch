@@ -70,7 +70,8 @@ export default async function ChainLanding({ chain }: { chain: ChainKey }) {
         ) : null}
       </section>
 
-      {boost?.enabled ? <div className="mt-14"><BoostedLane initial={boost} serverNow={now} /></div> : null}
+      {/* always mounted on Base, so a switch-on reaches an open tab; the margin goes with the lane (empty:hidden) */}
+      {chain === BOOST_CHAIN ? <div className="mt-14 empty:hidden"><BoostedLane initial={boost ?? { enabled: false }} serverNow={now} /></div> : null}
 
       <section className={`${shell.anchorSection} mt-14`} aria-labelledby="chain-launches-heading">
         <h2 id="chain-launches-heading" className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-ink">Tokens on {CHAIN_LABELS[chain]}</h2>

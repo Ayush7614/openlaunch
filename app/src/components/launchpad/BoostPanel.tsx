@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowUpRight } from "lucide-react";
 import { btn } from "@/components/ui";
 import { useLive } from "./LiveProvider";
@@ -30,12 +30,23 @@ export default function BoostPanel({ token, tokenId, symbol, name, initial, twig
     const clock = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(clock);
   }, []);
-  const reload = useCallback(() => {
+  const again = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (again.current) clearTimeout(again.current);
+  }, []);
+  const read = useCallback(() => {
     fetch(`/api/boost?chain=${BOOST_CHAIN}&token=${token}`, { cache: "no-store" })
       .then(async (r) => (r.ok ? setState((await r.json()) as TokenBoost) : undefined))
       .catch(() => {});
-    refresh(); // the lane on other cards and the hero's TWIG burned
-  }, [token, refresh]);
+  }, [token]);
+  // after a boost: read now (the machine that indexed it answers fresh) and once more after the lane's 5 s cache, for
+  // a request that lands on the other machine
+  const reload = useCallback(() => {
+    read();
+    if (again.current) clearTimeout(again.current);
+    again.current = setTimeout(read, 6_000);
+    refresh(); // the hero's TWIG burned
+  }, [read, refresh]);
 
   if (!state.enabled) return null;
   const left = state.last_at ? boostTimeLeft(state.last_at, now) : null;
@@ -63,7 +74,7 @@ export default function BoostPanel({ token, tokenId, symbol, name, initial, twig
           </div>
         </>
       )}
-      {open ? <BoostDialog token={token} tokenId={tokenId} symbol={symbol} name={name} twigUsd={twigUsd} pending={pending} onPending={setPending} onClose={() => setOpen(false)} onBoosted={reload} /> : null}
+      {open ? <BoostDialog token={token} tokenId={tokenId} symbol={symbol} name={name} twigUsd={twigUsd} current={BigInt(state.twig)} entry={state.entry ?? { full: false, cutoff: null }} place={state.place} pending={pending} onPending={setPending} onClose={() => setOpen(false)} onBoosted={reload} /> : null}
     </section>
   );
 }

@@ -15,6 +15,11 @@ import {
   boostConfirmLabel,
   boostExpiresAt,
   boostFromTransfer,
+  boostFuse,
+  boostIgnitions,
+  boostShowsNow,
+  compactWhole,
+  IGNITE_FRESH_MS,
   boostTagOf,
   boostTimeLeft,
   boostWholeOf,
@@ -159,6 +164,13 @@ test("amounts read as people say them", () => {
   assert.equal(fmtBoostTwig(10_000_000n * E18), "10M TWIG");
   assert.equal(fmtBoostTwig((300_000n * E18 + ID).toString()), "300K TWIG");
   assert.equal(fmtBoostTwig(500n * E18), "500 TWIG");
+  // never "1000K": a value that rounds up to the next unit takes it
+  assert.equal(compactWhole(999_999), "1M");
+  assert.equal(compactWhole(999_994), "999.99K");
+  assert.equal(compactWhole(999_995_000), "1B");
+  assert.equal(compactWhole(1_000), "1K");
+  assert.equal(compactWhole(999), "999");
+  assert.equal(fmtBoostTwig(999_999n * E18 + ID), "1M TWIG");
   assert.equal(boostConfirmLabel(300_000n), "Send 300,000 TWIG to 0x…dEaD");
 });
 
@@ -176,4 +188,42 @@ test("the words keep to the rules: no value talk, the burn and its finality said
   assert.match(BOOST_COPY.final, /cannot be undone or refunded/);
   assert.match(BOOST_COPY.laneNote, /Not a ranking/);
   assert.match(BOOST_COPY.what, /not an endorsement/);
+});
+
+test("the fuse is the share of the 24 hours still left", () => {
+  const last = "2026-10-15T00:00:00.000Z";
+  const t0 = Date.parse(last);
+  assert.equal(boostFuse(last, t0), 1);
+  assert.equal(boostFuse(last, t0 + 6 * 3_600_000), 0.75);
+  assert.equal(boostFuse(last, t0 + 24 * 3_600_000), 0);
+  assert.equal(boostFuse(last, t0 + 30 * 3_600_000), 0);
+  assert.equal(boostFuse(last, t0 - 60_000), 1, "a clock behind the chain never overfills it");
+  assert.equal(boostFuse("not a date", t0), 0);
+});
+
+test("a card lights up only for a fresh boost that added TWIG", () => {
+  const now = Date.parse("2026-10-15T12:00:00Z");
+  const at = (msAgo: number) => new Date(now - msAgo).toISOString();
+  const item = (token: string, twig: bigint, msAgo: number) => ({ token, twig: (twig * E18).toString(), boosts: 1, boosters: 1, last_at: at(msAgo), last_tx: "0x" });
+  const prev = new Map([["0xa", (100_000n * E18).toString()], ["0xb", (500_000n * E18).toString()]]);
+  const lit = boostIgnitions(prev, [
+    item("0xa", 400_000n, 10_000), // grew, fresh
+    item("0xb", 500_000n, 10_000), // unchanged
+    item("0xc", 300_000n, 20_000), // new to the lane, fresh
+    item("0xd", 900_000n, 2 * 3_600_000), // new to the lane only because another expired: old boost
+  ], now);
+  assert.deepEqual([...lit].sort(), ["0xa", "0xc"]);
+  assert.equal(boostIgnitions(null, [item("0xa", 1n, 0)], now).size, 0, "the first snapshot lights nothing");
+  assert.equal(boostIgnitions(new Map(), [item("0xa", 1n, IGNITE_FRESH_MS + 1)], now).size, 0, "a tab back from sleep replays nothing");
+  // fewer TWIG (an old boost aged out) is never news
+  assert.equal(boostIgnitions(new Map([["0xa", (900_000n * E18).toString()]]), [item("0xa", 400_000n, 0)], now).size, 0);
+});
+
+test("the dialog knows whether a boost shows now", () => {
+  const full = { full: true, cutoff: (1_000_000n * E18).toString() };
+  assert.equal(boostShowsNow({ full: false, cutoff: null }, 0n, 100_000n * E18, false), true, "room in the lane");
+  assert.equal(boostShowsNow(full, 0n, 100_000n * E18, false), false, "under the 5th place");
+  assert.equal(boostShowsNow(full, 0n, 1_000_000n * E18, false), true, "a tie goes to the newer boost");
+  assert.equal(boostShowsNow(full, 900_000n * E18, 100_000n * E18, false), true, "it adds to what the token already has");
+  assert.equal(boostShowsNow(full, 0n, 1n, true), true, "already in the lane");
 });

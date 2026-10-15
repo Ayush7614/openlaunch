@@ -11,6 +11,7 @@ import { GITLAWB_ADDRESS, reconcileGitlawbUsd } from "./gitlawb";
 import { MUSEWORLD_ADDRESS, MUSEWORLD_TWAP_WINDOW_S, timeWeightedPrice } from "./museworld";
 import { gitlawbLinkedUsd } from "./twig";
 import { BOOST_CHAIN_ID } from "./boost";
+import { boostEnabled } from "./boostSwitch";
 import { canonicalImageUrl, pictureKey, reusedPictures, type PictureUse } from "./images";
 import { GRACE_HOURS, LIVE_WINDOW_HOURS, STRIP_SIZE, rankTrending, type LiveTier } from "./ranking";
 import { SNIPER_BLOCKS, SYNCED_FOREVER } from "./holders";
@@ -564,12 +565,19 @@ export async function getLaunchTotals(ethUsd: number | null = null): Promise<Lau
            COALESCE(sum(volume_quote), 0)::text AS volume, COALESCE(sum(fees_quote_burned), 0)::text AS burned,
            COALESCE(sum(fees_quote_collected - fees_quote_burned), 0)::text AS creators
       FROM bb_launches GROUP BY chain_id, quote`,
-    // boosts are TWIG sent to 0x…dEaD too (boost.ts): they join the TWIG burned figure, and nothing else reads them here.
-    // Display only, so a failed read counts none rather than taking every page's totals down with it.
-    db<{ burned: string }[]>`SELECT COALESCE(sum(amount), 0)::text AS burned FROM bb_boosts WHERE chain_id = ${BOOST_CHAIN_ID}`.catch((err) => {
-      console.warn("[totals] boost burns unread:", err instanceof Error ? err.message : err);
-      return [{ burned: "0" }];
-    }),
+    // boosts are TWIG sent to 0x…dEaD too (boost.ts): they join the TWIG burned figure while the switch is on, and
+    // nothing else reads them here. Only boosts that name a launch count (the lane's own join), so a stray burn whose
+    // last digits name nothing is never called a boost. Display only: a failed read counts none rather than taking
+    // every page's totals down with it.
+    boostEnabled()
+      ? db<{ burned: string }[]>`
+          SELECT COALESCE(sum(b.amount), 0)::text AS burned FROM bb_boosts b
+            JOIN bb_launches l ON l.chain_id = b.chain_id AND l.token_id = b.tag
+           WHERE b.chain_id = ${BOOST_CHAIN_ID}`.catch((err) => {
+          console.warn("[totals] boost burns unread:", err instanceof Error ? err.message : err);
+          return [{ burned: "0" }];
+        })
+      : Promise.resolve([{ burned: "0" }]),
   ]);
   const t = empty();
   const add = (a: string, b: string) => (BigInt(a) + BigInt(b)).toString();

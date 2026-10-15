@@ -13,7 +13,6 @@
  */
 import { TWIG_ADDRESS, TWIG_DECIMALS, TWIG_SYMBOL } from "./twig.ts";
 import { CHAIN_IDS } from "../chainKeys.ts";
-import { fmtCompact } from "./math.ts";
 
 /** Boosts exist on Base only: TWIG has not been bridged anywhere. */
 export const BOOST_CHAIN = "base" as const;
@@ -87,11 +86,19 @@ export function groupWhole(n: bigint): string {
   return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
+const UNITS: readonly [number, string][] = [[1e12, "T"], [1e9, "B"], [1e6, "M"], [1e3, "K"]];
+
+/** "1.2M", "300K", "999.99K", "1M" (never "1000K": a value that rounds up to the next unit takes that unit). */
+export function compactWhole(whole: number): string {
+  for (const [u, s] of UNITS) {
+    if (whole >= u * 0.999995) return `${(whole / u).toFixed(2).replace(/\.?0+$/, "")}${s}`;
+  }
+  return Math.floor(whole).toString();
+}
+
 /** "1.2M TWIG", "300K TWIG" from a raw amount (lane cards, the token page line). */
 export function fmtBoostTwig(raw: bigint | string): string {
-  const whole = Number(boostWholeOf(BigInt(raw)));
-  const short = whole >= 1000 ? fmtCompact(whole, 2).replace(/\.?0+([KMBT])$/, "$1") : whole.toString();
-  return `${short} ${TWIG_SYMBOL}`;
+  return `${compactWhole(Number(boostWholeOf(BigInt(raw))))} ${TWIG_SYMBOL}`;
 }
 
 /* ─────────────────────────────── the indexer's half ─────────────────────────────── */
@@ -149,6 +156,44 @@ export function boostTimeLeft(lastAt: string, nowMs: number): string | null {
   return `${Math.floor(m / 60)}h left`;
 }
 
+/** How much of a boost's 24 hours is left, 0 to 1: the length of the card's fuse. */
+export function boostFuse(lastAt: string, nowMs: number): number {
+  const left = (boostExpiresAt(lastAt) - nowMs) / BOOST_WINDOW_MS;
+  return Number.isFinite(left) ? Math.min(1, Math.max(0, left)) : 0;
+}
+
+/** A boost newer than this when a poll first shows it is news; older ones (a tab back from sleep) light nothing. */
+export const IGNITE_FRESH_MS = 180_000;
+
+/**
+ * Which cards light up on this poll: a token with more TWIG than the last snapshot showed (a new boost, or a token new
+ * to the lane), whose newest boost is still fresh. `prev` null = the first snapshot this view has seen: nothing lights.
+ * A token that only moved up because another expired has no fresh boost and stays still.
+ */
+export function boostIgnitions(prev: ReadonlyMap<string, string> | null, items: readonly LaneTotals[], nowMs: number, freshMs = IGNITE_FRESH_MS): Set<string> {
+  const out = new Set<string>();
+  if (!prev) return out;
+  for (const it of items) {
+    const before = prev.get(it.token);
+    const grew = before === undefined || BigInt(it.twig) > BigInt(before);
+    const fresh = nowMs - Date.parse(it.last_at) <= freshMs;
+    if (grew && fresh) out.add(it.token);
+  }
+  return out;
+}
+
+/** The lane as the dialog needs it: is it full, and what does the last place hold (raw TWIG in the window). */
+export type LaneEntry = { full: boolean; cutoff: string | null };
+
+/**
+ * Whether a boost of `raw` brings a token with `current` TWIG in the window into the lane as it stands. A full lane
+ * needs at least the last place's total (a tie goes to the newer boost). A token already in the lane stays in it.
+ */
+export function boostShowsNow(entry: LaneEntry, current: bigint, raw: bigint, inLane: boolean): boolean {
+  if (inLane || !entry.full || entry.cutoff === null) return true;
+  return current + raw >= BigInt(entry.cutoff);
+}
+
 /* ─────────────────────────────── moderation ─────────────────────────────── */
 
 export const BOOST_MOD_ACTIONS = ["hide", "unhide"] as const;
@@ -177,12 +222,13 @@ export const BOOST_COPY = {
   laneTitle: "Boosted",
   laneNote: "Paid in TWIG sent to 0x…dEaD. Not a ranking: the Live sort and Trending count outside wallets only.",
   laneEmpty: "Nothing is boosted right now. Any Base launch can be boosted with TWIG from its page.",
-  what: "A boost puts this token in the Boosted lane for 24 hours, ordered by TWIG sent in that time. It does not change the Live sort or the Trending board, and it is not an endorsement.",
+  what: "The Boosted lane shows the 5 tokens with the most TWIG sent for them in the last 24 hours. A boost counts toward that total for 24 hours. It does not change the Live sort or the Trending board, and it is not an endorsement.",
   tag: "The last digits of the amount name this token, so the transfer itself records what it boosted.",
   final: "The TWIG goes to 0x…dEaD. It cannot be undone or refunded, and nothing is paid to openlaunch or Twigpine.",
   hidden: "This token is not shown in the Boosted lane.",
   baseOnly: "Boosts are on Base only: TWIG exists only there.",
-  how: "Anyone can boost any Base launch from its page, from 100,000 TWIG. Boosts on one token in the same 24 hours add up.",
+  how: "Anyone can boost any Base launch from its page, from 100,000 TWIG. Boosts on one token in the same 24 hours add up. When the lane is full, a token shows once its total passes the 5th place.",
+  short: "The lane is full. This boost alone will not bring this token into it yet: the 5th place holds more. It still counts for 24 hours and adds up with any other boost.",
 } as const;
 
 /** The confirm button's words for an amount. */

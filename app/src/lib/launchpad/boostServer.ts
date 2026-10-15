@@ -2,7 +2,8 @@ import "server-only";
 import { isAddress } from "viem";
 import { maybeDb } from "@/lib/db";
 import { getLaunchesByRefs, type LaunchRow } from "./queries";
-import { memo } from "./memo";
+import { forgetMemo, memo } from "./memo";
+import { boostEnabled } from "./boostSwitch";
 import { tsFresh } from "./posts";
 import { adminWallets, consumeNonce, isNonce, verify } from "./postsServer";
 import {
@@ -15,8 +16,11 @@ import {
   buildBoostModMessage,
   isBoostModAction,
   rankLane,
+  type LaneEntry,
   type LaneTotals,
 } from "./boost";
+
+export { boostEnabled };
 
 /**
  * Server half of Boost (boost.ts holds the rule). The feature is OFF unless the runtime secret BOOST=on is set
@@ -24,15 +28,11 @@ import {
  * page shows the lane, the token page line or the dialog. The indexer records boosts either way: they are TWIG burns
  * on-chain whatever the switch says, and turning it on then shows the last 24 hours as they were.
  */
-export function boostEnabled(): boolean {
-  return process.env.BOOST?.trim().toLowerCase() === "on";
-}
-
 export type BoostLaneItem = LaneTotals & { expires_at: string; launch: LaunchRow };
 export type BoostLane = { enabled: false } | { enabled: true; window_h: number; floor_twig: string; items: BoostLaneItem[] };
 export type TokenBoost =
   | { enabled: false }
-  | { enabled: true; hidden: boolean; twig: string; boosts: number; boosters: number; last_at: string | null; last_tx: string | null; expires_at: string | null; place: number | null };
+  | { enabled: true; hidden: boolean; twig: string; boosts: number; boosters: number; last_at: string | null; last_tx: string | null; expires_at: string | null; place: number | null; entry: LaneEntry };
 
 const RAW_FLOOR = (BOOST_FLOOR_TWIG * 10n ** 18n).toString();
 const LANE_TTL_MS = 5_000;
@@ -60,21 +60,42 @@ async function laneTotals(limit: number): Promise<LaneTotals[]> {
      LIMIT ${limit}`;
 }
 
+const TOTALS_KEY = "boost:lane-totals";
+const LANE_KEY = "boost:lane";
+
 /** The lane's order, shared for a few seconds by every page load and poll. */
 function rankedLane(): Promise<LaneTotals[]> {
-  return memo("boost:lane-totals", LANE_TTL_MS, async () => rankLane(await laneTotals(BOOST_LANE_SIZE * 4), BOOST_LANE_SIZE * 4));
+  return memo(TOTALS_KEY, LANE_TTL_MS, async () => rankLane(await laneTotals(BOOST_LANE_SIZE * 4), BOOST_LANE_SIZE * 4));
+}
+
+/**
+ * After a write that changes the lane (a boost just indexed, an admin hide): the next read on this machine is fresh,
+ * so the booster's page shows its place and the admin's list drops the card. Another machine catches up within LANE_TTL_MS.
+ */
+export function forgetBoostLane(): void {
+  forgetMemo(TOTALS_KEY);
+  forgetMemo(LANE_KEY);
+}
+
+/** Is the lane full, and what does its last place hold: what a boost has to reach to show now. */
+function laneEntry(ranked: readonly LaneTotals[]): LaneEntry {
+  const full = ranked.length >= BOOST_LANE_SIZE;
+  return { full, cutoff: full ? ranked[BOOST_LANE_SIZE - 1].twig : null };
 }
 
 /** The Boosted lane: the top BOOST_LANE_SIZE tokens with their market rows. `{ enabled: false }` while the switch is off. */
 export async function getBoostLane(ethUsd: number | null): Promise<BoostLane> {
   if (!boostEnabled()) return { enabled: false };
-  const top = (await rankedLane()).slice(0, BOOST_LANE_SIZE);
+  // a few spare candidates, so a token whose market row cannot be read leaves its place to the next one, not a hole
+  const top = (await rankedLane()).slice(0, BOOST_LANE_SIZE + 3);
   const rows = top.length > 0 ? await getLaunchesByRefs(top.map((t) => ({ chain: BOOST_CHAIN, token: t.token })), ethUsd) : [];
   const byToken = new Map(rows.map((r) => [r.launch.token, r.launch]));
-  const items = top.flatMap((t) => {
-    const launch = byToken.get(t.token);
-    return launch ? [{ ...t, expires_at: new Date(boostExpiresAt(t.last_at)).toISOString(), launch }] : [];
-  });
+  const items = top
+    .flatMap((t) => {
+      const launch = byToken.get(t.token);
+      return launch ? [{ ...t, expires_at: new Date(boostExpiresAt(t.last_at)).toISOString(), launch }] : [];
+    })
+    .slice(0, BOOST_LANE_SIZE);
   return { enabled: true, window_h: BOOST_WINDOW_H, floor_twig: BOOST_FLOOR_TWIG.toString(), items };
 }
 
@@ -84,7 +105,7 @@ export async function getBoostLane(ethUsd: number | null): Promise<BoostLane> {
  */
 export async function boostLaneOrNull(ethUsd: number | null): Promise<BoostLane | null> {
   if (!boostEnabled()) return { enabled: false };
-  return memo("boost:lane", LANE_TTL_MS, () => getBoostLane(ethUsd)).catch((err) => {
+  return memo(LANE_KEY, LANE_TTL_MS, () => getBoostLane(ethUsd)).catch((err) => {
     console.warn("[boost] lane read failed:", err instanceof Error ? err.message : err);
     return null;
   });
@@ -95,7 +116,7 @@ export async function getTokenBoost(token: string): Promise<TokenBoost> {
   if (!boostEnabled()) return { enabled: false };
   const db = maybeDb();
   const t = token.toLowerCase();
-  const none = { enabled: true as const, hidden: false, twig: "0", boosts: 0, boosters: 0, last_at: null, last_tx: null, expires_at: null, place: null };
+  const none = { enabled: true as const, hidden: false, twig: "0", boosts: 0, boosters: 0, last_at: null, last_tx: null, expires_at: null, place: null, entry: { full: false, cutoff: null } };
   if (!db) return none;
   const [[row], [setting], ranked] = await Promise.all([
     db<{ twig: string; boosts: number; boosters: number; last_at: string | null; last_tx: string | null }[]>`
@@ -121,6 +142,7 @@ export async function getTokenBoost(token: string): Promise<TokenBoost> {
     last_tx: row?.last_tx ?? null,
     expires_at: row?.last_at ? new Date(boostExpiresAt(row.last_at)).toISOString() : null,
     place: i >= 0 && i < BOOST_LANE_SIZE ? i + 1 : null,
+    entry: laneEntry(ranked),
   };
 }
 
@@ -149,5 +171,6 @@ export async function moderateBoost(p: { action: unknown; token: unknown; wallet
   if (!(await consumeNonce(p.nonce, wallet))) return fail("nonce already used", 401);
   await db`INSERT INTO bb_token_settings (chain_id, token, boost_hidden) VALUES (${BOOST_CHAIN_ID}, ${token}, ${p.action === "hide"})
            ON CONFLICT (chain_id, token) DO UPDATE SET boost_hidden = EXCLUDED.boost_hidden, updated_at = now()`;
+  forgetBoostLane();
   return { ok: true };
 }

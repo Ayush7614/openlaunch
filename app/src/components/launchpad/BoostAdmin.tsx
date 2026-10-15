@@ -45,6 +45,8 @@ export default function BoostAdmin() {
       const d = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(d.error ?? "failed");
       setMsg({ ok: true, text: `${action === "hide" ? "Hidden" : "Shown again"}: ${token}` });
+      // a hidden card leaves the list at once; the next read (fresh on the machine that took the write) confirms it
+      if (action === "hide") setLane((l) => (l?.enabled ? { ...l, items: l.items.filter((b) => b.token !== token.toLowerCase()) } : l));
       await load();
     } catch (e) {
       setMsg({ ok: false, text: friendlyError(e) });

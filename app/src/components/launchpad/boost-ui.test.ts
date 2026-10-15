@@ -13,6 +13,12 @@ const rulesEntry = read("./BoostRulesEntry.tsx");
 const rules = read("../../app/rules/page.tsx");
 const dashboard = read("./MeDashboard.tsx");
 const server = read("../../lib/launchpad/boostServer.ts");
+const boostSwitch = read("../../lib/launchpad/boostSwitch.ts");
+const live = read("./LiveProvider.tsx");
+const layout = read("../../app/layout.tsx");
+const syncRoute = read("../../app/api/launch/sync/route.ts");
+const landing = read("./ChainLanding.tsx");
+const css = read("../../app/globals.css");
 const indexer = read("../../lib/launchpad/indexer.ts");
 const queries = read("../../lib/launchpad/queries.ts");
 const liveRoute = read("../../app/api/launch/live/route.ts");
@@ -31,12 +37,13 @@ test("the ranking never reads boosts: no paid row can enter the Live sort or the
   const start = queries.indexOf("export async function getLaunchTotals(");
   const end = queries.indexOf("\n}\n", start);
   assert.ok(start > 0 && end > start);
-  // the one import it needs is the chain id the totals filter on
-  const IMPORT = 'import { BOOST_CHAIN_ID } from "./boost";\n';
-  assert.equal(queries.split(IMPORT).length, 2, "exactly one boost import, the chain id");
-  const outside = (queries.slice(0, start) + queries.slice(end)).replace(IMPORT, "");
+  // the only imports it needs: the chain id the totals filter on, and the switch that gates them
+  const IMPORTS = ['import { BOOST_CHAIN_ID } from "./boost";\n', 'import { boostEnabled } from "./boostSwitch";\n'];
+  for (const imp of IMPORTS) assert.equal(queries.split(imp).length, 2, imp);
+  const outside = IMPORTS.reduce((acc, imp) => acc.replace(imp, ""), queries.slice(0, start) + queries.slice(end));
   assert.doesNotMatch(outside, BOOST_CODE);
-  assert.match(queries.slice(start, end), /FROM bb_boosts WHERE chain_id = \$\{BOOST_CHAIN_ID\}/);
+  // the totals count only boosts that name a launch, and only while the switch is on
+  assert.match(queries.slice(start, end), /boostEnabled\(\)\n\s*\? db<\{ burned: string \}\[\]>`\n\s*SELECT COALESCE\(sum\(b\.amount\), 0\)::text AS burned FROM bb_boosts b\n\s*JOIN bb_launches l ON l\.chain_id = b\.chain_id AND l\.token_id = b\.tag/);
 });
 
 test("a boost is one plain TWIG transfer to 0x…dEaD: simulated, credited to the builder code, never an approval", () => {
@@ -80,7 +87,8 @@ test("the dialog says where the TWIG goes, that it is final, and that the rankin
 });
 
 test("everything stays dark while BOOST is off", () => {
-  assert.match(server, /return process\.env\.BOOST\?\.trim\(\)\.toLowerCase\(\) === "on";/);
+  assert.match(boostSwitch, /return process\.env\.BOOST\?\.trim\(\)\.toLowerCase\(\) === "on";/);
+  assert.match(server, /export \{ boostEnabled \};/);
   assert.match(lane, /if \(!lane\.enabled\) return null;/);
   assert.match(panel, /if \(!state\.enabled\) return null;/);
   assert.match(admin, /if \(lane && !lane\.enabled\) return null;/);
@@ -96,7 +104,8 @@ test("a failed lane read never breaks a page or blanks open tabs", () => {
   assert.match(server, /\.catch\(\(err\) => \{\n\s*console\.warn\("\[boost\] lane read failed:"/);
   assert.match(liveRoute, /boost: boost \?\? undefined/);
   assert.match(home, /<BoostedLane initial=\{boost \?\? \{ enabled: false \}\} serverNow=\{now\} \/>/);
-  assert.match(lane, /if \(snap\.boost\) setLane\(snap\.boost\);/);
+  // a tick without the lane is no news: the cards stay as they are
+  assert.match(lane, /const next = snap\.boost;\n\s*if \(!next\) return;/);
   // the lane sits after the facts-only board, never inside it
   assert.ok(home.indexOf("<TrendingStrip") < home.indexOf("<BoostedLane"));
 });
@@ -129,3 +138,43 @@ function walk(dir: string, out: string[] = []): string[] {
   }
   return out;
 }
+
+test("only a lane on screen downloads the lane; every page gets the switch as one boolean", () => {
+  assert.match(lane, /useEffect\(\(\) => wantBoost\(\), \[wantBoost\]\);/);
+  assert.match(live, /if \(boostWanted\.current > 0\) parts\.push\("boost=1"\);/);
+  assert.match(liveRoute, /wantsBoost \? boostLaneOrNull\(usd\) : Promise\.resolve\(null\)/);
+  assert.match(liveRoute, /boost_on: boostEnabled\(\), boost: boost \?\? undefined/);
+  // the switch survives a tick from an older machine; the lane does not pretend to
+  assert.match(live, /boost_on: data\.boost_on \?\? last\.current\.boost_on/);
+  assert.doesNotMatch(live, /boost: data\.boost \?\?/);
+  assert.match(layout, /boost_on: boostEnabled\(\)/);
+  assert.match(read("./useBoostOn.ts"), /useState\(live\.boost_on === true\)/);
+  // /base keeps the lane mounted, so a switch-on reaches an open tab
+  assert.match(landing, /chain === BOOST_CHAIN \? <div className="mt-14 empty:hidden"><BoostedLane initial=\{boost \?\? \{ enabled: false \}\}/);
+});
+
+test("a write that changes the lane makes the next read fresh", () => {
+  assert.match(syncRoute, /if \(r\.boosts\) forgetBoostLane\(\);/);
+  const mod = server.slice(server.indexOf("export async function moderateBoost("));
+  assert.ok(mod.indexOf("forgetBoostLane();") > mod.indexOf("INSERT INTO bb_token_settings"));
+  assert.match(panel, /again\.current = setTimeout\(read, 6_000\);/);
+});
+
+test("a boost that cannot enter a full lane is said so before anything is sent", () => {
+  assert.match(dialog, /const shows = raw === null \|\| boostShowsNow\(entry, current, raw, inLane\);/);
+  assert.match(dialog, /\{problem === null && !shows \? \(/);
+  assert.match(dialog, /BOOST_COPY\.short/);
+  // the done screen never claims a place the boost did not get
+  assert.match(dialog, /phase\.shows \? `\$\{name\} is in the Boosted lane\.` : `\$\{name\} is not in the lane yet/);
+});
+
+test("the lane moves only when something happens, and reduced motion keeps only colour", () => {
+  assert.match(lane, /const lit = boostIgnitions\(prev\.current, next\.items, t\);/);
+  assert.match(lane, /<span key=\{`ring-\$\{lit\}`\} aria-hidden="true" className="bb-boost-ring/);
+  assert.match(lane, /const fuse = boostFuse\(b\.last_at, now\);/);
+  assert.match(lane, /layout=\{reduced \? false : "position"\}/);
+  // no looping animation anywhere in the lane
+  assert.doesNotMatch(lane, /animate-(ping|pulse|spin|bounce)|infinite|BorderBeam|ShineBorder/);
+  assert.match(css, /\.bb-boost-ring \{ animation: bb-boost-ring 2\.4s ease-out 1 both; \}/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{ \.bb-ember \{ display: none; \} \}/);
+});

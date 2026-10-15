@@ -26,7 +26,9 @@ import {
   boostAmount,
   boostAmountProblem,
   boostConfirmLabel,
+  boostShowsNow,
   fmtBoostTwig,
+  type LaneEntry,
   groupWhole,
   isLaunchTag,
   maxBoostWhole,
@@ -43,7 +45,7 @@ type Phase =
   | { k: "signing" }
   | { k: "sent"; hash: Hex; whole: bigint }
   | { k: "unconfirmed"; hash: Hex; whole: bigint; checking: boolean; note: string | null }
-  | { k: "done"; hash: Hex; whole: bigint }
+  | { k: "done"; hash: Hex; whole: bigint; shows: boolean }
   | { k: "error"; message: string };
 
 const BASE = CHAINS[BOOST_CHAIN];
@@ -56,7 +58,7 @@ const BASE = CHAINS[BOOST_CHAIN];
  * it unconfirmed and locked, with "Check again", so a slow node never invites a second burn; the panel holds the hash
  * (`pending`) so closing and reopening the dialog keeps the lock.
  */
-export default function BoostDialog({ token, tokenId, symbol, name, twigUsd, pending, onPending, onClose, onBoosted }: { token: string; tokenId: number; symbol: string; name: string; twigUsd: number | null; pending: PendingBoost | null; onPending: (p: PendingBoost | null) => void; onClose: () => void; onBoosted?: () => void }) {
+export default function BoostDialog({ token, tokenId, symbol, name, twigUsd, current, entry, place, pending, onPending, onClose, onBoosted }: { token: string; tokenId: number; symbol: string; name: string; twigUsd: number | null; current: bigint; entry: LaneEntry; place: number | null; pending: PendingBoost | null; onPending: (p: PendingBoost | null) => void; onClose: () => void; onBoosted?: () => void }) {
   const config = useConfig();
   const { address, isConnected, chainId } = useHydratedAccount();
   const { switchChainAsync } = useSwitchChain();
@@ -74,6 +76,13 @@ export default function BoostDialog({ token, tokenId, symbol, name, twigUsd, pen
   const max = balance !== undefined && tagOk ? maxBoostWhole(balance, tag) : null;
   const busy = phase.k === "preparing" || phase.k === "signing" || phase.k === "sent" || phase.k === "unconfirmed";
   const usd = whole !== null && twigUsd ? fmtUsd(Number(whole) * twigUsd) : null;
+  // a full lane shows 5 tokens: say before the send whether this amount gets this one in, and what would
+  const inLane = place !== null;
+  const shows = raw === null || boostShowsNow(entry, current, raw, inLane);
+  const neededWhole = !inLane && entry.full && entry.cutoff !== null ? (() => {
+    const gap = BigInt(entry.cutoff) - current;
+    return gap > 0n ? (gap + 10n ** 18n - 1n) / 10n ** 18n : 0n;
+  })() : null;
 
   async function send() {
     if (!address || raw === null || whole === null || busy || lock.current) return;
@@ -96,7 +105,7 @@ export default function BoostDialog({ token, tokenId, symbol, name, twigUsd, pen
         setPhase({ k: "unconfirmed", hash, whole, checking: false, note: null });
         return;
       }
-      await settle(hash, whole, rc.status === "success");
+      await settle(hash, whole, rc.status === "success", shows);
     } catch (err) {
       setPhase({ k: "error", message: friendlyError(err) });
     } finally {
@@ -105,7 +114,7 @@ export default function BoostDialog({ token, tokenId, symbol, name, twigUsd, pen
   }
 
   /** A final answer for a sent boost: indexed and done, or reverted (sending again is then safe). */
-  async function settle(hash: Hex, whole: bigint, ok: boolean) {
+  async function settle(hash: Hex, whole: bigint, ok: boolean, shows: boolean) {
     onPending(null);
     if (!ok) {
       setPhase({ k: "error", message: "The transfer reverted on-chain. No TWIG was sent; you can try again." });
@@ -113,7 +122,7 @@ export default function BoostDialog({ token, tokenId, symbol, name, twigUsd, pen
     }
     // index it now rather than at the next poll: the lane and this page show it straight away
     await fetch(`/api/launch/sync?chain=${BOOST_CHAIN}&tx=${hash}`, { method: "POST" }).catch(() => {});
-    setPhase({ k: "done", hash, whole });
+    setPhase({ k: "done", hash, whole, shows });
     toast({ kind: "info", title: `${symbol} is boosted`, sub: `${groupWhole(whole)} TWIG sent to 0x…dEaD`, chain: BOOST_CHAIN, token, symbol });
     void bal.refetch();
     onBoosted?.();
@@ -125,7 +134,7 @@ export default function BoostDialog({ token, tokenId, symbol, name, twigUsd, pen
     setPhase({ ...phase, checking: true, note: null });
     try {
       const rc = await getPublicClient(config, { chainId: BASE.id })!.getTransactionReceipt({ hash });
-      await settle(hash, whole, rc.status === "success");
+      await settle(hash, whole, rc.status === "success", true);
     } catch {
       setPhase({ k: "unconfirmed", hash, whole, checking: false, note: "Not confirmed yet. Check your wallet's activity before sending anything again." });
     }
@@ -135,8 +144,8 @@ export default function BoostDialog({ token, tokenId, symbol, name, twigUsd, pen
     <Sheet title={`Boost ${symbol}`} onClose={onClose}>
       {phase.k === "done" ? (
         <div className="space-y-4">
-          <p className="text-sm text-ink">{name} is in the Boosted lane for the next 24 hours.</p>
-          <p className="text-xs leading-relaxed text-muted">{fmtBoostTwig(boostAmount(phase.whole, tag))} went to 0x…dEaD. More boosts from anyone in that time add up; the lane orders by the total.</p>
+          <p className="text-sm text-ink">{place !== null ? `${name} is #${place} in the Boosted lane.` : phase.shows ? `${name} is in the Boosted lane.` : `${name} is not in the lane yet: the 5th place still holds more.`}</p>
+          <p className="text-xs leading-relaxed text-muted">{fmtBoostTwig(boostAmount(phase.whole, tag))} went to 0x…dEaD. It counts for the next 24 hours and adds up with any other boost on {symbol}; the lane shows the 5 largest totals.</p>
           <div className="flex flex-wrap gap-2">
             <a href={explorerTx(BOOST_CHAIN, phase.hash)} target="_blank" rel="noreferrer" className={btn.secondarySm}>View transaction<ArrowUpRight size={13} aria-hidden="true" /></a>
             <Link href="/#boosted" onClick={onClose} className={btn.secondarySm}>See the lane</Link>
@@ -179,6 +188,18 @@ export default function BoostDialog({ token, tokenId, symbol, name, twigUsd, pen
             </div>
             <p id={`boost-${token}-note`} className="mt-2 min-h-4 text-[10px] text-muted">{problem ?? (usd ? `≈ ${usd} at today's TWIG price` : " ")}</p>
           </div>
+
+          {/* the lane is full and this amount stays under its 5th place: said before anything is sent */}
+          {problem === null && !shows ? (
+            <div role="note" className="space-y-1.5 rounded-xl border border-line bg-paper px-3 py-2.5 text-pretty text-[11px] leading-relaxed text-body">
+              <p>{BOOST_COPY.short}</p>
+              {neededWhole !== null && neededWhole > 0n ? (
+                <button type="button" disabled={busy} onClick={() => setAmount(groupWhole(neededWhole < BOOST_FLOOR_TWIG ? BOOST_FLOOR_TWIG : neededWhole))} className="font-medium text-ink underline underline-offset-2 hover:text-brand">
+                  Send {groupWhole(neededWhole < BOOST_FLOOR_TWIG ? BOOST_FLOOR_TWIG : neededWhole)} TWIG to show now
+                </button>
+              ) : null}
+            </div>
+          ) : null}
 
           <dl className="space-y-2 px-1 text-[11px]">
             <div className="flex justify-between gap-3"><dt className="text-muted">Goes to</dt><dd className="text-right font-mono text-body">0x…dEaD (burned)</dd></div>
