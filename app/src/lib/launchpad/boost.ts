@@ -197,8 +197,9 @@ export function boostShowsNow(entry: LaneEntry, current: bigint, raw: bigint, in
 /* ─────────────────────────────── views and clicks ─────────────────────────────── */
 
 /**
- * The lane counts how often it is seen and its cards are clicked, for /admin only: never read by the ranking
- * (boost-ui.test.ts). A click counts only while its token is in the lane, at the place the server's lane gives it.
+ * The lane counts how often it is seen and its cards are clicked: each card shows its clicks, /admin shows them all,
+ * and the ranking never reads them (boost-ui.test.ts). A click counts only while its token is in the lane, at the place
+ * the server's lane gives it.
  */
 export const BOOST_SOURCES = ["home", "base"] as const;
 export type BoostSource = (typeof BOOST_SOURCES)[number];

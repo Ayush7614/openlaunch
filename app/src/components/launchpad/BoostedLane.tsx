@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { ArrowUpRight, ChevronDown } from "lucide-react";
+import { ArrowUpRight, ChevronDown, MousePointerClick } from "lucide-react";
 import TokenAvatar from "./TokenAvatar";
 import { TwigMark } from "./TwigBadge";
 import { useLive } from "./LiveProvider";
@@ -16,6 +16,8 @@ import { setPendingToken } from "@/lib/launchpad/token-transition";
 
 /** The rolling TWIG figure: "1.2M", "300K", like fmtBoostTwig (Intl rounds 999,999 up to "1M" by itself). */
 const TWIG_FORMAT = { notation: "compact", maximumFractionDigits: 2 } as const;
+/** A card's clicks: "312", "1.2K". */
+const CLICKS_FORMAT = { notation: "compact", maximumFractionDigits: 1 } as const;
 
 /** Sparks that rise from the amount when a boost lands: offsets, delays and size. Decorative, a fixed set. */
 const EMBERS: readonly { dx: number; dy: number; delay: number; size: number; ink?: boolean }[] = [
@@ -53,8 +55,12 @@ function sendSeen(body: { kind: "view" } | { kind: "click"; token: string }, sou
  * amount rolling up, a few embers. Places change with a short slide. A hover is the visitor's own doing: the card warms,
  * its edge and an arrow show, the fuse brightens.
  *
- * The whole card opens the token. The lane counts one view per page and each card click (sendSeen, /admin only); the
- * server counts a click only while the token is still in the lane.
+ * The whole card opens the token. The lane counts one view per page and each card click (sendSeen); the server counts
+ * a click only while the token is still in the lane, once per visitor and 30 minutes. Each card shows its clicks of
+ * the last 24 hours (the window its TWIG is counted in) once there is one, rolling up when a poll brings more.
+ *
+ * Under 640px a card is one compact row (the name left; TWIG, clicks and time left on the right) so all five places
+ * fit on a phone screen; "Latest burn" is on the token page there. From 640px it is a card, as before.
  */
 export default function BoostedLane({ initial, serverNow, source }: { initial: BoostLane; serverNow: number; source: BoostSource }) {
   const { subscribe, wantBoost } = useLive();
@@ -152,7 +158,8 @@ export default function BoostedLane({ initial, serverNow, source }: { initial: B
                 key={l.token}
                 layout={reduced ? false : "position"}
                 transition={{ type: "spring", stiffness: 380, damping: 34 }}
-                className={`group/card relative flex min-w-0 flex-col gap-2 bg-card px-4 pb-3.5 pt-3 transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--color-warm-soft)_70%,var(--color-card))] active:bg-warm-soft motion-reduce:transition-none ${lastOdd ? "sm:col-span-2 lg:col-span-1" : ""}`}
+                // one set of parts, placed by grid areas: a two-line row on a phone, the stacked card from 640px
+                className={`group/card relative grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-3 gap-y-0.5 bg-card px-4 py-3 [grid-template-areas:'link_twig_twig'_'link_clicks_left'] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-baseline sm:gap-y-2 sm:pb-3.5 sm:[grid-template-areas:'link_link'_'twig_left'_'burn_clicks'] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--color-warm-soft)_70%,var(--color-card))] active:bg-warm-soft motion-reduce:transition-none ${lastOdd ? "sm:col-span-2 lg:col-span-1" : ""}`}
               >
                 {/* one warm ring per ignition: a new key replays it */}
                 {lit ? <span key={`ring-${lit}`} aria-hidden="true" className="bb-boost-ring pointer-events-none absolute inset-0" /> : null}
@@ -161,7 +168,7 @@ export default function BoostedLane({ initial, serverNow, source }: { initial: B
                 <ArrowUpRight size={14} aria-hidden="true" className="pointer-events-none absolute right-3 top-3 text-warm-ink opacity-0 transition duration-150 group-hover/card:opacity-100 motion-safe:-translate-x-0.5 motion-safe:translate-y-0.5 motion-safe:group-hover/card:translate-x-0 motion-safe:group-hover/card:translate-y-0 motion-reduce:transition-none" />
                 <Link
                   href={`/t/${l.chain}/${l.token}`}
-                  title={`${b.boosts} ${b.boosts === 1 ? "boost" : "boosts"} from ${b.boosters} ${b.boosters === 1 ? "wallet" : "wallets"} in the last 24 hours`}
+                  title={`${b.boosts} ${b.boosts === 1 ? "boost" : "boosts"} from ${b.boosters} ${b.boosters === 1 ? "wallet" : "wallets"} · ${b.clicks} ${b.clicks === 1 ? "click" : "clicks"} from this lane, in the last 24 hours`}
                   onClick={() => {
                     setPendingToken({ chain: l.chain, token: l.token, name: l.name, symbol: l.symbol, image: l.image_url });
                     sendSeen({ kind: "click", token: l.token }, source);
@@ -170,7 +177,7 @@ export default function BoostedLane({ initial, serverNow, source }: { initial: B
                   onAuxClick={(e) => {
                     if (e.button === 1) sendSeen({ kind: "click", token: l.token }, source);
                   }}
-                  className="flex min-w-0 items-center gap-2.5 pr-5 outline-none after:absolute after:inset-0 after:z-[1] focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand"
+                  className="flex min-w-0 items-center gap-2.5 outline-none [grid-area:link] after:absolute after:inset-0 after:z-[1] focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand sm:pr-5"
                 >
                   <TokenAvatar chain={l.chain} token={l.token} symbol={l.symbol} image={l.image_url} size={32} className="shrink-0 rounded-xl transition-transform duration-150 motion-safe:group-hover/card:scale-105 motion-reduce:transition-none" />
                   <span className="min-w-0">
@@ -178,24 +185,30 @@ export default function BoostedLane({ initial, serverNow, source }: { initial: B
                     <span className="block truncate text-[11px] text-muted"><span className="font-mono text-body">{l.symbol}</span><span aria-hidden="true"> · </span><span className="sr-only">, market cap </span><span className="font-mono tnum">{cap}</span></span>
                   </span>
                 </Link>
-                <p className="flex min-w-0 items-baseline justify-between gap-2 text-[11px]">
-                  <span className="relative truncate font-mono text-warm-ink tnum">
-                    <LiveNumber value={Number(boostWholeOf(BigInt(b.twig)))} format={TWIG_FORMAT} suffix=" TWIG" />
-                    {lit ? (
-                      <span key={`embers-${lit}`} aria-hidden="true" className="pointer-events-none absolute bottom-1 left-2">
-                        {EMBERS.map((e, k) => (
-                          <span
-                            key={k}
-                            className="bb-ember absolute rounded-full"
-                            style={{ "--dx": `${e.dx}px`, "--dy": `${e.dy}px`, width: e.size, height: e.size, animationDelay: `${e.delay}ms`, background: e.ink ? "var(--color-warm-ink)" : "var(--color-warm)" } as CSSProperties}
-                          />
-                        ))}
-                      </span>
-                    ) : null}
+                <span className="relative min-w-0 truncate justify-self-end font-mono text-[12px] font-medium text-warm-ink tnum [grid-area:twig] sm:justify-self-start sm:text-[11px] sm:font-normal">
+                  <LiveNumber value={Number(boostWholeOf(BigInt(b.twig)))} format={TWIG_FORMAT} suffix=" TWIG" />
+                  {lit ? (
+                    <span key={`embers-${lit}`} aria-hidden="true" className="pointer-events-none absolute bottom-1 left-2">
+                      {EMBERS.map((e, k) => (
+                        <span
+                          key={k}
+                          className="bb-ember absolute rounded-full"
+                          style={{ "--dx": `${e.dx}px`, "--dy": `${e.dy}px`, width: e.size, height: e.size, animationDelay: `${e.delay}ms`, background: e.ink ? "var(--color-warm-ink)" : "var(--color-warm)" } as CSSProperties}
+                        />
+                      ))}
+                    </span>
+                  ) : null}
+                </span>
+                {/* clicks from this lane in the last 24 hours; nothing until the first, so a fresh boost never reads "0" */}
+                {b.clicks > 0 ? (
+                  <span className="inline-flex shrink-0 items-center gap-1 justify-self-end font-mono text-[11px] text-body tnum [grid-area:clicks]">
+                    <MousePointerClick size={11} aria-hidden="true" className="shrink-0 text-muted" />
+                    <LiveNumber value={b.clicks} format={CLICKS_FORMAT} />
+                    <span className="sr-only">{b.clicks === 1 ? " click" : " clicks"} in the last 24 hours</span>
                   </span>
-                  <span className="shrink-0 text-muted" suppressHydrationWarning>{left}</span>
-                </p>
-                <a href={explorerTx(l.chain, b.last_tx)} target="_blank" rel="noreferrer" className="relative z-[2] inline-flex w-fit items-center gap-0.5 text-[10px] text-muted hover:text-ink">
+                ) : null}
+                <span className="shrink-0 justify-self-end text-[11px] text-muted [grid-area:left]" suppressHydrationWarning>{left}</span>
+                <a href={explorerTx(l.chain, b.last_tx)} target="_blank" rel="noreferrer" className="relative z-[2] hidden w-fit items-center gap-0.5 text-[10px] text-muted [grid-area:burn] hover:text-ink sm:inline-flex">
                   Latest burn<ArrowUpRight size={10} aria-hidden="true" />
                 </a>
                 {/* the fuse: what is left of the 24 hours, burning down from the right; steps with the card's clock */}

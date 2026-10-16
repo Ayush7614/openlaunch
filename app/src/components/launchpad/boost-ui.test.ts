@@ -199,7 +199,7 @@ test("CodeRabbit round 1: the done screen, admin errors and the agent formula", 
 
 test("the whole card opens the token; only the burn link sits above it as its own target", () => {
   // the token link's ::after covers the card (LaunchCard's pattern), and keyboard focus rings the whole card
-  assert.match(lane, /className="flex min-w-0 items-center gap-2\.5 pr-5 outline-none after:absolute after:inset-0 after:z-\[1\] focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand"/);
+  assert.match(lane, /className="flex min-w-0 items-center gap-2\.5 outline-none \[grid-area:link\] after:absolute after:inset-0 after:z-\[1\] focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand sm:pr-5"/);
   assert.match(lane, /<a href=\{explorerTx\(l\.chain, b\.last_tx\)\} target="_blank" rel="noreferrer" className="relative z-\[2\] /);
   // one link per card: no link wraps the card, and the stats tooltip moved onto the link that covers it
   assert.equal((lane.match(/<Link\b/g) ?? []).length, 1);
@@ -209,7 +209,7 @@ test("the whole card opens the token; only the burn link sits above it as its ow
 });
 
 test("a hover is only ever the visitor's doing, and reduced motion keeps only colour", () => {
-  assert.match(lane, /className=\{`group\/card relative flex min-w-0 flex-col gap-2 bg-card px-4 pb-3\.5 pt-3 transition-colors duration-150 hover:bg-\[/);
+  assert.match(lane, /className=\{`group\/card relative grid min-w-0 [^`]* transition-colors duration-150 hover:bg-\[color-mix\(in_oklab,var\(--color-warm-soft\)_70%,var\(--color-card\)\)\] active:bg-warm-soft motion-reduce:transition-none/);
   // movement (the avatar's scale, the arrow's slide) only with motion allowed; colour and the edge stay for everyone
   assert.match(lane, /motion-safe:group-hover\/card:scale-105/);
   assert.match(lane, /motion-safe:-translate-x-0\.5 motion-safe:translate-y-0\.5 motion-safe:group-hover\/card:translate-x-0/);
@@ -244,10 +244,30 @@ test("a click counts only while the token is in the lane, at the server's place,
   assert.match(seenRoute, /return new NextResponse\(null, \{ status: 204 \}\);\n\}/);
 });
 
-test("views and clicks are read by the admin figures alone, behind an admin wallet", () => {
+test("views and clicks are read in boostServer.ts alone; the full table only for an admin wallet", () => {
   const users = walk(path.resolve(import.meta.dirname, "../..")).filter((f) => !f.endsWith(".test.ts") && /bb_boost_(clicks|views)/.test(readFileSync(f, "utf8")));
   assert.deepEqual(users.map((f) => path.basename(f)), ["boostServer.ts"]);
   assert.ok(statsRoute.indexOf('if (!adminWallets().has(wallet)) return NextResponse.json({ error: "admin only" }, { status: 403 });') < statsRoute.indexOf("getBoostStats("));
   assert.match(statsRoute, /if \(!isBoostStatsDays\(days\)\) return NextResponse\.json\(\{ error: "bad days" \}, \{ status: 400 \}\);/);
   assert.match(admin, /\{address \? <LaneStats wallet=\{address\} \/> : null\}/);
+});
+
+test("each card shows its clicks of the last 24 hours, never a 0, and a failed read never fails the lane", () => {
+  assert.match(lane, /\{b\.clicks > 0 \? \(\n\s*<span className="[^"]*\[grid-area:clicks\]">\n\s*<MousePointerClick size=\{11\} aria-hidden="true"[^>]*\/>\n\s*<LiveNumber value=\{b\.clicks\} format=\{CLICKS_FORMAT\} \/>\n\s*<span className="sr-only">\{b\.clicks === 1 \? " click" : " clicks"\} in the last 24 hours<\/span>/);
+  // the count is the lane's own window, read with the lane; a read that fails is no counts, not no lane
+  const body = server.slice(server.indexOf("async function laneClicks("), server.indexOf("export async function getBoostLane("));
+  assert.match(body, /AND clicked_at > now\(\) - make_interval\(hours => \$\{BOOST_WINDOW_H\}\)/);
+  assert.match(body, /\} catch \(err\) \{\n\s*console\.warn\("\[boost\] lane clicks read failed:"[^\n]*\n\s*return new Map\(\);/);
+  assert.match(server, /const items = shown\.map\(\(t\) => \(\{ \.\.\.t, clicks: clicks\.get\(t\.token\) \?\? 0 \}\)\);/);
+  // a click count is no ignition: only more TWIG lights a card
+  assert.match(read("../../lib/launchpad/boost.ts"), /const grew = before === undefined \|\| BigInt\(it\.twig\) > BigInt\(before\);/);
+});
+
+test("a phone gets a compact row with all five places; from 640px the stacked card", () => {
+  assert.match(lane, /\[grid-template-areas:'link_twig_twig'_'link_clicks_left'\]/);
+  assert.match(lane, /sm:\[grid-template-areas:'link_link'_'twig_left'_'burn_clicks'\]/);
+  for (const area of ["link", "twig", "clicks", "left", "burn"]) assert.match(lane, new RegExp(`\\[grid-area:${area}\\]`), area);
+  // "Latest burn" from 640px only (the token page has it on a phone); every place stays a full-width tap target
+  assert.match(lane, /className="relative z-\[2\] hidden w-fit items-center gap-0\.5 text-\[10px\] text-muted \[grid-area:burn\] hover:text-ink sm:inline-flex"/);
+  assert.match(panel, /explorerTx\(BOOST_CHAIN, state\.last_tx\)/);
 });

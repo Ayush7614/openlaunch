@@ -34,7 +34,8 @@ export { boostEnabled };
  * page shows the lane, the token page line or the dialog. The indexer records boosts either way: they are TWIG burns
  * on-chain whatever the switch says, and turning it on then shows the last 24 hours as they were.
  */
-export type BoostLaneItem = LaneTotals & { expires_at: string; launch: LaunchRow };
+/** `clicks`: the card's clicks from the lane in the last 24 hours (bb_boost_clicks), the window its TWIG is counted in. */
+export type BoostLaneItem = LaneTotals & { expires_at: string; launch: LaunchRow; clicks: number };
 export type BoostLane = { enabled: false } | { enabled: true; window_h: number; floor_twig: string; items: BoostLaneItem[] };
 export type TokenBoost =
   | { enabled: false }
@@ -89,6 +90,26 @@ function laneEntry(ranked: readonly LaneTotals[]): LaneEntry {
   return { full, cutoff: full ? ranked[BOOST_LANE_SIZE - 1].twig : null };
 }
 
+/**
+ * Each token's clicks from the lane in the last 24 hours. Every row was counted while its token was in the lane, once
+ * per visitor and 30 minutes (recordBoostSeen). A failed read is no clicks shown, never a lane that fails.
+ */
+async function laneClicks(tokens: readonly string[]): Promise<Map<string, number>> {
+  const db = maybeDb();
+  if (!db || tokens.length === 0) return new Map();
+  try {
+    const rows = await db<{ token: string; clicks: number }[]>`
+      SELECT token, count(*)::int AS clicks FROM bb_boost_clicks
+       WHERE chain_id = ${BOOST_CHAIN_ID} AND token = ANY(${tokens as string[]}::text[])
+         AND clicked_at > now() - make_interval(hours => ${BOOST_WINDOW_H})
+       GROUP BY token`;
+    return new Map(rows.map((r) => [r.token, r.clicks]));
+  } catch (err) {
+    console.warn("[boost] lane clicks read failed:", err instanceof Error ? err.message : err);
+    return new Map();
+  }
+}
+
 /** The Boosted lane: the top BOOST_LANE_SIZE tokens with their market rows. `{ enabled: false }` while the switch is off. */
 export async function getBoostLane(ethUsd: number | null): Promise<BoostLane> {
   if (!boostEnabled()) return { enabled: false };
@@ -96,12 +117,14 @@ export async function getBoostLane(ethUsd: number | null): Promise<BoostLane> {
   const top = (await rankedLane()).slice(0, BOOST_LANE_SIZE + 3);
   const rows = top.length > 0 ? await getLaunchesByRefs(top.map((t) => ({ chain: BOOST_CHAIN, token: t.token })), ethUsd) : [];
   const byToken = new Map(rows.map((r) => [r.launch.token, r.launch]));
-  const items = top
+  const shown = top
     .flatMap((t) => {
       const launch = byToken.get(t.token);
       return launch ? [{ ...t, expires_at: new Date(boostExpiresAt(t.last_at)).toISOString(), launch }] : [];
     })
     .slice(0, BOOST_LANE_SIZE);
+  const clicks = await laneClicks(shown.map((t) => t.token));
+  const items = shown.map((t) => ({ ...t, clicks: clicks.get(t.token) ?? 0 }));
   return { enabled: true, window_h: BOOST_WINDOW_H, floor_twig: BOOST_FLOOR_TWIG.toString(), items };
 }
 

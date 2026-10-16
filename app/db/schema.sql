@@ -450,7 +450,7 @@ CREATE INDEX IF NOT EXISTS bb_boosts_tag_idx ON bb_boosts (chain_id, tag);
 ALTER TABLE bb_token_settings ADD COLUMN IF NOT EXISTS boost_hidden boolean NOT NULL DEFAULT false;  -- admin: kept out of the Boosted lane
 
 -- ── Boosted lane views + clicks (2026-10-16): counted only while the token is in the lane ──
--- Read by /admin only, never by the ranking (boost-ui.test.ts). visitor = sha256(presence visitor hash | token), cut
+-- Shown as each lane card's click count and on /admin; never read by the ranking (boost-ui.test.ts). visitor = sha256(presence visitor hash | token), cut
 -- short: the presence hash rotates every UTC day and cannot be reversed, and mixing in the token means one person's
 -- clicks on two tokens cannot be linked. One row per visitor, token and 30-minute slot, so a reload counts once.
 CREATE TABLE IF NOT EXISTS bb_boost_clicks (
@@ -464,6 +464,7 @@ CREATE TABLE IF NOT EXISTS bb_boost_clicks (
   PRIMARY KEY (chain_id, token, visitor, slot)
 );
 CREATE INDEX IF NOT EXISTS bb_boost_clicks_time_idx ON bb_boost_clicks (chain_id, clicked_at DESC);
+CREATE INDEX IF NOT EXISTS bb_boost_clicks_token_time_idx ON bb_boost_clicks (chain_id, token, clicked_at DESC);  -- each card's 24 h count
 -- One count per token and hour: each page load that brings the lane on screen adds 1 to every token in it.
 CREATE TABLE IF NOT EXISTS bb_boost_views (
   chain_id integer NOT NULL,
