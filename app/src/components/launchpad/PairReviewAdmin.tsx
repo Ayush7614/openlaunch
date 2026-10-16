@@ -85,7 +85,8 @@ export default function PairReviewAdmin() {
           {a.reason ? <p className="text-xs text-muted">Last reason: {a.reason}</p> : null}
           {a.status === "open" || a.status === "changes" ? (
             <div className="flex flex-wrap gap-2">
-              <input aria-label={`Reason for closing ${a.symbol}`} value={reasons[a.id] ?? ""} onChange={(e) => setReasons((r) => ({ ...r, [a.id]: e.target.value }))} placeholder="Reason for closing (the applicant sees it)" maxLength={300} className="min-h-9 min-w-0 flex-1 rounded-lg border border-line bg-paper px-3 text-xs text-ink" />
+              <input aria-label={`Reason for closing ${a.symbol}`} value={reasons[a.id] ?? ""} onChange={(e) => setReasons((r) => ({ ...r, [a.id]: e.target.value }))} placeholder="Reason (the applicant sees it; optional to waive the fee)" maxLength={300} className="min-h-9 min-w-0 flex-1 rounded-lg border border-line bg-paper px-3 text-xs text-ink" />
+              <button type="button" disabled={!address || busy} onClick={() => void decide(a.id, "waive")} className={btn.primarySm} title="List it now; the application is marked approved with the fee waived">Approve without fee</button>
               <button type="button" disabled={!address || busy || !(reasons[a.id] ?? "").trim()} onClick={() => void decide(a.id, "reject")} className={`${btn.secondarySm} text-down-ink`}>Close</button>
             </div>
           ) : null}

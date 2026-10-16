@@ -12,6 +12,7 @@ import {
   PAIR_APPLY_OPEN_MAX,
   PAIR_FEE_TOLERANCE,
   PAIR_QUOTE_LOCK_MS,
+  PAIR_FEE_WAIVED,
   PAIR_REVIEWS_MAX,
   PAIR_REVIEW_WINDOW_MS,
   PAIR_UNPAID_EXPIRE_MS,
@@ -300,7 +301,7 @@ export async function reviewApplication(b: Record<string, unknown>): Promise<{ o
   if (!(Number.isSafeInteger(id) && id > 0)) return fail("bad application", 400);
   const reason = typeof b.reason === "string" ? b.reason.trim() : "";
   if (reason.length > 300) return fail("the reason is over 300 characters", 400);
-  if (decision !== "approve" && !reason) return fail("say why: the applicant sees it", 400);
+  if ((decision === "changes" || decision === "reject") && !reason) return fail("say why: the applicant sees it", 400);
   if (!isNonce(b.nonce) || !tsFresh(b.ts, Date.now())) return fail("stale or bad nonce", 400);
   if (!adminWallets().has(wallet)) return fail("admin only", 403);
   const message = buildPairReviewMessage({ decision, id, wallet, nonce: b.nonce, ts: Number(b.ts), reason });
@@ -309,21 +310,25 @@ export async function reviewApplication(b: Record<string, unknown>): Promise<{ o
   const [app] = await db<AppRow[]>`SELECT * FROM bb_pair_applications WHERE id = ${id}`;
   if (!app) return fail("no such application", 404);
   // an admin may close (reject) any application still in progress, so nothing can hold a token's place; approving and
-  // asking for changes need a paid one
-  const allowed: PairApplicationStatus[] = decision === "reject" ? ["paid", "open", "changes"] : ["paid"];
-  if (!allowed.includes(app.status)) return fail(decision === "reject" ? "this application is already decided" : "only a paid application waiting for review can be decided", 409);
+  // asking for changes need a paid one; waiving the fee approves one that has not paid
+  const allowed: PairApplicationStatus[] = decision === "reject" ? ["paid", "open", "changes"] : decision === "waive" ? ["open", "changes"] : ["paid"];
+  if (!allowed.includes(app.status)) return fail(decision === "reject" ? "this application is already decided" : decision === "waive" ? "only an application that has not paid can have its fee waived" : "only a paid application waiting for review can be decided", 409);
   const chain = chainKeyOf(app.chain_id) as ChainKey;
   const used = app.status === "paid" ? app.reviews_used + 1 : app.reviews_used;
+  const approving = decision === "approve" || decision === "waive";
   // asking for changes with no review left ends it: there is nothing more to ask for
-  const status: PairApplicationStatus = decision === "approve" ? "approved" : decision === "reject" || used >= PAIR_REVIEWS_MAX ? "rejected" : "changes";
+  const status: PairApplicationStatus = approving ? "approved" : decision === "reject" || used >= PAIR_REVIEWS_MAX ? "rejected" : "changes";
+  const why = decision === "waive" ? reason || PAIR_FEE_WAIVED : reason;
   // claim the decision first: two admins deciding at once cannot both win, and a listing never runs for a lost claim
-  const claimed = await db`UPDATE bb_pair_applications SET status = ${status}, reviews_used = ${used}, reason = ${reason || null}, decided_by = ${wallet}, decided_at = now() WHERE id = ${id} AND status = ${app.status} RETURNING id`;
+  const claimed = await db`UPDATE bb_pair_applications SET status = ${status}, reviews_used = ${used}, reason = ${why || null}, decided_by = ${wallet}, decided_at = now() WHERE id = ${id} AND status = ${app.status} RETURNING id`;
   if (claimed.length === 0) return fail("this application changed meanwhile: reload", 409);
-  if (decision === "approve") {
-    const w = await writeListing(chain, app.address, { logo: app.logo_url ?? "", website: app.website ?? "", x_handle: app.x_handle ?? "", description: app.description ?? "", price_kind: app.price_kind, price_pool: app.price_pool, price_quote: app.price_quote, price_hook: app.price_hook ?? "" }, wallet, "list");
+  if (approving) {
+    // already listed (an admin listed the token directly): the application is simply marked approved
+    const [listed] = await db`SELECT 1 FROM bb_pairs WHERE chain_id = ${app.chain_id} AND address = ${app.address} AND status = 'listed'`;
+    const w = listed ? ({ ok: true } as const) : await writeListing(chain, app.address, { logo: app.logo_url ?? "", website: app.website ?? "", x_handle: app.x_handle ?? "", description: app.description ?? "", price_kind: app.price_kind, price_pool: app.price_pool, price_quote: app.price_quote, price_hook: app.price_hook ?? "" }, wallet, "list");
     if (!w.ok) {
-      // not listed: the application goes back to waiting for review, its review not used
-      await db`UPDATE bb_pair_applications SET status = 'paid', reviews_used = ${app.reviews_used}, reason = ${app.reason}, decided_by = ${app.decided_by}, decided_at = ${app.decided_at} WHERE id = ${id} AND status = 'approved'`;
+      // not listed: the application goes back to where it was, its review not used
+      await db`UPDATE bb_pair_applications SET status = ${app.status}, reviews_used = ${app.reviews_used}, reason = ${app.reason}, decided_by = ${app.decided_by}, decided_at = ${app.decided_at} WHERE id = ${id} AND status = 'approved'`;
       return fail(`not listed: ${w.error}`, w.status);
     }
     await reloadPairs(); // this machine shows the new pair at once; the others within 15 s
