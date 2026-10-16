@@ -58,9 +58,10 @@ test("a boost is one plain TWIG transfer to 0x…dEaD: simulated, credited to th
   // the amount is built from the launch's own position id, only once the checks pass
   assert.match(dialog, /whole !== null && problem === null \? boostAmount\(whole, tag\) : null/);
   assert.match(dialog, /const tag = BigInt\(tokenId\)/);
-  // the transfer ABI is reachable from the dialog alone
+  // the transfer ABI is reachable from the two audited senders alone: this dialog, and the community pair fee step
+  // (PairApplication.tsx, held to the same rules in pairApply.test.ts)
   const users = walk(path.resolve(import.meta.dirname, "../..")).filter((f) => !f.endsWith(".test.ts") && readFileSync(f, "utf8").includes("ERC20_TRANSFER_ABI"));
-  assert.deepEqual(users.map((f) => path.basename(f)).sort(), ["BoostDialog.tsx", "abi.ts"]);
+  assert.deepEqual(users.map((f) => path.basename(f)).sort(), ["BoostDialog.tsx", "PairApplication.tsx", "abi.ts"]);
 });
 
 test("the send locks before its first await and simulates before the wallet is asked", () => {

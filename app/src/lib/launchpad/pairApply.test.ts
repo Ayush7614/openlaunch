@@ -1,0 +1,220 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import {
+  PAIR_APPLY_COPY,
+  PAIR_REVIEWS_MAX,
+  PAIR_REVIEW_WINDOW_MS,
+  PAIR_TAG_BASE,
+  applicationCode,
+  buildPairApplyMessage,
+  buildPairReviewMessage,
+  canAskAgain,
+  isPaid,
+  pairApplicationOf,
+  pairBurnAmount,
+  pairBurnFromTransfer,
+  pairBurnUsd,
+  pairFeeQuote,
+  pairListingUsd,
+  pairTagOf,
+  proofPostText,
+  proofPostUrl,
+  sourceLabel,
+} from "./pairApply.ts";
+import { boostFromTransfer, isLaunchTag } from "./boost.ts";
+import { buildPairAdminMessage } from "./pairs.ts";
+import { hasDelegatecall, implementationOf1167 } from "./pairProbe.ts";
+
+const src = (rel: string) => readFileSync(path.join(import.meta.dirname, rel), "utf8");
+const TWIG = "0x6ac18bcf4ede02591d4917452700ea5eaaea13c1";
+const DEAD = "0x000000000000000000000000000000000000dEaD";
+const E18 = 10n ** 18n;
+const transfer = (value: bigint, over: Partial<{ address: string; to: string; from: string }> = {}) => ({ address: TWIG, from: "0xAbC0000000000000000000000000000000000001", to: DEAD, value, txHash: "0xABC", logIndex: 3, blockNumber: 100n, ...over });
+
+/* ── the tag ── */
+
+test("kind 3 of the boost tag space names an application; boosts never read it, and it never reads a boost", () => {
+  assert.equal(pairTagOf(12), PAIR_TAG_BASE + 12n);
+  assert.equal(pairBurnAmount(12_200_000n, 12), 12_200_000n * E18 + 300_000_000_012n);
+  assert.equal(pairApplicationOf(pairBurnAmount(5n, 99)), 99);
+  assert.equal(pairApplicationOf(5n * E18 + 42n), null, "a launch tag");
+  assert.equal(pairApplicationOf(5n * E18 + 10n ** 11n + 7n), null, "kind 1 (pinned posts)");
+  assert.equal(pairApplicationOf(5n * E18 + PAIR_TAG_BASE), null, "id 0 is not an application");
+  assert.throws(() => pairTagOf(0));
+  assert.throws(() => pairTagOf(10n ** 11n));
+  assert.equal(isLaunchTag(PAIR_TAG_BASE + 12n), false);
+  assert.equal(boostFromTransfer(transfer(pairBurnAmount(20_000_000n, 12))), null, "a pair fee is never a boost");
+  assert.equal(pairBurnFromTransfer(transfer(500_000n * E18 + 42n), TWIG, DEAD), null, "a boost is never a pair fee");
+});
+
+test("a burn row: TWIG to 0x…dEaD, kind-3 tag, at least one whole TWIG, never the locker's own burns", () => {
+  const ok = pairBurnFromTransfer(transfer(pairBurnAmount(12_200_000n, 7)), TWIG, DEAD);
+  assert.deepEqual(ok, { tx_hash: "0xabc", log_index: 3, sender: "0xabc0000000000000000000000000000000000001", application_id: 7, whole: "12200000", block_number: "100" });
+  assert.equal(pairBurnFromTransfer(transfer(pairBurnAmount(1n, 7), { address: "0x1111111111111111111111111111111111111111" }), TWIG, DEAD), null, "not TWIG");
+  assert.equal(pairBurnFromTransfer(transfer(pairBurnAmount(1n, 7), { to: "0x2222222222222222222222222222222222222222" }), TWIG, DEAD), null, "not burned");
+  assert.equal(pairBurnFromTransfer(transfer(pairBurnAmount(1n, 7)), TWIG, DEAD, ["0xABC0000000000000000000000000000000000001"]), null, "the locker");
+  assert.equal(pairBurnFromTransfer(transfer(PAIR_TAG_BASE + 7n), TWIG, DEAD), null, "dust: less than one TWIG");
+});
+
+/* ── the fee ── */
+
+test("the fee: $200 at the LOWER of spot and average, rounded up to 100K TWIG; no price, no quote", () => {
+  assert.deepEqual(pairFeeQuote(200, 0.0000164, 0.0000165), { whole: 12_200_000n, priceUsd: 0.0000164 });
+  assert.equal(pairFeeQuote(200, 0.00002, 0.0000164)!.whole, 12_200_000n, "a pushed spot cannot shrink the fee");
+  assert.equal(pairFeeQuote(200, null, 0.0000164)!.whole, 12_200_000n);
+  assert.equal(pairFeeQuote(200, null, null), null);
+  assert.equal(pairFeeQuote(200, 0, Number.NaN), null);
+  assert.equal(pairFeeQuote(0, 0.0000164, null), null);
+  assert.equal(pairFeeQuote(200, 0.002, 0.002)!.whole, 100_000n, "never under one step");
+  assert.equal(pairListingUsd(undefined), 200);
+  assert.equal(pairListingUsd("350"), 350);
+  for (const bad of ["", "abc", "0", "5", "1000000"]) assert.equal(pairListingUsd(bad), 200, bad);
+});
+
+test("a burn's value: the locked price inside the lock, the price when indexed after it; paid within 2%", () => {
+  const quote = { priceUsd: 0.0000164, from: 100, until: 1_000 };
+  assert.deepEqual(pairBurnUsd(12_200_000n, 999, quote, 0.00001), { usd: 12_200_000 * 0.0000164, by: "quote" });
+  assert.equal(pairBurnUsd(12_200_000n, 99, quote, 0.00001)!.by, "live", "sent before this lock began: not at its price");
+  const late = pairBurnUsd(12_200_000n, 1_001, quote, 0.00001)!;
+  assert.equal(late.by, "live");
+  assert.ok(Math.abs(late.usd - 122) < 1e-9);
+  assert.equal(pairBurnUsd(12_200_000n, 1_001, quote, null), null, "no price: recorded, valued later never by guesswork");
+  assert.equal(isPaid(196, 200), true);
+  assert.equal(isPaid(195.9, 200), false);
+});
+
+test("reviews: up to 3, within 60 days of paying, and only after changes were asked", () => {
+  const paid = 1_000;
+  assert.equal(canAskAgain({ status: "changes", reviews_used: 1, paid_at: paid }, paid + 1), true);
+  assert.equal(canAskAgain({ status: "changes", reviews_used: PAIR_REVIEWS_MAX, paid_at: paid }, paid + 1), false);
+  assert.equal(canAskAgain({ status: "changes", reviews_used: 1, paid_at: paid }, paid + PAIR_REVIEW_WINDOW_MS), false);
+  assert.equal(canAskAgain({ status: "rejected", reviews_used: 1, paid_at: paid }, paid + 1), false);
+  assert.equal(canAskAgain({ status: "changes", reviews_used: 1, paid_at: null }, paid + 1), false);
+});
+
+/* ── proof and messages ── */
+
+test("proof: a code, a post text that names us, and only links to posts on X", () => {
+  assert.match(applicationCode(12, () => 0), /^OL-12-AAAA$/);
+  assert.match(applicationCode(7), /^OL-7-[A-Z2-9]{4}$/);
+  assert.equal(proofPostText("OL-7-K7QX", "NOICE"), "We applied to list $NOICE as a community pair on @openlaunch_lol. Application OL-7-K7QX");
+  assert.equal(proofPostUrl("https://twitter.com/noicedotso/status/1234567890?s=20"), "https://x.com/noicedotso/status/1234567890");
+  assert.equal(proofPostUrl(" https://x.com/noicedotso/status/1234567890 "), "https://x.com/noicedotso/status/1234567890");
+  for (const bad of ["http://x.com/a/status/1234567890", "https://evil.com/x.com/a/status/1234567890", "https://x.com/a", "https://x.com.evil.io/a/status/1234567890", "javascript:alert(1)"]) assert.equal(proofPostUrl(bad), null, bad);
+});
+
+test("messages: the application's fields are what is signed, and the price line reads like the admin's", () => {
+  const src0 = { price_kind: "univ4", price_pool: "0xPOOL", price_quote: "0xQUOTE", price_hook: "0xHOOK" };
+  assert.equal(sourceLabel(src0), "univ4 0xpool against 0xquote (hook 0xhook)");
+  const admin = buildPairAdminMessage({ action: "list", chain: "base", address: "0x1", wallet: "0x2", nonce: "n", ts: 0, listing: { logo: "", website: "", x_handle: "", description: "", price_kind: "univ4", price_pool: "0xPOOL", price_quote: "0xQUOTE", price_hook: "0xHOOK" } });
+  assert.ok(admin.split("\n").includes(`Price: ${sourceLabel(src0)}`), admin);
+  assert.equal(
+    buildPairApplyMessage({ action: "apply", chain: "base", address: "0xAA", wallet: "0xBB", nonce: "0123456789abcdef0123456789abcdef", ts: Date.UTC(2026, 9, 16), source: "univ3 0xp against 0xq", website: "https://noice.so", x_handle: "noicedotso", logo: "", description: "Noice." }),
+    ["openlaunch.lol community pair application", "", "Action: apply", "Token: base:0xaa", "Price pool: univ3 0xp against 0xq", "Website: https://noice.so", "X: noicedotso", "Logo: -", "About: Noice.", "Wallet: 0xbb", "Nonce: 0123456789abcdef0123456789abcdef", "Issued: 2026-10-16T00:00:00.000Z"].join("\n"),
+  );
+  assert.match(buildPairApplyMessage({ action: "proof", chain: "base", address: "0xAA", wallet: "0xBB", nonce: "n", ts: 0, id: 7, proof: "https://x.com/a/status/1" }), /\nApplication: 7\nProof post: https:\/\/x\.com\/a\/status\/1\n/);
+  assert.equal(
+    buildPairReviewMessage({ decision: "changes", id: 7, wallet: "0xCC", nonce: "n", ts: 0, reason: "No proof post." }),
+    ["openlaunch.lol community pair review", "", "Decision: changes", "Application: 7", "Reason: No proof post.", "Admin: 0xcc", "Nonce: n", "Issued: 1970-01-01T00:00:00.000Z"].join("\n"),
+  );
+});
+
+test("words: the fee pays for a review, is burned, and cannot be refunded; no value talk", () => {
+  const all = [PAIR_APPLY_COPY.feeRule(200), ...Object.values(PAIR_APPLY_COPY).filter((v): v is string => typeof v === "string")].join(" ");
+  assert.match(PAIR_APPLY_COPY.feeRule(200), /pays for a review, not a listing/);
+  assert.match(PAIR_APPLY_COPY.feeRule(200), /cannot be refunded/);
+  assert.match(PAIR_APPLY_COPY.sentFinal, /cannot be undone or refunded/);
+  assert.doesNotMatch(all, /\b(moon|rally|guarantee[ds]?|official|verified pair|safe|endorsed|buyback|reward)\b/i);
+});
+
+/* ── the probe's helpers ── */
+
+test("probe helpers: clones are read for their implementation; DELEGATECALL counts as an opcode only", () => {
+  assert.equal(implementationOf1167("0x363d3d373d3d3d363d73766e0671bbbf59370c35a8882366a2085b46eb7b5af43d82803e903d91602b57fd5bf3"), "0x766e0671bbbf59370c35a8882366a2085b46eb7b", "TIBBIR (EIP-1167)");
+  assert.equal(implementationOf1167("0x3d3d3d3d363d3d37363d73db7b520bb5c3a2c5d4871198081911359f93be875af43d3d93803e602a57fd5bf3"), "0xdb7b520bb5c3a2c5d4871198081911359f93be87", "1F916 (44-byte variant)");
+  assert.equal(implementationOf1167("0x6080"), null);
+  assert.equal(hasDelegatecall("0x60f4"), false, "f4 inside PUSH1 data");
+  assert.equal(hasDelegatecall("0x7f" + "f4".repeat(32) + "00"), false, "f4s inside PUSH32 data");
+  assert.equal(hasDelegatecall("0x6000f4"), true);
+});
+
+/* ── the fee step: the second (and last) place the app sends TWIG ── */
+
+test("the fee is one plain TWIG transfer to 0x…dEaD: simulated, credited to the builder code, never an approval, and it names this application", () => {
+  const page = src("../../components/launchpad/PairApplication.tsx");
+  assert.match(page, /simulateContract\(\{ address: TWIG_ADDRESS, abi: ERC20_TRANSFER_ABI, functionName: "transfer", args: \[DEAD, BigInt\(q\.amount\)\], account: address, dataSuffix: BUILDER_DATA_SUFFIX \}\)/);
+  assert.equal((page.match(/writeContract\(/g) ?? []).length, 1);
+  assert.doesNotMatch(page, /\bapprove\(|functionName: "approve"|maxUint|sendTransaction/);
+  assert.match(page, /if \(pairApplicationOf\(BigInt\(q\.amount\)\) !== app\.id\)/);
+  assert.match(page, /lock\.current = true; \/\/ before the first await/);
+  // a burn whose confirmation is late is never offered again
+  assert.match(page, /never offer to send the same TWIG again/);
+});
+
+/* ── review fixes (2026-10-16) ── */
+
+test("nothing holds a token's place for good: unpaid applications expire after 48 hours, closed review windows too", () => {
+  const s = src("pairApplyServer.ts");
+  const exp = s.slice(s.indexOf("export async function expireStaleApplications"), s.indexOf("/** Whether a wallet has a visible profile"));
+  assert.match(exp, /a\.status = 'open' AND a\.paid_usd = 0 AND a\.created_at < now\(\)/);
+  assert.match(exp, /a\.quote_until IS NULL OR a\.quote_until < now\(\) - interval '1 hour'/, "never under a live quote");
+  assert.match(exp, /NOT EXISTS \(SELECT 1 FROM bb_pair_burns b WHERE b\.application_id = a\.id\)/, "never once anything was burned for it");
+  assert.match(exp, /a\.status = 'changes' AND a\.paid_at < now\(\)/);
+  const apply = s.slice(s.indexOf("export async function applicantAction"));
+  assert.ok(apply.indexOf("await expireStaleApplications(chain, address);") < apply.indexOf("INSERT INTO bb_pair_applications"));
+  assert.match(apply, /pg_advisory_xact_lock\(hashtext\(\$\{`pair-apply:\$\{wallet\}`\}\)\)/, "the per-wallet cap holds under parallel requests");
+  assert.match(src("loop.ts"), /void revaluePairBurns\(\)/);
+});
+
+test("burns: the fact first, then its value, then the total; each step heals on the next pass", () => {
+  const s = src("pairApplyServer.ts");
+  const rec = s.slice(s.indexOf("export async function recordPairBurn"), s.indexOf("async function valueBurn"));
+  assert.ok(rec.indexOf("INSERT INTO bb_pair_burns") < rec.indexOf("await valueBurn("), "inserted before any price read");
+  assert.match(rec, /if \(cur && cur\.usd === null\) await valueBurn/, "a re-fed burn is only valued if it still has no value");
+  assert.match(rec, /await settleApplication\(row\.application_id\);/);
+  assert.match(s, /AND usd IS NULL RETURNING tx_hash/);
+  assert.match(s, /SET quote_twig = NULL, quote_price_usd = NULL, quote_at = NULL, quote_until = NULL WHERE id = \$\{appId\} AND status = 'open'/, "a landed burn spends its lock: the next quote is for what is still due");
+  assert.match(s, /JOIN bb_pair_applications a ON a\.id = b\.application_id WHERE b\.usd IS NULL/, "unvalued burns are valued later");
+  assert.match(s, /precheck = COALESCE\(\$\{pre \? db\.json\(pre\) : null\}, precheck\)/, "another review sees the token as it is now");
+});
+
+test("the fee step never offers to send again while a sent transfer is not indexed", () => {
+  const page = src("../../components/launchpad/PairApplication.tsx");
+  assert.match(page, /if \(!address \|\| !q \|\| lock\.current \|\| waiting\) return;/);
+  assert.match(page, /const waiting = sent !== null && !indexed && app\.status === "open";/);
+  assert.match(page, /window\.sessionStorage\.setItem\(sentKey, h\)/, "kept across a reload");
+  assert.match(page, /\{app\.status === "open" && waiting \? \(/);
+  // a reverted transfer sent nothing: the guard is lifted so the applicant can try again
+  assert.match(page, /if \(rc\.status !== "success"\) \{\n\s*remember\(null\);/);
+});
+
+test("a late burn on a closed application never marks it paid (status or date)", () => {
+  const s = src("pairApplyServer.ts");
+  const settle = s.slice(s.indexOf("async function settleApplication"), s.indexOf("let lastRevalue"));
+  assert.match(settle, /status = CASE WHEN a\.status = 'open' AND s\.total >=/);
+  assert.match(settle, /paid_at = CASE WHEN a\.paid_at IS NULL AND a\.status = 'open' AND s\.total >=/);
+});
+
+/* ── wiring ── */
+
+test("server: verified identity, a passing check, signatures before writes, a lock never replaced, approval through the listing's own checks", () => {
+  const s = src("pairApplyServer.ts");
+  const body = s.slice(s.indexOf("export async function applicantAction"));
+  const order = ["await verify(chain, wallet, message, b.signature)", "await consumeNonce(b.nonce, wallet)", "await verifiedProfile(wallet)", "if (!pre.ok)", "INSERT INTO bb_pair_applications"];
+  const at = order.map((o) => body.indexOf(o));
+  assert.ok(at.every((i) => i > 0), JSON.stringify(at));
+  assert.deepEqual([...at].sort((a, b) => a - b), at);
+  assert.match(s, /x_status = 'verified' AND NOT hidden AND deleted_at IS NULL/);
+  assert.match(s, /WHERE id = \$\{id\} AND status = 'open' AND \(quote_until IS NULL OR quote_until <= now\(\)\) RETURNING \*/);
+  const decide = s.slice(s.indexOf("export async function reviewApplication"));
+  assert.ok(decide.indexOf("AND status = ${app.status} RETURNING id") < decide.indexOf("await writeListing(chain, app.address,"), "the decision is claimed before anything is listed");
+  assert.match(decide, /if \(claimed\.length === 0\) return fail\("this application changed meanwhile: reload", 409\);/);
+  assert.match(decide, /SET status = 'paid', reviews_used = \$\{app\.reviews_used\}[^`]*WHERE id = \$\{id\} AND status = 'approved'/, "a failed listing gives the review back");
+  assert.match(decide, /decision === "reject" \? \["paid", "open", "changes"\]/, "an admin can close an application nobody pays for");
+  assert.match(src("../../../db/schema.sql"), /CREATE UNIQUE INDEX IF NOT EXISTS bb_pair_applications_open_idx ON bb_pair_applications \(chain_id, address\) WHERE status IN \('open', 'paid', 'changes'\);/);
+  const idx = src("indexer.ts");
+  assert.equal(idx.match(/else await applyPairBurn\(chain, l as/g)?.length, 2, "both the range scan and the receipt path record pair fees");
+  assert.match(src("../../app/api/pairs/precheck/route.ts"), /if \(!applicationsOpen\(\)\)/);
+});

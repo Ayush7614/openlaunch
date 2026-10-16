@@ -32,8 +32,9 @@ import { GITLAWB_SITE } from "@/lib/launchpad/gitlawb";
 import GitlawbBadge from "@/components/launchpad/GitlawbBadge";
 import TwigBadge from "@/components/launchpad/TwigBadge";
 import { TWIG_SITE, TWIG_WRAP_URL } from "@/lib/launchpad/twig";
-import MuseworldBadge from "@/components/launchpad/MuseworldBadge";
-import { MUSEWORLD_SITE } from "@/lib/launchpad/museworld";
+import { CommunityPairBadge } from "@/components/launchpad/QuoteBadge";
+import { PAIR_COPY, PAIR_PRICE_KIND_LABEL, isPairChain, pairPath } from "@/lib/launchpad/pairs";
+import { pairByAddress } from "@/lib/launchpad/pairsServer";
 import { fmtCompact, fmtPrice, fmtQuote, fmtUsd, pipsToPct } from "@/lib/launchpad/math";
 import { marketCount as count } from "@/lib/launchpad/token-market";
 import { marketUsd } from "@/lib/launchpad/market-format";
@@ -96,8 +97,11 @@ export default async function TokenPage({ params, searchParams }: { params: Prom
     decimals: l.quote_decimals,
     usd: l.quote_usd,
     decimalsKnown: l.quote_decimals_known,
+    logo: l.quote_logo,
   };
   const unlisted = quote.key === "other";
+  // the pair's list record: a listed pair's price source for the About text, a suspended or delisted one's note
+  const pairRec = isPairChain(chain) && (quote.key === "pair" || unlisted) ? await pairByAddress(chain, l.quote) : null;
   const stockQuote = quote.key === "stock" ? stockByAddress(chain, l.quote) : null;
   // Boost (Base only, while the switch is on): the token's line and TWIG's price for the dialog; a failed read shows no panel
   const boostable = chain === BOOST_CHAIN && boostEnabled();
@@ -200,7 +204,7 @@ export default async function TokenPage({ params, searchParams }: { params: Prom
                 <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-muted sm:gap-x-1.5">
                   <span className="font-mono text-body">{l.symbol}</span>
                   <span aria-hidden="true" className="max-sm:hidden">·</span>
-                  {quote.key === "twig" ? <TwigBadge label="Paired with TWIG" /> : quote.key === "gitlawb" ? <GitlawbBadge label="Paired with GITLAWB" /> : quote.key === "museworld" ? <MuseworldBadge label="Paired with MUSEWORLD" /> : <span>paired with {quote.symbol}</span>}
+                  {quote.key === "twig" ? <TwigBadge label="Paired with TWIG" /> : quote.key === "gitlawb" ? <GitlawbBadge label="Paired with GITLAWB" /> : quote.key === "pair" ? <Link href={pairPath(chain, l.quote)} className="rounded-md focus-visible:outline-2 focus-visible:outline-brand"><CommunityPairBadge symbol={quote.symbol} logo={l.quote_logo} label={`Paired with ${quote.symbol}`} /></Link> : <span>paired with {quote.symbol}</span>}
                   {unlisted ? <UnlistedPairBadge symbol={quote.symbol} /> : null}
                   <span aria-hidden="true" className="max-sm:hidden">·</span>
                   <span title={new Date(l.block_time).toUTCString()}>launched {ago(l.block_time, now)} ago</span>
@@ -284,7 +288,8 @@ export default async function TokenPage({ params, searchParams }: { params: Prom
                   <Row k="Launched" v={new Date(l.block_time).toUTCString().replace(" GMT", " UTC")} />
                 </dl>
                 {unlisted ? <p className="mt-4 text-xs leading-relaxed text-muted text-pretty">Paired with {quote.symbol}, a token openlaunch does not list. The launch contracts accept any ERC-20 as the pair; its name here is what its own contract reports, so check the pair token address above. Prices are in {quote.symbol} only, with no USD figure, and this launch is not ranked in Trending.</p> : null}
-                {quote.key === "museworld" ? <p className="mt-4 text-xs leading-relaxed text-muted text-pretty">Paired with MUSEWORLD, the official token of <a href={MUSEWORLD_SITE} target="_blank" rel="noreferrer" className="underline decoration-line underline-offset-2 hover:text-ink">Museworld</a>, where AI agents launch their tokens. {mode === "free" ? "This pool has no trading fee." : mode === "burn" ? "Trading fees on this pool are burned as MUSEWORLD when collected." : "Trading fees on this pool are paid out in MUSEWORLD."} USD figures use the MUSEWORLD/GITLAWB pool on openlaunch (checked against its 30-minute average) and GITLAWB&apos;s own price.</p> : null}
+                {quote.key === "pair" ? <p className="mt-4 text-xs leading-relaxed text-muted text-pretty">{PAIR_COPY.about(quote.symbol)} {mode === "free" ? "This pool has no trading fee." : mode === "burn" ? `Trading fees on this pool are burned as ${quote.symbol} when collected.` : `Trading fees on this pool are paid out in ${quote.symbol}.`}{pairRec ? ` USD figures use ${PAIR_PRICE_KIND_LABEL[pairRec.price_kind]}, and the price of the token on its other side.` : ""} <Link href={pairPath(chain, l.quote)} className="underline decoration-line underline-offset-2 hover:text-ink">The pair&apos;s checks and record</Link></p> : null}
+                {unlisted && pairRec && pairRec.status !== "listed" ? <p className="mt-2 text-xs leading-relaxed text-warm-ink text-pretty">{pairRec.status === "suspended" ? PAIR_COPY.suspended(pairRec.symbol, pairRec.status_reason) : PAIR_COPY.delisted(pairRec.symbol)} <Link href={pairPath(chain, l.quote)} className="underline decoration-line underline-offset-2 hover:text-ink">Its record</Link></p> : null}
                 {stockQuote ? <p className="mt-4 text-xs leading-relaxed text-muted text-pretty">Paired with {stockQuote.name} ({stockQuote.symbol}), a third-party tokenized stock. These securities are not offered to US persons. The quote asset is identified from the issuer registry, not its token name.</p> : null}
                 {quote.key === "twig" ? <p className="mt-4 text-xs leading-relaxed text-muted text-pretty">Paired with TWIG, <a href={TWIG_SITE} target="_blank" rel="noreferrer" className="underline decoration-line underline-offset-2 hover:text-ink">Twigpine</a>&apos;s token on Base: a 1:1 wrapper of GITLAWB that anyone can wrap or unwrap at <a href={TWIG_WRAP_URL} target="_blank" rel="noreferrer" className="underline decoration-line underline-offset-2 hover:text-ink">wrap.twigpine.com</a>, with no fee. {mode === "free" ? "This pool has no trading fee." : mode === "burn" ? "Trading fees on this pool are burned as TWIG when collected." : "Trading fees on this pool are paid out in TWIG."} USD figures use GITLAWB&apos;s price (one TWIG unwraps to one GITLAWB), from the Uniswap v4 WETH/GITLAWB pool on Base.</p> : null}
                 {quote.key === "gitlawb" ? <p className="mt-4 text-xs leading-relaxed text-muted text-pretty">Paired with GITLAWB, <a href={GITLAWB_SITE} target="_blank" rel="noreferrer" className="underline decoration-line underline-offset-2 hover:text-ink">Twigpine</a>&apos;s token{GITLAWB_ORIGIN[chain]}. {mode === "free" ? "This pool has no trading fee." : mode === "burn" ? "Trading fees on this pool are burned as GITLAWB when collected." : "Trading fees on this pool are paid out in GITLAWB."} USD figures use the Uniswap v4 WETH/GITLAWB pool price on Base.</p> : null}
