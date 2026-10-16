@@ -74,8 +74,9 @@ test("the fee: $200 at the LOWER of spot and average, rounded up to 100K TWIG; n
 });
 
 test("a burn's value: the locked price inside the lock, the price when indexed after it; paid within 2%", () => {
-  const quote = { priceUsd: 0.0000164, until: 1_000 };
+  const quote = { priceUsd: 0.0000164, from: 100, until: 1_000 };
   assert.deepEqual(pairBurnUsd(12_200_000n, 999, quote, 0.00001), { usd: 12_200_000 * 0.0000164, by: "quote" });
+  assert.equal(pairBurnUsd(12_200_000n, 99, quote, 0.00001)!.by, "live", "sent before this lock began: not at its price");
   const late = pairBurnUsd(12_200_000n, 1_001, quote, 0.00001)!;
   assert.equal(late.by, "live");
   assert.ok(Math.abs(late.usd - 122) < 1e-9);
@@ -152,6 +153,41 @@ test("the fee is one plain TWIG transfer to 0x…dEaD: simulated, credited to th
   assert.match(page, /never offer to send the same TWIG again/);
 });
 
+/* ── review fixes (2026-10-16) ── */
+
+test("nothing holds a token's place for good: unpaid applications expire after 48 hours, closed review windows too", () => {
+  const s = src("pairApplyServer.ts");
+  const exp = s.slice(s.indexOf("export async function expireStaleApplications"), s.indexOf("/** Whether a wallet has a visible profile"));
+  assert.match(exp, /a\.status = 'open' AND a\.paid_usd = 0 AND a\.created_at < now\(\)/);
+  assert.match(exp, /a\.quote_until IS NULL OR a\.quote_until < now\(\) - interval '1 hour'/, "never under a live quote");
+  assert.match(exp, /NOT EXISTS \(SELECT 1 FROM bb_pair_burns b WHERE b\.application_id = a\.id\)/, "never once anything was burned for it");
+  assert.match(exp, /a\.status = 'changes' AND a\.paid_at < now\(\)/);
+  const apply = s.slice(s.indexOf("export async function applicantAction"));
+  assert.ok(apply.indexOf("await expireStaleApplications(chain, address);") < apply.indexOf("INSERT INTO bb_pair_applications"));
+  assert.match(apply, /pg_advisory_xact_lock\(hashtext\(\$\{`pair-apply:\$\{wallet\}`\}\)\)/, "the per-wallet cap holds under parallel requests");
+  assert.match(src("loop.ts"), /void revaluePairBurns\(\)/);
+});
+
+test("burns: the fact first, then its value, then the total; each step heals on the next pass", () => {
+  const s = src("pairApplyServer.ts");
+  const rec = s.slice(s.indexOf("export async function recordPairBurn"), s.indexOf("async function valueBurn"));
+  assert.ok(rec.indexOf("INSERT INTO bb_pair_burns") < rec.indexOf("await valueBurn("), "inserted before any price read");
+  assert.match(rec, /if \(cur && cur\.usd === null\) await valueBurn/, "a re-fed burn is only valued if it still has no value");
+  assert.match(rec, /await settleApplication\(row\.application_id\);/);
+  assert.match(s, /AND usd IS NULL RETURNING tx_hash/);
+  assert.match(s, /SET quote_twig = NULL, quote_price_usd = NULL, quote_at = NULL, quote_until = NULL WHERE id = \$\{appId\} AND status = 'open'/, "a landed burn spends its lock: the next quote is for what is still due");
+  assert.match(s, /JOIN bb_pair_applications a ON a\.id = b\.application_id WHERE b\.usd IS NULL/, "unvalued burns are valued later");
+  assert.match(s, /precheck = COALESCE\(\$\{pre \? db\.json\(pre\) : null\}, precheck\)/, "another review sees the token as it is now");
+});
+
+test("the fee step never offers to send again while a sent transfer is not indexed", () => {
+  const page = src("../../components/launchpad/PairApplication.tsx");
+  assert.match(page, /if \(!address \|\| !q \|\| lock\.current \|\| waiting\) return;/);
+  assert.match(page, /const waiting = sent !== null && !indexed && app\.status === "open";/);
+  assert.match(page, /window\.sessionStorage\.setItem\(sentKey, h\)/, "kept across a reload");
+  assert.match(page, /\{app\.status === "open" && waiting \? \(/);
+});
+
 /* ── wiring ── */
 
 test("server: verified identity, a passing check, signatures before writes, a lock never replaced, approval through the listing's own checks", () => {
@@ -163,8 +199,11 @@ test("server: verified identity, a passing check, signatures before writes, a lo
   assert.deepEqual([...at].sort((a, b) => a - b), at);
   assert.match(s, /x_status = 'verified' AND NOT hidden AND deleted_at IS NULL/);
   assert.match(s, /WHERE id = \$\{id\} AND status = 'open' AND \(quote_until IS NULL OR quote_until <= now\(\)\) RETURNING \*/);
-  assert.match(s, /const w = await writeListing\(chain, app\.address,/);
-  assert.match(s, /WHERE id = \$\{id\} AND status = 'paid'`;/, "a decision applies once");
+  const decide = s.slice(s.indexOf("export async function reviewApplication"));
+  assert.ok(decide.indexOf("AND status = ${app.status} RETURNING id") < decide.indexOf("await writeListing(chain, app.address,"), "the decision is claimed before anything is listed");
+  assert.match(decide, /if \(claimed\.length === 0\) return fail\("this application changed meanwhile: reload", 409\);/);
+  assert.match(decide, /SET status = 'paid', reviews_used = \$\{app\.reviews_used\}[^`]*WHERE id = \$\{id\} AND status = 'approved'/, "a failed listing gives the review back");
+  assert.match(decide, /decision === "reject" \? \["paid", "open", "changes"\]/, "an admin can close an application nobody pays for");
   assert.match(src("../../../db/schema.sql"), /CREATE UNIQUE INDEX IF NOT EXISTS bb_pair_applications_open_idx ON bb_pair_applications \(chain_id, address\) WHERE status IN \('open', 'paid', 'changes'\);/);
   const idx = src("indexer.ts");
   assert.equal(idx.match(/else await applyPairBurn\(chain, l as/g)?.length, 2, "both the range scan and the receipt path record pair fees");

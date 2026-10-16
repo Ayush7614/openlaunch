@@ -3,6 +3,7 @@ import { pollAll } from "./indexer";
 import { recheckProfiles } from "@/lib/profiles/server";
 import { computePointsIfDue } from "@/lib/points/server";
 import { pairsTick } from "./pairsServer";
+import { revaluePairBurns } from "./pairApplyServer";
 
 /** In-process launchpad poller (same shape as src/lib/syncLoop.ts). */
 const DEFAULT_MS = 15_000;
@@ -36,6 +37,7 @@ export function startLaunchSyncLoop(): boolean {
     void computePointsIfDue().catch((err) => console.warn("[points] compute:", err instanceof Error ? err.message : err));
     // community pairs: v4 price samples every minute, each pair's checks about hourly (self-throttled, one machine per pair); not awaited
     void pairsTick().catch((err) => console.warn("[pairs] tick:", err instanceof Error ? err.message : err));
+    void revaluePairBurns().catch((err) => console.warn("[pairs] applications:", err instanceof Error ? err.message : err));
   };
   const timer = setInterval(() => void tick(), interval);
   timer.unref();

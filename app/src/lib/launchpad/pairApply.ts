@@ -81,9 +81,9 @@ export function pairFeeQuote(usd: number, spot: number | null, twap: number | nu
   return { whole, priceUsd: price };
 }
 
-/** What one burn is worth: at the locked quote when it was sent inside the lock, else at the price when indexed (null = no price yet). */
-export function pairBurnUsd(whole: bigint, sentAt: number, quote: { priceUsd: number; until: number } | null, liveUsd: number | null): { usd: number; by: "quote" | "live" } | null {
-  if (quote && sentAt <= quote.until && quote.priceUsd > 0) return { usd: Number(whole) * quote.priceUsd, by: "quote" };
+/** What one burn is worth: at the locked quote when it was sent inside that lock (not before it began), else at the price when indexed (null = no price yet). */
+export function pairBurnUsd(whole: bigint, sentAt: number, quote: { priceUsd: number; from: number; until: number } | null, liveUsd: number | null): { usd: number; by: "quote" | "live" } | null {
+  if (quote && sentAt >= quote.from && sentAt <= quote.until && quote.priceUsd > 0) return { usd: Number(whole) * quote.priceUsd, by: "quote" };
   if (liveUsd !== null && liveUsd > 0) return { usd: Number(whole) * liveUsd, by: "live" };
   return null;
 }
@@ -91,7 +91,9 @@ export function isPaid(paidUsd: number, feeUsd: number): boolean {
   return paidUsd >= feeUsd * (1 - PAIR_FEE_TOLERANCE);
 }
 
-export type PairApplicationStatus = "open" | "paid" | "changes" | "approved" | "rejected";
+export type PairApplicationStatus = "open" | "paid" | "changes" | "approved" | "rejected" | "expired";
+/** An application nobody paid for stops holding its token's place after 48 hours (anyone may then apply again). */
+export const PAIR_UNPAID_EXPIRE_MS = 48 * 3_600_000;
 /** The applicant may ask for another review: changes were asked, reviews remain, inside 60 days of paying. */
 export function canAskAgain(a: { status: PairApplicationStatus; reviews_used: number; paid_at: number | null }, now: number): boolean {
   return a.status === "changes" && a.reviews_used < PAIR_REVIEWS_MAX && a.paid_at !== null && now - a.paid_at < PAIR_REVIEW_WINDOW_MS;

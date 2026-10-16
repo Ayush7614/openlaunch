@@ -562,12 +562,13 @@ CREATE TABLE IF NOT EXISTS bb_pair_applications (
   description     text,
   proof_url       text,
   precheck        jsonb NOT NULL,                           -- the pre-check as it stood when the application was made
-  status          text NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'paid', 'changes', 'approved', 'rejected')),
+  status          text NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'paid', 'changes', 'approved', 'rejected', 'expired')),
   fee_usd         double precision NOT NULL,
   paid_usd        double precision NOT NULL DEFAULT 0,
   paid_at         timestamptz,
   quote_twig      numeric(78,0),                            -- the locked quote: whole TWIG, its USD price, until when
   quote_price_usd double precision,
+  quote_at        timestamptz,                              -- when the lock started: a burn sent before it is not at its price
   quote_until     timestamptz,
   reviews_used    integer NOT NULL DEFAULT 0,
   reason          text,                                     -- the last decision's reason, shown to the applicant

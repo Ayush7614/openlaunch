@@ -13,6 +13,8 @@ import {
   PAIR_FEE_TOLERANCE,
   PAIR_QUOTE_LOCK_MS,
   PAIR_REVIEWS_MAX,
+  PAIR_REVIEW_WINDOW_MS,
+  PAIR_UNPAID_EXPIRE_MS,
   applicationCode,
   buildPairApplyMessage,
   buildPairReviewMessage,
@@ -46,6 +48,7 @@ export async function precheckToken(chain: ChainKey, address: string): Promise<P
 }
 
 type AppRow = {
+  quote_at: Date | null;
   id: string; chain_id: number; address: string; applicant: string; code: string; symbol: string; name: string; decimals: number;
   price_kind: PairPriceKind; price_pool: string; price_quote: string; price_hook: string | null; logo_url: string | null; website: string | null; x_handle: string | null; description: string | null; proof_url: string | null;
   precheck: PairPrecheck; status: PairApplicationStatus; fee_usd: number; paid_usd: number; paid_at: Date | null; quote_twig: string | null; quote_price_usd: number | null; quote_until: Date | null;
@@ -95,6 +98,26 @@ export async function listApplications(): Promise<PairApplicationPublic[]> {
   return rows.map((r) => publicOf(r, []));
 }
 
+/**
+ * Applications that no longer hold their token's place: unpaid (no fee and no burn at all) after 48 hours, and "changes"
+ * whose 60-day review window has closed. Both become "expired", so a token is never blocked by an abandoned one. Run
+ * before every new application for the token, and from the sync loop for all of them.
+ */
+export async function expireStaleApplications(chain?: ChainKey, address?: string): Promise<number> {
+  const db = maybeDb();
+  if (!db) return 0;
+  const scope = chain && address ? db`AND chain_id = ${chainIdOf(chain)} AND address = ${address}` : db``;
+  const rows = await db`
+    UPDATE bb_pair_applications a SET status = 'expired', reason = CASE WHEN a.status = 'open' THEN 'Not paid within 48 hours.' ELSE 'The review window closed.' END, decided_at = now()
+     WHERE ((a.status = 'open' AND a.paid_usd = 0 AND a.created_at < now() - ${`${PAIR_UNPAID_EXPIRE_MS / 1000} seconds`}::interval
+             -- never while a fee quote is live, nor in the hour after it (a transfer sent under it may still be indexing)
+             AND (a.quote_until IS NULL OR a.quote_until < now() - interval '1 hour')
+             AND NOT EXISTS (SELECT 1 FROM bb_pair_burns b WHERE b.application_id = a.id))
+        OR (a.status = 'changes' AND a.paid_at < now() - ${`${PAIR_REVIEW_WINDOW_MS / 1000} seconds`}::interval)) ${scope}
+    RETURNING id`;
+  return rows.length;
+}
+
 /** Whether a wallet has a visible profile with a verified X account: the identity an application rests on. */
 async function verifiedProfile(wallet: string): Promise<boolean> {
   const db = maybeDb()!;
@@ -133,21 +156,28 @@ export async function applicantAction(b: Record<string, unknown>): Promise<{ ok:
 
   if (action === "apply") {
     if (!(await verifiedProfile(wallet))) return fail("applying needs an openlaunch profile with a verified X account", 403);
-    const [open] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM bb_pair_applications WHERE applicant = ${wallet} AND status IN ('open', 'paid', 'changes')`;
-    if (open.n >= PAIR_APPLY_OPEN_MAX) return fail(`a wallet may have ${PAIR_APPLY_OPEN_MAX} applications in progress at once`, 429);
+    await expireStaleApplications(chain, address);
     const pre = await precheckToken(chain, address);
     if (!pre.ok) return fail("the token does not pass the free check yet: nothing to apply for", 400);
     const src = pre.sources.find((s) => s.usable && s.kind === l!.price_kind && s.pool === l!.price_pool && s.quote === l!.price_quote && s.hook === l!.price_hook);
     if (!src) return fail("pick one of the price pools the check found", 400);
     try {
-      const [row] = await db<{ id: string }[]>`
-        INSERT INTO bb_pair_applications (chain_id, address, applicant, code, symbol, name, decimals, price_kind, price_pool, price_quote, price_hook, logo_url, website, x_handle, description, precheck, fee_usd)
-        VALUES (${cid}, ${address}, ${wallet}, '', ${pre.symbol}, ${pre.name}, ${pre.decimals}, ${src.kind}, ${src.pool}, ${src.quote}, ${src.hook || null}, ${l!.logo || null}, ${l!.website || null}, ${l!.x_handle || null}, ${l!.description || null}, ${db.json(pre)}, ${pairListingUsd()})
-        RETURNING id`;
-      const newId = Number(row.id);
-      const code = applicationCode(newId);
-      await db`UPDATE bb_pair_applications SET code = ${code} WHERE id = ${newId}`;
-      return { ok: true, id: newId, code };
+      // the cap and the insert under one per-wallet lock: parallel requests cannot all pass the count
+      const made = await db.begin(async (sql) => {
+        await sql`SELECT pg_advisory_xact_lock(hashtext(${`pair-apply:${wallet}`}))`;
+        const [open] = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM bb_pair_applications WHERE applicant = ${wallet} AND status IN ('open', 'paid', 'changes')`;
+        if (open.n >= PAIR_APPLY_OPEN_MAX) return null;
+        const [row] = await sql<{ id: string }[]>`
+          INSERT INTO bb_pair_applications (chain_id, address, applicant, code, symbol, name, decimals, price_kind, price_pool, price_quote, price_hook, logo_url, website, x_handle, description, precheck, fee_usd)
+          VALUES (${cid}, ${address}, ${wallet}, '', ${pre.symbol}, ${pre.name}, ${pre.decimals}, ${src.kind}, ${src.pool}, ${src.quote}, ${src.hook || null}, ${l!.logo || null}, ${l!.website || null}, ${l!.x_handle || null}, ${l!.description || null}, ${sql.json(pre)}, ${pairListingUsd()})
+          RETURNING id`;
+        const newId = Number(row.id);
+        const code = applicationCode(newId);
+        await sql`UPDATE bb_pair_applications SET code = ${code} WHERE id = ${newId}`;
+        return { id: newId, code };
+      });
+      if (!made) return fail(`a wallet may have ${PAIR_APPLY_OPEN_MAX} applications in progress at once`, 429);
+      return { ok: true, ...made };
     } catch (e) {
       if (uniqueViolation(e)) return fail("this token already has an application in progress", 409);
       throw e;
@@ -157,12 +187,14 @@ export async function applicantAction(b: Record<string, unknown>): Promise<{ ok:
   if (!app) return fail("no such application", 404);
   if (app.applicant !== wallet) return fail("only the wallet that applied can do that", 403);
   if (action === "proof") {
-    if (app.status === "approved" || app.status === "rejected") return fail("this application is decided", 409);
+    if (app.status === "approved" || app.status === "rejected" || app.status === "expired") return fail("this application is decided", 409);
     await db`UPDATE bb_pair_applications SET proof_url = ${proof} WHERE id = ${id!}`;
   } else {
     if (!canAskAgain({ status: app.status, reviews_used: app.reviews_used, paid_at: app.paid_at ? new Date(app.paid_at).getTime() : null }, Date.now())) return fail("no review left to ask for", 409);
-    forgetPrecheck(chain, address); // the reviewer sees the token as it is now
-    await db`UPDATE bb_pair_applications SET status = 'paid', reason = NULL WHERE id = ${id!} AND status = 'changes'`;
+    // the reviewer judges the token as it is now: the check is run again and stored with the application
+    forgetPrecheck(chain, address);
+    const pre = await precheckToken(chain, address).catch(() => null);
+    await db`UPDATE bb_pair_applications SET status = 'paid', reason = NULL, precheck = COALESCE(${pre ? db.json(pre) : null}, precheck) WHERE id = ${id!} AND status = 'changes'`;
   }
   return { ok: true, id: id!, code: app.code };
 }
@@ -181,41 +213,72 @@ export async function quoteFee(id: number): Promise<PairApplicationPublic["quote
   const q = pairFeeQuote(due, parts.spot, parts.twap);
   if (!q) return fail("TWIG has no price right now: try again in a minute", 503);
   const [row] = await db<AppRow[]>`
-    UPDATE bb_pair_applications SET quote_twig = ${q.whole.toString()}, quote_price_usd = ${q.priceUsd}, quote_until = now() + ${`${PAIR_QUOTE_LOCK_MS / 1000} seconds`}::interval
+    UPDATE bb_pair_applications SET quote_twig = ${q.whole.toString()}, quote_price_usd = ${q.priceUsd}, quote_at = now(), quote_until = now() + ${`${PAIR_QUOTE_LOCK_MS / 1000} seconds`}::interval
      WHERE id = ${id} AND status = 'open' AND (quote_until IS NULL OR quote_until <= now()) RETURNING *`;
   const fresh = row ?? (await db<AppRow[]>`SELECT * FROM bb_pair_applications WHERE id = ${id}`)[0];
   return publicOf(fresh, []).quote;
 }
 
 /**
- * One burn the indexer found (pairBurnFromTransfer): recorded as a fact whatever it names, valued at the application's
- * locked quote when sent inside the lock, else at TWIG's price now; an application whose burns reach its fee is paid.
+ * One burn the indexer found (pairBurnFromTransfer). The raw fact is inserted first, whatever it names; a burn not yet
+ * valued is then valued (at the application's locked quote when it was sent inside that lock, else at TWIG's price
+ * now), and the application's total is recomputed. Every step is idempotent: the indexer's overlap re-feeds a burn,
+ * and the sync loop revalues any burn left without a value (revaluePairBurns), so a failure part-way heals itself.
  */
 export async function recordPairBurn(chain: ChainKey, row: PairBurnRow, blockTime: Date): Promise<boolean> {
   const db = maybeDb();
   if (!db) return false;
   const cid = chainIdOf(chain);
-  const [app] = await db<AppRow[]>`SELECT * FROM bb_pair_applications WHERE id = ${row.application_id} AND chain_id = ${cid}`;
-  let value: { usd: number; by: "quote" | "live" } | null = null;
-  if (app) {
-    const parts = await gitlawbUsdParts();
-    const live = [parts.spot, parts.twap].filter((p): p is number => p !== null && p > 0);
-    const quote = app.quote_price_usd && app.quote_until ? { priceUsd: app.quote_price_usd, until: new Date(app.quote_until).getTime() } : null;
-    value = pairBurnUsd(BigInt(row.whole), blockTime.getTime(), quote, live.length ? Math.min(...live) : null);
-  }
   const ins = await db`
     INSERT INTO bb_pair_burns (chain_id, tx_hash, log_index, application_id, sender, twig, usd, priced_by, block_number, block_time)
-    VALUES (${cid}, ${row.tx_hash}, ${row.log_index}, ${row.application_id}, ${row.sender}, ${row.whole}, ${value?.usd ?? null}, ${value?.by ?? null}, ${row.block_number}, ${blockTime})
+    VALUES (${cid}, ${row.tx_hash}, ${row.log_index}, ${row.application_id}, ${row.sender}, ${row.whole}, NULL, NULL, ${row.block_number}, ${blockTime})
     ON CONFLICT DO NOTHING RETURNING tx_hash`;
-  if (ins.length === 0 || !app) return ins.length > 0;
+  const [cur] = ins.length ? [{ usd: null }] : await db<{ usd: number | null }[]>`SELECT usd FROM bb_pair_burns WHERE chain_id = ${cid} AND tx_hash = ${row.tx_hash} AND log_index = ${row.log_index}`;
+  if (cur && cur.usd === null) await valueBurn(cid, row.tx_hash, row.log_index, row.application_id, BigInt(row.whole), blockTime);
+  await settleApplication(row.application_id);
+  return ins.length > 0;
+}
+
+async function valueBurn(cid: number, tx: string, log: number, appId: number, whole: bigint, sentAt: Date): Promise<void> {
+  const db = maybeDb()!;
+  const [app] = await db<AppRow[]>`SELECT * FROM bb_pair_applications WHERE id = ${appId} AND chain_id = ${cid}`;
+  if (!app) return; // names no application (yet): kept as a fact, never counted
+  const parts = await gitlawbUsdParts();
+  const live = [parts.spot, parts.twap].filter((p): p is number => p !== null && p > 0);
+  const quote = app.quote_price_usd && app.quote_at && app.quote_until ? { priceUsd: app.quote_price_usd, from: new Date(app.quote_at).getTime(), until: new Date(app.quote_until).getTime() } : null;
+  const v = pairBurnUsd(whole, sentAt.getTime(), quote, live.length ? Math.min(...live) : null);
+  if (!v) return;
+  const done = await db`UPDATE bb_pair_burns SET usd = ${v.usd}, priced_by = ${v.by} WHERE chain_id = ${cid} AND tx_hash = ${tx} AND log_index = ${log} AND usd IS NULL RETURNING tx_hash`;
+  // a burn has landed: the lock it was sent under is spent, so the next quote is for what is still due
+  if (done.length) await db`UPDATE bb_pair_applications SET quote_twig = NULL, quote_price_usd = NULL, quote_at = NULL, quote_until = NULL WHERE id = ${appId} AND status = 'open'`;
+}
+
+/** An application's total from its valued burns; paid once it reaches the fee (within 2%). Idempotent. */
+async function settleApplication(appId: number): Promise<void> {
+  const db = maybeDb()!;
   await db`
     UPDATE bb_pair_applications a SET
       paid_usd = s.total,
       status = CASE WHEN a.status = 'open' AND s.total >= a.fee_usd * ${1 - PAIR_FEE_TOLERANCE} THEN 'paid' ELSE a.status END,
       paid_at = CASE WHEN a.paid_at IS NULL AND s.total >= a.fee_usd * ${1 - PAIR_FEE_TOLERANCE} THEN now() ELSE a.paid_at END
-      FROM (SELECT COALESCE(sum(usd), 0) AS total FROM bb_pair_burns WHERE application_id = ${row.application_id}) s
-     WHERE a.id = ${row.application_id}`;
-  return true;
+      FROM (SELECT COALESCE(sum(usd), 0) AS total FROM bb_pair_burns WHERE application_id = ${appId}) s
+     WHERE a.id = ${appId} AND a.paid_usd IS DISTINCT FROM s.total`;
+}
+
+let lastRevalue = 0;
+/** From the sync loop, once a minute: value burns left unvalued (no price when they landed) and settle their applications; expire stale applications. */
+export async function revaluePairBurns(now = Date.now()): Promise<void> {
+  const db = maybeDb();
+  if (!db || now - lastRevalue < 60_000) return;
+  lastRevalue = now;
+  const rows = await db<{ chain_id: number; tx_hash: string; log_index: number; application_id: string; twig: string; block_time: Date }[]>`
+    SELECT b.chain_id, b.tx_hash, b.log_index, b.application_id, b.twig::text AS twig, b.block_time FROM bb_pair_burns b
+      JOIN bb_pair_applications a ON a.id = b.application_id WHERE b.usd IS NULL LIMIT 20`;
+  for (const r of rows) {
+    await valueBurn(r.chain_id, r.tx_hash, r.log_index, Number(r.application_id), BigInt(r.twig), new Date(r.block_time));
+    await settleApplication(Number(r.application_id));
+  }
+  await expireStaleApplications();
 }
 
 /**
@@ -242,16 +305,25 @@ export async function reviewApplication(b: Record<string, unknown>): Promise<{ o
   if (!(await consumeNonce(b.nonce, wallet))) return fail("nonce already used", 401);
   const [app] = await db<AppRow[]>`SELECT * FROM bb_pair_applications WHERE id = ${id}`;
   if (!app) return fail("no such application", 404);
-  if (app.status !== "paid") return fail("only a paid application waiting for review can be decided", 409);
+  // an admin may close (reject) any application still in progress, so nothing can hold a token's place; approving and
+  // asking for changes need a paid one
+  const allowed: PairApplicationStatus[] = decision === "reject" ? ["paid", "open", "changes"] : ["paid"];
+  if (!allowed.includes(app.status)) return fail(decision === "reject" ? "this application is already decided" : "only a paid application waiting for review can be decided", 409);
   const chain = chainKeyOf(app.chain_id) as ChainKey;
-  if (decision === "approve") {
-    const w = await writeListing(chain, app.address, { logo: app.logo_url ?? "", website: app.website ?? "", x_handle: app.x_handle ?? "", description: app.description ?? "", in_form: true, price_kind: app.price_kind, price_pool: app.price_pool, price_quote: app.price_quote, price_hook: app.price_hook ?? "" }, wallet, "list");
-    if (!w.ok) return fail(`not listed: ${w.error}`, w.status);
-    await reloadPairs(); // this machine shows the new pair at once; the others within 15 s
-  }
-  const used = app.reviews_used + 1;
+  const used = app.status === "paid" ? app.reviews_used + 1 : app.reviews_used;
   // asking for changes with no review left ends it: there is nothing more to ask for
   const status: PairApplicationStatus = decision === "approve" ? "approved" : decision === "reject" || used >= PAIR_REVIEWS_MAX ? "rejected" : "changes";
-  await db`UPDATE bb_pair_applications SET status = ${status}, reviews_used = ${used}, reason = ${reason || null}, decided_by = ${wallet}, decided_at = now() WHERE id = ${id} AND status = 'paid'`;
+  // claim the decision first: two admins deciding at once cannot both win, and a listing never runs for a lost claim
+  const claimed = await db`UPDATE bb_pair_applications SET status = ${status}, reviews_used = ${used}, reason = ${reason || null}, decided_by = ${wallet}, decided_at = now() WHERE id = ${id} AND status = ${app.status} RETURNING id`;
+  if (claimed.length === 0) return fail("this application changed meanwhile: reload", 409);
+  if (decision === "approve") {
+    const w = await writeListing(chain, app.address, { logo: app.logo_url ?? "", website: app.website ?? "", x_handle: app.x_handle ?? "", description: app.description ?? "", in_form: true, price_kind: app.price_kind, price_pool: app.price_pool, price_quote: app.price_quote, price_hook: app.price_hook ?? "" }, wallet, "list");
+    if (!w.ok) {
+      // not listed: the application goes back to waiting for review, its review not used
+      await db`UPDATE bb_pair_applications SET status = 'paid', reviews_used = ${app.reviews_used}, reason = ${app.reason}, decided_by = ${app.decided_by}, decided_at = ${app.decided_at} WHERE id = ${id} AND status = 'approved'`;
+      return fail(`not listed: ${w.error}`, w.status);
+    }
+    await reloadPairs(); // this machine shows the new pair at once; the others within 15 s
+  }
   return { ok: true, application: await getApplication(id) };
 }

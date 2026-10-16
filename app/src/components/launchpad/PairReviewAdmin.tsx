@@ -83,6 +83,12 @@ export default function PairReviewAdmin() {
           <button type="button" onClick={() => setOpen(open === a.id ? null : a.id)} className="text-xs text-muted underline">{open === a.id ? "Hide the check" : `The check (${a.precheck.checks.filter((c) => !c.hard && c.pass === false).length} flags)`}</button>
           {open === a.id ? <PrecheckReport p={a.precheck} /> : null}
           {a.reason ? <p className="text-xs text-muted">Last reason: {a.reason}</p> : null}
+          {a.status === "open" || a.status === "changes" ? (
+            <div className="flex flex-wrap gap-2">
+              <input aria-label={`Reason for closing ${a.symbol}`} value={reasons[a.id] ?? ""} onChange={(e) => setReasons((r) => ({ ...r, [a.id]: e.target.value }))} placeholder="Reason for closing (the applicant sees it)" maxLength={300} className="min-h-9 min-w-0 flex-1 rounded-lg border border-line bg-paper px-3 text-xs text-ink" />
+              <button type="button" disabled={!address || busy || !(reasons[a.id] ?? "").trim()} onClick={() => void decide(a.id, "reject")} className={`${btn.secondarySm} text-down-ink`}>Close</button>
+            </div>
+          ) : null}
           {a.status === "paid" ? (
             <div className="flex flex-wrap gap-2">
               <input aria-label={`Reason for ${a.symbol}`} value={reasons[a.id] ?? ""} onChange={(e) => setReasons((r) => ({ ...r, [a.id]: e.target.value }))} placeholder="Reason (the applicant sees it)" maxLength={300} className="min-h-9 min-w-0 flex-1 rounded-lg border border-line bg-paper px-3 text-xs text-ink" />

@@ -38,7 +38,30 @@ export default function PairApplication({ initial, open }: { initial: PairApplic
   const [proof, setProof] = useState(initial.proof_url ?? "");
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // a transfer this browser sent for this application: until the indexer records it, nothing offers to send again
+  const sentKey = `pair-fee-sent:${initial.id}`;
   const [sent, setSent] = useState<Hex | null>(null);
+  // read after mount (the server render has no storage): a reload mid-indexing still shows "Sent", never the button
+  useEffect(() => {
+    const id = setTimeout(() => {
+      try {
+        const v = window.sessionStorage.getItem(sentKey);
+        if (v && /^0x[0-9a-f]{64}$/i.test(v)) setSent(v as Hex);
+      } catch {
+        // storage unavailable
+      }
+    }, 0);
+    return () => clearTimeout(id);
+  }, [sentKey]);
+  const remember = (h: Hex | null) => {
+    setSent(h);
+    try {
+      if (h) window.sessionStorage.setItem(sentKey, h);
+      else window.sessionStorage.removeItem(sentKey);
+    } catch {
+      // storage unavailable: the in-memory guard still holds for this page
+    }
+  };
   const [now, setNow] = useState(() => nowMs());
   const lock = useRef(false);
   const mine = Boolean(address && address.toLowerCase() === app.applicant);
@@ -52,6 +75,16 @@ export default function PairApplication({ initial, open }: { initial: PairApplic
       // keep what is shown
     }
   }, [app.id]);
+  useEffect(() => {
+    // the sent transfer is in the application's burns: the guard has done its job
+    if (sent && app.burns.some((b) => b.tx_hash === sent.toLowerCase())) {
+      try {
+        window.sessionStorage.removeItem(sentKey);
+      } catch {
+        // nothing stored
+      }
+    }
+  }, [app.burns, sent, sentKey]);
   useEffect(() => {
     const t = setInterval(() => {
       setNow(nowMs());
@@ -85,6 +118,18 @@ export default function PairApplication({ initial, open }: { initial: PairApplic
     }
   }
 
+  /** Ask the server to index the sent transfer now (the receipt path), then reload. Never sends anything. */
+  async function recheck() {
+    if (!sent || busy) return;
+    setBusy("recheck");
+    try {
+      await fetch(`/api/launch/sync?chain=${CHAIN}&tx=${sent}`, { method: "POST" }).catch(() => {});
+      await reload();
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function getQuote() {
     if (busy) return;
     setBusy("quote");
@@ -103,7 +148,7 @@ export default function PairApplication({ initial, open }: { initial: PairApplic
 
   async function pay() {
     const q = app.quote;
-    if (!address || !q || lock.current) return;
+    if (!address || !q || lock.current || waiting) return;
     // the amount must name THIS application in its last digits: never send TWIG that would pay for another one
     if (pairApplicationOf(BigInt(q.amount)) !== app.id) {
       setMsg({ ok: false, text: "That amount does not name this application. Nothing was sent." });
@@ -118,7 +163,7 @@ export default function PairApplication({ initial, open }: { initial: PairApplic
       const wallet = await getWalletClient(config, { chainId: BASE.id });
       const { request } = await pub.simulateContract({ address: TWIG_ADDRESS, abi: ERC20_TRANSFER_ABI, functionName: "transfer", args: [DEAD, BigInt(q.amount)], account: address, dataSuffix: BUILDER_DATA_SUFFIX });
       const hash = await wallet.writeContract(request);
-      setSent(hash);
+      remember(hash);
       try {
         const rc = await pub.waitForTransactionReceipt({ hash });
         if (rc.status !== "success") throw new Error("The transfer reverted on-chain. No TWIG was sent; you can try again.");
@@ -141,6 +186,8 @@ export default function PairApplication({ initial, open }: { initial: PairApplic
 
   const q = app.quote;
   const left = q ? Math.max(0, Math.floor((Date.parse(q.until) - now) / 1000)) : 0;
+  const indexed = sent !== null && app.burns.some((b) => b.tx_hash === sent.toLowerCase());
+  const waiting = sent !== null && !indexed && app.status === "open";
   const short = q && bal.data !== undefined && (bal.data as bigint) < BigInt(q.amount);
   const due = Math.max(0, app.fee_usd - app.paid_usd);
   return (
@@ -161,7 +208,7 @@ export default function PairApplication({ initial, open }: { initial: PairApplic
         <p className="rounded-lg border border-line bg-paper px-3 py-2 font-mono text-xs text-ink">{proofPostText(app.code, app.symbol)}</p>
         <a href={intentUrl(proofPostText(app.code, app.symbol), {})} target="_blank" rel="noopener noreferrer" className="text-sm font-semibold text-brand hover:text-ink">Post it on X ↗</a>
         {app.proof_url ? <p className="text-sm text-body">Saved: <a href={app.proof_url} target="_blank" rel="noopener noreferrer" className="underline decoration-line underline-offset-2">{app.proof_url}</a></p> : null}
-        {mine && app.status !== "approved" && app.status !== "rejected" ? (
+        {mine && app.status !== "approved" && app.status !== "rejected" && app.status !== "expired" ? (
           <div className="flex flex-wrap gap-2">
             <input value={proof} onChange={(e) => setProof(e.target.value)} placeholder="https://x.com/<community>/status/…" aria-label="Proof post link" className={`${input} h-10 min-w-0 flex-1 text-sm`} />
             <button type="button" onClick={() => { const url = proofPostUrl(proof); if (url) void sign("proof", { proof: url }); else setMsg({ ok: false, text: "That is not a link to a post on X." }); }} disabled={busy !== null || !proof.trim()} className={btn.secondarySm}>Save</button>
@@ -172,7 +219,12 @@ export default function PairApplication({ initial, open }: { initial: PairApplic
       <div className={`${card} space-y-3 p-5`}>
         <h2 className="text-sm font-semibold text-ink">2 · The fee: ${app.fee_usd} in TWIG</h2>
         <p className="text-sm text-body">{PAIR_APPLY_COPY.feeRule(app.fee_usd)}</p>
-        {app.status === "open" ? (
+        {app.status === "open" && waiting ? (
+          <div className="space-y-2">
+            <p className="text-sm text-ink">Sent. Waiting for it to be indexed, usually seconds: this page updates by itself.</p>
+            <button type="button" onClick={() => void recheck()} disabled={busy !== null} className={btn.secondarySm}>{busy === "recheck" ? "Checking…" : "Check again"}</button>
+          </div>
+        ) : app.status === "open" ? (
           !open ? <p className={helper}>{PAIR_APPLY_COPY.disabled}</p> : !q ? (
             <button type="button" onClick={() => void getQuote()} disabled={busy !== null} className={btn.primarySm}>{busy === "quote" ? "Pricing…" : `Get the amount for $${Math.ceil(due)}`}</button>
           ) : (
@@ -220,5 +272,6 @@ function statusLine(a: PairApplicationPublic): string {
   if (a.status === "paid") return `Application ${a.code}: paid, waiting for review.`;
   if (a.status === "changes") return `Application ${a.code}: the reviewer asked for changes.`;
   if (a.status === "approved") return `Application ${a.code}: approved. ${a.symbol} is a community pair.`;
+  if (a.status === "expired") return `Application ${a.code}: closed. Anyone may apply for ${a.symbol} again.`;
   return `Application ${a.code}: not listed.`;
 }
