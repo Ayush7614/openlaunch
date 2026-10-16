@@ -11,8 +11,9 @@ import { useLive } from "./LiveProvider";
 import LiveNumber from "@/components/LiveNumber";
 import { btn } from "@/components/ui";
 import { WhoName } from "@/components/profile/Who";
+import NamesProvider from "@/components/profile/NamesProvider";
 import type { BoostLane } from "@/lib/launchpad/boostServer";
-import { BOOST_CHAIN, BOOST_COPY, BOOST_FLOOR_TWIG, BOOST_LANE_SIZE, boostEntryLine, boostFuse, boostIgnitions, boostTimeLeft, boostWholeOf, compactWhole, type BoostSource } from "@/lib/launchpad/boost";
+import { BOOST_CHAIN, BOOST_COPY, BOOST_FROM_FLOOR, BOOST_LANE_SIZE, boostEntryLine, boostFuse, boostIgnitions, boostTimeLeft, boostWholeOf, type BoostSource } from "@/lib/launchpad/boost";
 import { capDisplay } from "@/lib/launchpad/market-cap";
 import { explorerAddress, shortAddr } from "@/lib/chainPublic";
 import { setPendingToken } from "@/lib/launchpad/token-transition";
@@ -35,8 +36,7 @@ const EMBERS: readonly { dx: number; dy: number; delay: number; size: number; in
 ];
 /** An ignition is drawn for this long; older entries are dropped when the next one is recorded. */
 const IGNITE_KEEP_MS = 10_000;
-/** "from 100K TWIG": what an open spot asks. */
-const FROM_FLOOR = `from ${compactWhole(Number(BOOST_FLOOR_TWIG))} TWIG`;
+const NO_NAMES = {};
 
 /**
  * The lane's beacon to /api/boost/seen: the lane came on screen, or a card was clicked. sendBeacon outlives the
@@ -138,7 +138,8 @@ export default function BoostedLane({ initial, serverNow, source }: { initial: B
   if (!lane.enabled) return null;
   const items = shown;
   const open = Math.max(0, BOOST_LANE_SIZE - items.length);
-  const entryLine = boostEntryLine(open, lane.entry);
+  // read off the cards shown, so it can never contradict them
+  const entryLine = boostEntryLine(items.map((b) => b.twig));
   const pick = () => setPicking(true);
   return (
     <section ref={section} id="boosted" aria-labelledby="boosted-heading" className="scroll-mt-24 rounded-2xl border border-line bg-card">
@@ -149,7 +150,7 @@ export default function BoostedLane({ initial, serverNow, source }: { initial: B
             {BOOST_COPY.laneTitle}
           </h2>
           {/* what it takes to get in: beside the title from 640px, a line of its own under it on a phone */}
-          {entryLine ? <p className="order-last basis-full text-[12px] text-warm-ink tnum sm:order-none sm:basis-auto">{entryLine}</p> : null}
+          <p className="order-last basis-full text-[12px] text-warm-ink tnum sm:order-none sm:basis-auto">{entryLine}</p>
           <button type="button" onClick={pick} className={`${btn.warmOutlineSm} ml-auto shrink-0`}>
             <Flame size={14} aria-hidden="true" />
             {BOOST_COPY.cta}
@@ -167,112 +168,116 @@ export default function BoostedLane({ initial, serverNow, source }: { initial: B
         </div>
       </details>
       {items.length === 0 ? <p className="border-b border-line px-4 py-4 text-xs leading-relaxed text-muted sm:px-5">{BOOST_COPY.laneEmpty}</p> : null}
-      <ol aria-label="Boosted tokens" className="grid gap-px overflow-hidden rounded-b-2xl bg-line sm:grid-cols-2 lg:grid-cols-5">
-        {items.map((b, i) => {
-          const l = b.launch;
-          const cap = capDisplay(l.fdv_quote, l.quote_usd, { key: l.quote_key, symbol: l.quote_symbol, decimals: l.quote_decimals }).compact;
-          const left = boostTimeLeft(b.last_at, now);
-          const fuse = boostFuse(b.last_at, now);
-          const lit = ignited[l.token];
-          // absent from a machine on the older build while a deploy rolls: no count shown, never "undefined"
-          const clicks = b.clicks ?? 0;
-          // two columns from 640px: an odd last card takes the whole row instead of leaving a hole
-          const lastOdd = i === items.length - 1 && items.length % 2 === 1;
-          // the whole card opens the token (the link's ::after covers it); only the credit's name sits above as its own link
-          return (
-            <motion.li
-              key={l.token}
-              layout={reduced ? false : "position"}
-              transition={{ type: "spring", stiffness: 380, damping: 34 }}
-              // one set of parts, placed by grid areas: a two-line row on a phone, the stacked card from 640px
-              className={`group/card relative grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-3 gap-y-0.5 bg-card px-4 py-3 [grid-template-areas:'link_twig_twig'_'link_clicks_left'_'by_by_by'] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-baseline sm:gap-y-2 sm:pb-3.5 sm:[grid-template-areas:'link_link'_'twig_left'_'by_clicks'] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--color-warm-soft)_70%,var(--color-card))] active:bg-warm-soft motion-reduce:transition-none ${lastOdd ? "sm:col-span-2 lg:col-span-1" : ""}`}
-            >
-              {/* one warm ring per ignition: a new key replays it */}
-              {lit ? <span key={`ring-${lit}`} aria-hidden="true" className="bb-boost-ring pointer-events-none absolute inset-0" /> : null}
-              {/* hover: a still warm edge and an arrow, only under a pointer that hovers; reduced motion keeps the colour */}
-              <span aria-hidden="true" className="pointer-events-none absolute inset-0 opacity-0 shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--color-warm)_40%,transparent)] transition-opacity duration-150 group-hover/card:opacity-100 motion-reduce:transition-none" />
-              <ArrowUpRight size={14} aria-hidden="true" className="pointer-events-none absolute right-3 top-3 text-warm-ink max-sm:hidden opacity-0 transition duration-150 group-hover/card:opacity-100 motion-safe:-translate-x-0.5 motion-safe:translate-y-0.5 motion-safe:group-hover/card:translate-x-0 motion-safe:group-hover/card:translate-y-0 motion-reduce:transition-none" />
-              <Link
-                href={`/t/${l.chain}/${l.token}`}
-                title={`${b.boosts} ${b.boosts === 1 ? "boost" : "boosts"} from ${b.boosters} ${b.boosters === 1 ? "wallet" : "wallets"} · ${clicks} ${clicks === 1 ? "click" : "clicks"} from this lane, in the last 24 hours. The burns are on the token's page.`}
-                onClick={() => {
-                  setPendingToken({ chain: l.chain, token: l.token, name: l.name, symbol: l.symbol, image: l.image_url });
-                  sendSeen({ kind: "click", token: l.token }, source);
-                }}
-                // a middle click opens a tab without a click event
-                onAuxClick={(e) => {
-                  if (e.button === 1) sendSeen({ kind: "click", token: l.token }, source);
-                }}
-                className="flex min-w-0 items-center gap-2.5 outline-none [grid-area:link] after:absolute after:inset-0 after:z-[1] focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand sm:pr-5"
+      {/* the credited wallets' names come with the lane, so the first paint shows them (no address-to-name swap) */}
+      <NamesProvider names={lane.names ?? NO_NAMES}>
+        {/* the list is the lane's places: the boosted cards, then the open ones (buttons into the picker) */}
+        <ol aria-label="Places in the Boosted lane" className="grid gap-px overflow-hidden rounded-b-2xl bg-line sm:grid-cols-2 lg:grid-cols-5">
+          {items.map((b, i) => {
+            const l = b.launch;
+            const cap = capDisplay(l.fdv_quote, l.quote_usd, { key: l.quote_key, symbol: l.quote_symbol, decimals: l.quote_decimals }).compact;
+            const left = boostTimeLeft(b.last_at, now);
+            const fuse = boostFuse(b.last_at, now);
+            const lit = ignited[l.token];
+            // absent from a machine on the older build while a deploy rolls: no count shown, never "undefined"
+            const clicks = b.clicks ?? 0;
+            // two columns from 640px: an odd last card takes the whole row instead of leaving a hole
+            const lastOdd = i === items.length - 1 && items.length % 2 === 1;
+            // the whole card opens the token (the link's ::after covers it); only the credit's name sits above as its own link
+            return (
+              <motion.li
+                key={l.token}
+                layout={reduced ? false : "position"}
+                transition={{ type: "spring", stiffness: 380, damping: 34 }}
+                // one set of parts, placed by grid areas: a two-line row on a phone, the stacked card from 640px
+                className={`group/card relative grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-3 gap-y-0.5 bg-card px-4 py-3 [grid-template-areas:'link_twig_twig'_'link_clicks_left'_'by_by_by'] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-baseline sm:gap-y-2 sm:pb-3.5 sm:[grid-template-areas:'link_link'_'twig_left'_'by_clicks'] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--color-warm-soft)_70%,var(--color-card))] active:bg-warm-soft motion-reduce:transition-none ${lastOdd ? "sm:col-span-2 lg:col-span-1" : ""}`}
               >
-                <TokenAvatar chain={l.chain} token={l.token} symbol={l.symbol} image={l.image_url} size={32} className="shrink-0 rounded-xl transition-transform duration-150 motion-safe:group-hover/card:scale-105 motion-reduce:transition-none" />
-                <span className="min-w-0">
-                  <span className="block truncate text-[13px] font-semibold text-ink">{l.name}</span>
-                  <span className="block truncate text-[11px] text-muted"><span className="font-mono text-body">{l.symbol}</span><span aria-hidden="true"> · </span><span className="sr-only">, market cap </span><span className="font-mono tnum">{cap}</span></span>
+                {/* one warm ring per ignition: a new key replays it */}
+                {lit ? <span key={`ring-${lit}`} aria-hidden="true" className="bb-boost-ring pointer-events-none absolute inset-0" /> : null}
+                {/* hover: a still warm edge and an arrow, only under a pointer that hovers; reduced motion keeps the colour */}
+                <span aria-hidden="true" className="pointer-events-none absolute inset-0 opacity-0 shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--color-warm)_40%,transparent)] transition-opacity duration-150 group-hover/card:opacity-100 motion-reduce:transition-none" />
+                <ArrowUpRight size={14} aria-hidden="true" className="pointer-events-none absolute right-3 top-3 text-warm-ink max-sm:hidden opacity-0 transition duration-150 group-hover/card:opacity-100 motion-safe:-translate-x-0.5 motion-safe:translate-y-0.5 motion-safe:group-hover/card:translate-x-0 motion-safe:group-hover/card:translate-y-0 motion-reduce:transition-none" />
+                <Link
+                  href={`/t/${l.chain}/${l.token}`}
+                  title={`${b.boosts} ${b.boosts === 1 ? "boost" : "boosts"} from ${b.boosters} ${b.boosters === 1 ? "wallet" : "wallets"} · ${clicks} ${clicks === 1 ? "click" : "clicks"} from this lane, in the last 24 hours. The burns are on the token's page.`}
+                  onClick={() => {
+                    setPendingToken({ chain: l.chain, token: l.token, name: l.name, symbol: l.symbol, image: l.image_url });
+                    sendSeen({ kind: "click", token: l.token }, source);
+                  }}
+                  // a middle click opens a tab without a click event
+                  onAuxClick={(e) => {
+                    if (e.button === 1) sendSeen({ kind: "click", token: l.token }, source);
+                  }}
+                  className="flex min-w-0 items-center gap-2.5 outline-none [grid-area:link] after:absolute after:inset-0 after:z-[1] focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand sm:pr-5"
+                >
+                  <TokenAvatar chain={l.chain} token={l.token} symbol={l.symbol} image={l.image_url} size={32} className="shrink-0 rounded-xl transition-transform duration-150 motion-safe:group-hover/card:scale-105 motion-reduce:transition-none" />
+                  <span className="min-w-0">
+                    <span className="block truncate text-[13px] font-semibold text-ink">{l.name}</span>
+                    <span className="block truncate text-[11px] text-muted"><span className="font-mono text-body">{l.symbol}</span><span aria-hidden="true"> · </span><span className="sr-only">, market cap </span><span className="font-mono tnum">{cap}</span></span>
+                  </span>
+                </Link>
+                <span className="relative min-w-0 truncate justify-self-end font-mono text-[12px] font-medium text-warm-ink tnum [grid-area:twig] sm:justify-self-start sm:text-[11px] sm:font-normal">
+                  <LiveNumber value={Number(boostWholeOf(BigInt(b.twig)))} format={TWIG_FORMAT} suffix=" TWIG" />
+                  {lit ? (
+                    <span key={`embers-${lit}`} aria-hidden="true" className="pointer-events-none absolute bottom-1 left-2">
+                      {EMBERS.map((e, k) => (
+                        <span
+                          key={k}
+                          className="bb-ember absolute rounded-full"
+                          style={{ "--dx": `${e.dx}px`, "--dy": `${e.dy}px`, width: e.size, height: e.size, animationDelay: `${e.delay}ms`, background: e.ink ? "var(--color-warm-ink)" : "var(--color-warm)" } as CSSProperties}
+                        />
+                      ))}
+                    </span>
+                  ) : null}
                 </span>
-              </Link>
-              <span className="relative min-w-0 truncate justify-self-end font-mono text-[12px] font-medium text-warm-ink tnum [grid-area:twig] sm:justify-self-start sm:text-[11px] sm:font-normal">
-                <LiveNumber value={Number(boostWholeOf(BigInt(b.twig)))} format={TWIG_FORMAT} suffix=" TWIG" />
-                {lit ? (
-                  <span key={`embers-${lit}`} aria-hidden="true" className="pointer-events-none absolute bottom-1 left-2">
-                    {EMBERS.map((e, k) => (
-                      <span
-                        key={k}
-                        className="bb-ember absolute rounded-full"
-                        style={{ "--dx": `${e.dx}px`, "--dy": `${e.dy}px`, width: e.size, height: e.size, animationDelay: `${e.delay}ms`, background: e.ink ? "var(--color-warm-ink)" : "var(--color-warm)" } as CSSProperties}
-                      />
-                    ))}
+                {/* clicks from this lane in the last 24 hours; nothing until the first, so a fresh boost never reads "0" */}
+                {clicks > 0 ? (
+                  <span className="inline-flex shrink-0 items-center gap-1 justify-self-end font-mono text-[11px] text-body tnum [grid-area:clicks]">
+                    <MousePointerClick size={11} aria-hidden="true" className="shrink-0 text-muted" />
+                    <LiveNumber value={clicks} format={CLICKS_FORMAT} />
+                    <span className="sr-only">{clicks === 1 ? " click" : " clicks"} in the last 24 hours</span>
                   </span>
                 ) : null}
-              </span>
-              {/* clicks from this lane in the last 24 hours; nothing until the first, so a fresh boost never reads "0" */}
-              {clicks > 0 ? (
-                <span className="inline-flex shrink-0 items-center gap-1 justify-self-end font-mono text-[11px] text-body tnum [grid-area:clicks]">
-                  <MousePointerClick size={11} aria-hidden="true" className="shrink-0 text-muted" />
-                  <LiveNumber value={clicks} format={CLICKS_FORMAT} />
-                  <span className="sr-only">{clicks === 1 ? " click" : " clicks"} in the last 24 hours</span>
+                <span className="shrink-0 justify-self-end text-[11px] text-muted [grid-area:left]" suppressHydrationWarning>{left}</span>
+                {/* credit: the wallet that sent the most TWIG for it in the window; only the name is a link (above the card's) */}
+                {b.top_booster ? (
+                  <span className="flex min-w-0 items-center gap-1 text-[10px] text-muted [grid-area:by] max-sm:pl-[42px]" title="Sent the most TWIG for this token in the last 24 hours">
+                    <span className="shrink-0">by</span>
+                    <WhoName
+                      address={b.top_booster}
+                      className="relative z-[2] text-[10px]"
+                      fallback={<a href={explorerAddress(BOOST_CHAIN, b.top_booster)} target="_blank" rel="noreferrer" className="relative z-[2] truncate font-code hover:text-ink" title={b.top_booster}>{shortAddr(b.top_booster)}</a>}
+                    />
+                  </span>
+                ) : null}
+                {/* the fuse: what is left of the 24 hours, burning down from the right; steps with the card's clock */}
+                <span aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 h-[2px] bg-warm/10 transition-colors duration-150 group-hover/card:bg-warm/20 motion-reduce:transition-none">
+                  <span className="relative block h-full bg-gradient-to-r from-warm/40 to-warm transition-[width] duration-1000 ease-linear group-hover/card:from-warm/70 motion-reduce:transition-none" style={{ width: `${(fuse * 100).toFixed(2)}%` }}>
+                    {fuse > 0 ? <span className="absolute right-0 top-1/2 size-[5px] -translate-y-1/2 translate-x-1/2 rounded-full bg-warm shadow-[0_0_6px_var(--color-warm)] transition-shadow duration-150 group-hover/card:shadow-[0_0_10px_var(--color-warm)] motion-reduce:transition-none" /> : null}
+                  </span>
                 </span>
-              ) : null}
-              <span className="shrink-0 justify-self-end text-[11px] text-muted [grid-area:left]" suppressHydrationWarning>{left}</span>
-              {/* credit: the wallet that sent the most TWIG for it in the window; only the name is a link (above the card's) */}
-              {b.top_booster ? (
-                <span className="flex min-w-0 items-center gap-1 text-[10px] text-muted [grid-area:by] max-sm:pl-[42px]" title="Sent the most TWIG for this token in the last 24 hours">
-                  <span className="shrink-0">by</span>
-                  <WhoName
-                    address={b.top_booster}
-                    className="relative z-[2] text-[10px]"
-                    fallback={<a href={explorerAddress(BOOST_CHAIN, b.top_booster)} target="_blank" rel="noreferrer" className="relative z-[2] truncate font-code hover:text-ink" title={b.top_booster}>{shortAddr(b.top_booster)}</a>}
-                  />
-                </span>
-              ) : null}
-              {/* the fuse: what is left of the 24 hours, burning down from the right; steps with the card's clock */}
-              <span aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 h-[2px] bg-warm/10 transition-colors duration-150 group-hover/card:bg-warm/20 motion-reduce:transition-none">
-                <span className="relative block h-full bg-gradient-to-r from-warm/40 to-warm transition-[width] duration-1000 ease-linear group-hover/card:from-warm/70 motion-reduce:transition-none" style={{ width: `${(fuse * 100).toFixed(2)}%` }}>
-                  {fuse > 0 ? <span className="absolute right-0 top-1/2 size-[5px] -translate-y-1/2 translate-x-1/2 rounded-full bg-warm shadow-[0_0_6px_var(--color-warm)] transition-shadow duration-150 group-hover/card:shadow-[0_0_10px_var(--color-warm)] motion-reduce:transition-none" /> : null}
-                </span>
-              </span>
-            </motion.li>
-          );
-        })}
-        {/* five columns from 1024px: each free place is a button into the picker */}
-        {Array.from({ length: open }, (_, i) => (
-          <li key={`open-${i}`} className="hidden min-h-[104px] bg-card lg:flex">
-            <button type="button" onClick={pick} aria-label={`${BOOST_COPY.openSpot}, ${FROM_FLOOR}: ${BOOST_COPY.cta.toLowerCase()}`} className="group/open flex w-full flex-col items-center justify-center gap-0.5 px-4 py-3 text-[11px] text-muted transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--color-warm-soft)_70%,var(--color-card))] hover:text-warm-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand active:bg-warm-soft motion-reduce:transition-none">
-              <span className="inline-flex items-center gap-1 font-medium"><Plus size={12} aria-hidden="true" />{BOOST_COPY.openSpot}</span>
-              <span className="text-[10px] text-faint group-hover/open:text-warm-ink">{FROM_FLOOR}</span>
-            </button>
-          </li>
-        ))}
-        {/* under 1024px: one row for all the free places, so the cards stay first */}
-        {open > 0 ? (
-          <li className="bg-card sm:col-span-2 lg:hidden">
-            <button type="button" onClick={pick} className="flex min-h-12 w-full items-center justify-center gap-1.5 px-4 py-3 text-[12px] font-medium text-warm-ink transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--color-warm-soft)_70%,var(--color-card))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand active:bg-warm-soft motion-reduce:transition-none">
-              <Plus size={14} aria-hidden="true" />
-              {open} open {open === 1 ? "spot" : "spots"}<span aria-hidden="true" className="text-muted">·</span>{BOOST_COPY.cta}
-            </button>
-          </li>
-        ) : null}
-      </ol>
+              </motion.li>
+            );
+          })}
+          {/* five columns from 1024px: each free place is a button into the picker */}
+          {Array.from({ length: open }, (_, i) => (
+            <li key={`open-${i}`} className="hidden min-h-[104px] bg-card lg:flex">
+              <button type="button" onClick={pick} aria-label={`${BOOST_COPY.openSpot}, ${BOOST_FROM_FLOOR}: ${BOOST_COPY.cta.toLowerCase()}`} className="group/open flex w-full flex-col items-center justify-center gap-0.5 px-4 py-3 text-[11px] text-muted transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--color-warm-soft)_70%,var(--color-card))] hover:text-warm-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand active:bg-warm-soft motion-reduce:transition-none">
+                <span className="inline-flex items-center gap-1 font-medium"><Plus size={12} aria-hidden="true" />{BOOST_COPY.openSpot}</span>
+                <span className="text-[10px] text-faint group-hover/open:text-warm-ink">{BOOST_FROM_FLOOR}</span>
+              </button>
+            </li>
+          ))}
+          {/* under 1024px: one row for all the free places, so the cards stay first */}
+          {open > 0 ? (
+            <li className="bg-card sm:col-span-2 lg:hidden">
+              <button type="button" onClick={pick} className="flex min-h-12 w-full items-center justify-center gap-1.5 px-4 py-3 text-[12px] font-medium text-warm-ink transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--color-warm-soft)_70%,var(--color-card))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand active:bg-warm-soft motion-reduce:transition-none">
+                <Plus size={14} aria-hidden="true" />
+                {open} open {open === 1 ? "spot" : "spots"}<span aria-hidden="true" className="text-muted">·</span>{BOOST_COPY.cta}
+              </button>
+            </li>
+          ) : null}
+        </ol>
+      </NamesProvider>
       {picking ? <BoostPicker onClose={() => setPicking(false)} /> : null}
     </section>
   );

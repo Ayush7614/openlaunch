@@ -7,6 +7,7 @@ import { forgetMemo, memo } from "./memo";
 import { boostEnabled } from "./boostSwitch";
 import { tsFresh } from "./posts";
 import { adminWallets, consumeNonce, isNonce, verify } from "./postsServer";
+import { namesFor, type NameEntry } from "@/lib/profiles/server";
 import {
   BOOST_CHAIN,
   BOOST_CHAIN_ID,
@@ -41,11 +42,11 @@ export { boostEnabled };
 /**
  * `clicks`: the card's clicks from the lane in the last 24 hours (bb_boost_clicks), the window its TWIG is counted in.
  * `top_booster`: the wallet that sent the most TWIG for it in that window (the card's credit).
- * `entry` (on the lane): is it full, and what its last place holds: the lane's "what it takes" line.
- * All three optional for readers: a machine still on an older build answers polls without them while a deploy rolls.
+ * `names` (on the lane): the credited wallets' public names, null for a wallet with none, so the first paint shows them.
+ * All optional for readers: a machine still on an older build answers polls without them while a deploy rolls.
  */
 export type BoostLaneItem = LaneTotals & { expires_at: string; launch: LaunchRow; clicks?: number; top_booster?: string };
-export type BoostLane = { enabled: false } | { enabled: true; window_h: number; floor_twig: string; items: BoostLaneItem[]; entry?: LaneEntry };
+export type BoostLane = { enabled: false } | { enabled: true; window_h: number; floor_twig: string; items: BoostLaneItem[]; names?: Record<string, NameEntry | null> };
 export type TokenBoost =
   | { enabled: false }
   | { enabled: true; hidden: boolean; twig: string; boosts: number; boosters: number; last_at: string | null; last_tx: string | null; expires_at: string | null; place: number | null; entry: LaneEntry };
@@ -142,12 +143,21 @@ async function laneBoosters(tokens: readonly string[]): Promise<Map<string, stri
   }
 }
 
+/**
+ * The credited wallets' names for the lane's first paint (the same lookup the token page seeds its NamesProvider
+ * with): null says "no profile" so the browser does not ask again. A failed lookup seeds nothing; the browser asks.
+ */
+async function creditNames(wallets: readonly string[]): Promise<Record<string, NameEntry | null>> {
+  if (wallets.length === 0) return {};
+  const known = await namesFor(wallets).catch(() => null);
+  return known ? Object.fromEntries(wallets.map((w) => [w, known[w] ?? null])) : {};
+}
+
 /** The Boosted lane: the top BOOST_LANE_SIZE tokens with their market rows. `{ enabled: false }` while the switch is off. */
 export async function getBoostLane(ethUsd: number | null): Promise<BoostLane> {
   if (!boostEnabled()) return { enabled: false };
-  const ranked = await rankedLane();
   // a few spare candidates, so a token whose market row cannot be read leaves its place to the next one, not a hole
-  const top = ranked.slice(0, BOOST_LANE_SIZE + 3);
+  const top = (await rankedLane()).slice(0, BOOST_LANE_SIZE + 3);
   const rows = top.length > 0 ? await getLaunchesByRefs(top.map((t) => ({ chain: BOOST_CHAIN, token: t.token })), ethUsd) : [];
   const byToken = new Map(rows.map((r) => [r.launch.token, r.launch]));
   const shown = top
@@ -159,7 +169,7 @@ export async function getBoostLane(ethUsd: number | null): Promise<BoostLane> {
   const tokens = shown.map((t) => t.token);
   const [clicks, boosters] = await Promise.all([laneClicks(tokens), laneBoosters(tokens)]);
   const items = shown.map((t) => ({ ...t, clicks: clicks.get(t.token) ?? 0, top_booster: boosters.get(t.token) }));
-  return { enabled: true, window_h: BOOST_WINDOW_H, floor_twig: BOOST_FLOOR_TWIG.toString(), items, entry: laneEntry(ranked) };
+  return { enabled: true, window_h: BOOST_WINDOW_H, floor_twig: BOOST_FLOOR_TWIG.toString(), items, names: await creditNames([...boosters.values()]) };
 }
 
 /**

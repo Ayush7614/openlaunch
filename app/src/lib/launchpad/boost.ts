@@ -203,16 +203,18 @@ function ordinal(n: number): string {
   return `${n}${["th", "st", "nd", "rd"][n % 10] ?? "th"}`;
 }
 
+/** "from 100K TWIG": what an open place asks, in the lane's entry line and on its open-place buttons. */
+export const BOOST_FROM_FLOOR = `from ${compactWhole(Number(BOOST_FLOOR_TWIG))} ${TWIG_SYMBOL}`;
+
 /**
- * What it takes to get into the lane, under its title: "2 open spots · from 100K TWIG" while there is room, "Full ·
- * 5th place holds 1.2M TWIG" once there is not (a boost has to reach that). null when the full lane's last place is
- * unknown (an older server mid-deploy): no line rather than a wrong one.
+ * What it takes to get into the lane, read off the cards it shows (raw TWIG totals in lane order), so the line can
+ * never contradict them: "2 open spots · from 100K TWIG" while there is room, "Full · 5th place holds 1.2M TWIG" (what
+ * the last card shows, and what a boost has to reach) once there is not.
  */
-export function boostEntryLine(open: number, entry: LaneEntry | null | undefined): string | null {
-  const floor = `from ${compactWhole(Number(BOOST_FLOOR_TWIG))} ${TWIG_SYMBOL}`;
-  if (open > 0) return `${open} open ${open === 1 ? "spot" : "spots"} · ${floor}`;
-  if (entry?.full && entry.cutoff !== null) return `Full · ${ordinal(BOOST_LANE_SIZE)} place holds ${fmtBoostTwig(entry.cutoff)}`;
-  return null;
+export function boostEntryLine(totals: readonly string[]): string {
+  const open = BOOST_LANE_SIZE - totals.length;
+  if (open > 0) return `${open} open ${open === 1 ? "spot" : "spots"} · ${BOOST_FROM_FLOOR}`;
+  return `Full · ${ordinal(BOOST_LANE_SIZE)} place holds ${fmtBoostTwig(totals[BOOST_LANE_SIZE - 1])}`;
 }
 
 /** One wallet's boosts on one token inside the window (the database groups; topBoosters picks). */
@@ -356,6 +358,7 @@ export const BOOST_COPY = {
   pickerSearch: "Search Base tokens",
   pickerNone: "No Base token matches.",
   pickerFailed: "Search is unavailable right now. Any token's page still has its Boost button.",
+  pickerHidden: "Not shown in the lane",
   what: "The Boosted lane shows the 5 tokens with the most TWIG sent for them in the last 24 hours. A boost counts toward that total for 24 hours. It does not change the Live sort or the Trending board, and it is not an endorsement.",
   tag: "The last digits of the amount name this token, so the transfer itself records what it boosted.",
   final: "The TWIG goes to 0x…dEaD. It cannot be undone or refunded, and nothing is paid to openlaunch or Twigpine.",

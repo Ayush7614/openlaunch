@@ -16,13 +16,18 @@ type LaunchesResponse = { launches?: Parameters<typeof paletteTokenFrom>[0][] };
 /** How many of the wallet's own launches lead the list, and how many trending tokens fill it before anything is typed. */
 const MINE_MAX = 5;
 const TRENDING_MAX = 6;
+/** Trending is kept this long across opens of the picker, so reopening it asks for nothing. */
+const TRENDING_TTL_MS = 60_000;
+let trendingCache: { at: number; tokens: PaletteToken[] } | null = null;
+const freshTrending = () => (trendingCache && Date.now() - trendingCache.at < TRENDING_TTL_MS ? trendingCache.tokens : null);
 
 /**
  * "Boost a token" from the Boosted lane: pick a Base token, land on its page with the boost dialog open
  * (`?boost=1#boost`, the same link /me's Boost uses). Nothing is sent from here: the token's page shows the amount, the
  * lane and the burn before the wallet is asked, with every check the dialog has. The connected wallet's own Base
  * launches come first (their creators are the likeliest boosters), then a search of Base tokens, or what is trending
- * on Base before anything is typed.
+ * on Base before anything is typed. A token an admin keeps out of the lane says so here, instead of sending the
+ * visitor to a page with no Boost button.
  */
 export default function BoostPicker({ onClose }: { onClose: () => void }) {
   const router = useRouter();
@@ -30,15 +35,18 @@ export default function BoostPicker({ onClose }: { onClose: () => void }) {
   const inputId = useId();
   const [query, setQuery] = useState("");
   const [mine, setMine] = useState<{ wallet: string; tokens: PaletteToken[] } | null>(null);
-  const [trending, setTrending] = useState<PaletteToken[] | null>(null);
+  const [trending, setTrending] = useState<PaletteToken[] | null>(freshTrending);
   const [results, setResults] = useState<{ q: string; tokens: PaletteToken[]; failed: boolean } | null>(null);
+  // the token being checked before leaving, and the ones an admin keeps out of the lane
+  const [checking, setChecking] = useState<string | null>(null);
+  const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
 
-  // the wallet's own Base launches, newest first (what /me lists)
+  // the wallet's own Base launches, newest first: only the few shown are asked for
   const wallet = address?.toLowerCase() ?? null;
   useEffect(() => {
     if (!wallet) return;
     const ac = new AbortController();
-    fetch(`/api/me?wallet=${wallet}`, { signal: ac.signal, cache: "no-store" })
+    fetch(`/api/launch/list?chain=${BOOST_CHAIN}&launcher=${wallet}&sort=new&limit=${MINE_MAX}`, { signal: ac.signal, cache: "no-store" })
       .then((r) => (r.ok ? (r.json() as Promise<LaunchesResponse>) : null))
       .then((j) => setMine({ wallet, tokens: (j?.launches ?? []).filter((l) => l.chain === BOOST_CHAIN).slice(0, MINE_MAX).map(paletteTokenFrom) }))
       .catch(() => {
@@ -48,10 +56,15 @@ export default function BoostPicker({ onClose }: { onClose: () => void }) {
   }, [wallet]);
 
   useEffect(() => {
+    if (freshTrending()) return;
     const ac = new AbortController();
     fetch(`/api/launch/list?chain=${BOOST_CHAIN}&sort=live&limit=${TRENDING_MAX}`, { signal: ac.signal, cache: "no-store" })
       .then((r) => (r.ok ? (r.json() as Promise<LaunchesResponse>) : null))
-      .then((j) => setTrending((j?.launches ?? []).filter((l) => l.chain === BOOST_CHAIN).map(paletteTokenFrom)))
+      .then((j) => {
+        const tokens = (j?.launches ?? []).filter((l) => l.chain === BOOST_CHAIN).map(paletteTokenFrom);
+        if (j) trendingCache = { at: Date.now(), tokens };
+        setTrending(tokens);
+      })
       .catch(() => {
         if (!ac.signal.aborted) setTrending([]);
       });
@@ -77,12 +90,25 @@ export default function BoostPicker({ onClose }: { onClose: () => void }) {
     };
   }, [q]);
 
-  // the boost happens on the token's page: this only navigates there, with the dialog asked to open
-  const pick = (t: PaletteToken) => {
+  // the boost happens on the token's page: this only navigates there, with the dialog asked to open. A token an admin
+  // keeps out of the lane has no Boost button there, so it is checked first; a failed check just goes (the page says).
+  const pick = async (t: PaletteToken) => {
+    if (checking) return;
+    setChecking(t.token);
+    const kept = await fetch(`/api/boost?chain=${BOOST_CHAIN}&token=${t.token}`, { cache: "no-store" })
+      .then((r) => (r.ok ? (r.json() as Promise<{ enabled?: boolean; hidden?: boolean }>) : null))
+      .then((d) => d?.enabled === true && d.hidden === true)
+      .catch(() => false);
+    setChecking(null);
+    if (kept) {
+      setHidden((h) => new Set(h).add(t.token));
+      return;
+    }
     setPendingToken({ chain: t.chain, token: t.token, name: t.name, symbol: t.symbol, image: t.image });
     onClose();
     router.push(`/t/${BOOST_CHAIN}/${t.token}?boost=1#boost`);
   };
+  const row = { onPick: (t: PaletteToken) => void pick(t), checking, hidden };
 
   const searching = isSearchableQuery(q);
   const current = results && results.q === q ? results : null;
@@ -111,11 +137,11 @@ export default function BoostPicker({ onClose }: { onClose: () => void }) {
         </div>
         <p role="status" aria-live="polite" className="text-xs text-muted empty:hidden">{status}</p>
         {searching ? (
-          current && current.tokens.length > 0 ? <TokenList tokens={current.tokens} onPick={pick} /> : null
+          current && current.tokens.length > 0 ? <TokenList tokens={current.tokens} {...row} /> : null
         ) : (
           <>
-            {own.length > 0 ? <TokenList title={BOOST_COPY.pickerMine} tokens={own} onPick={pick} /> : null}
-            {trending === null ? <p className="text-xs text-muted">Loading…</p> : trending.length > 0 ? <TokenList title={BOOST_COPY.pickerTrending} tokens={trending} onPick={pick} /> : null}
+            {own.length > 0 ? <TokenList title={BOOST_COPY.pickerMine} tokens={own} {...row} /> : null}
+            {trending === null ? <p className="text-xs text-muted">Loading…</p> : trending.length > 0 ? <TokenList title={BOOST_COPY.pickerTrending} tokens={trending} {...row} /> : null}
           </>
         )}
       </div>
@@ -123,7 +149,7 @@ export default function BoostPicker({ onClose }: { onClose: () => void }) {
   );
 }
 
-function TokenList({ title, tokens, onPick }: { title?: string; tokens: readonly PaletteToken[]; onPick: (t: PaletteToken) => void }) {
+function TokenList({ title, tokens, onPick, checking, hidden }: { title?: string; tokens: readonly PaletteToken[]; onPick: (t: PaletteToken) => void; checking: string | null; hidden: ReadonlySet<string> }) {
   const titleId = useId();
   return (
     <section aria-labelledby={title ? titleId : undefined}>
@@ -134,14 +160,20 @@ function TokenList({ title, tokens, onPick }: { title?: string; tokens: readonly
             <button
               type="button"
               onClick={() => onPick(t)}
-              className="group flex w-full min-w-0 items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors hover:bg-[color-mix(in_oklab,var(--color-warm-soft)_70%,var(--color-card))] focus-visible:bg-[color-mix(in_oklab,var(--color-warm-soft)_70%,var(--color-card))] active:bg-warm-soft motion-reduce:transition-none"
+              disabled={hidden.has(t.token) || (checking !== null && checking !== t.token)}
+              aria-busy={checking === t.token}
+              className="group flex w-full min-w-0 items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors hover:bg-[color-mix(in_oklab,var(--color-warm-soft)_70%,var(--color-card))] focus-visible:bg-[color-mix(in_oklab,var(--color-warm-soft)_70%,var(--color-card))] active:bg-warm-soft disabled:cursor-default disabled:hover:bg-transparent motion-reduce:transition-none"
             >
               <TokenAvatar chain={t.chain} token={t.token} symbol={t.symbol} image={t.image} size={32} className="shrink-0 rounded-xl" />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[13px] font-semibold text-ink">{t.name}</span>
                 <span className="block truncate text-[11px] text-muted"><span className="font-mono text-body">{t.symbol}</span>{t.capUsd !== null ? <><span aria-hidden="true"> · </span><span className="sr-only">, market cap </span><span className="font-mono tnum">{marketUsd(t.capUsd)}</span></> : null}</span>
               </span>
-              <span className="inline-flex shrink-0 items-center gap-0.5 text-[11px] font-medium text-warm-ink">Boost<ChevronRight size={13} aria-hidden="true" className="transition-transform duration-150 motion-safe:group-hover:translate-x-0.5" /></span>
+              {hidden.has(t.token) ? (
+                <span className="shrink-0 text-right text-[11px] text-muted">{BOOST_COPY.pickerHidden}</span>
+              ) : (
+                <span className="inline-flex shrink-0 items-center gap-0.5 text-[11px] font-medium text-warm-ink">{checking === t.token ? "Opening…" : "Boost"}<ChevronRight size={13} aria-hidden="true" className="transition-transform duration-150 motion-safe:group-hover:translate-x-0.5" /></span>
+              )}
             </button>
           </li>
         ))}

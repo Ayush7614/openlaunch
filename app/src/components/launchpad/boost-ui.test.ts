@@ -324,12 +324,14 @@ test("the lane never counts a view of its empty line, and the hover arrow never 
 });
 
 const picker = read("./BoostPicker.tsx");
+const list = read("../../app/api/launch/list/route.ts");
 
 test("the lane invites a boost: a header button, every open place a button, and what it takes to get in", () => {
-  assert.match(lane, /const open = Math\.max\(0, BOOST_LANE_SIZE - items\.length\);\n\s*const entryLine = boostEntryLine\(open, lane\.entry\);/);
+  assert.match(lane, /const open = Math\.max\(0, BOOST_LANE_SIZE - items\.length\);\n\s*\/\/ read off the cards shown, so it can never contradict them\n\s*const entryLine = boostEntryLine\(items\.map\(\(b\) => b\.twig\)\);/);
+  assert.doesNotMatch(server.slice(server.indexOf("export async function getBoostLane("), server.indexOf("export async function boostLaneOrNull(")), /laneEntry/, "the lane's line is never the server's ranked cutoff");
   assert.match(lane, /<button type="button" onClick=\{pick\} className=\{`\$\{btn\.warmOutlineSm\} ml-auto shrink-0`\}>\n\s*<Flame size=\{14\} aria-hidden="true" \/>\n\s*\{BOOST_COPY\.cta\}/);
   // the entry line never squeezes beside the button on a phone: a full line of its own there
-  assert.match(lane, /\{entryLine \? <p className="order-last basis-full text-\[12px\] text-warm-ink tnum sm:order-none sm:basis-auto">\{entryLine\}<\/p> : null\}/);
+  assert.match(lane, /<p className="order-last basis-full text-\[12px\] text-warm-ink tnum sm:order-none sm:basis-auto">\{entryLine\}<\/p>/);
   // one button per open place from 1024px, one row for all of them below; none once the lane is full
   assert.match(lane, /\{Array\.from\(\{ length: open \}, \(_, i\) => \(\n\s*<li key=\{`open-\$\{i\}`\} className="hidden min-h-\[104px\] bg-card lg:flex">\n\s*<button type="button" onClick=\{pick\}/);
   assert.match(lane, /\{open > 0 \? \(\n\s*<li className="bg-card sm:col-span-2 lg:hidden">/);
@@ -337,17 +339,31 @@ test("the lane invites a boost: a header button, every open place a button, and 
   // the picker loads on first use; the lane itself never sends anything
   assert.match(lane, /const BoostPicker = dynamic\(\(\) => import\("\.\/BoostPicker"\), \{ ssr: false \}\);/);
   assert.match(lane, /\{picking \? <BoostPicker onClose=\{\(\) => setPicking\(false\)\} \/> : null\}/);
-  // the lane carries its entry from the same ranked list the token page reads
-  assert.match(server, /return \{ enabled: true, window_h: BOOST_WINDOW_H, floor_twig: BOOST_FLOOR_TWIG\.toString\(\), items, entry: laneEntry\(ranked\) \};/);
+  // the list counts the lane's places (cards, then open ones), not only boosted tokens
+  assert.match(lane, /<ol aria-label="Places in the Boosted lane"/);
+  // the credited wallets' names come with the lane (null = no profile), so the first paint has no address-to-name swap
+  assert.match(server, /items, names: await creditNames\(\[\.\.\.boosters\.values\(\)\]\) \};/);
+  assert.match(server, /const known = await namesFor\(wallets\)\.catch\(\(\) => null\);\n\s*return known \? Object\.fromEntries\(wallets\.map\(\(w\) => \[w, known\[w\] \?\? null\]\)\) : \{\};/);
+  assert.match(lane, /<NamesProvider names=\{lane\.names \?\? NO_NAMES\}>/);
+  // a public read of the lane comes from the same few-second cache: polling it adds no database pass
+  assert.match(boostRoute, /const lane = await boostLaneOrNull\(await ethUsd\(\)\);/);
+  assert.doesNotMatch(boostRoute, /getBoostLane/);
 });
 
 test("the picker only navigates: the boost happens on the token's page, with every check the dialog has", () => {
   assert.match(picker, /router\.push\(`\/t\/\$\{BOOST_CHAIN\}\/\$\{t\.token\}\?boost=1#boost`\);/);
   assert.doesNotMatch(picker, /wagmi|viem|writeContract|sendTransaction|simulateContract|signMessage|BoostDialog/);
-  // Base only, in every list it reads
+  // Base only, in every list it reads; the wallet's own launches by the launcher filter, only as many as are shown
   assert.match(picker, /\/api\/launch\/search\?q=\$\{encodeURIComponent\(q\)\}&chain=\$\{BOOST_CHAIN\}&order=holders/);
   assert.match(picker, /\/api\/launch\/list\?chain=\$\{BOOST_CHAIN\}&sort=live/);
+  assert.match(picker, /\/api\/launch\/list\?chain=\$\{BOOST_CHAIN\}&launcher=\$\{wallet\}&sort=new&limit=\$\{MINE_MAX\}/);
+  assert.doesNotMatch(picker, /\/api\/me/);
   assert.equal((picker.match(/\.filter\(\(l\) => l\.chain === BOOST_CHAIN\)/g) ?? []).length, 3);
+  // a token an admin keeps out of the lane is said so here, never a trip to a page with no Boost button
+  assert.match(picker, /const kept = await fetch\(`\/api\/boost\?chain=\$\{BOOST_CHAIN\}&token=\$\{t\.token\}`/);
+  assert.match(picker, /if \(kept\) \{\n\s*setHidden\(\(h\) => new Set\(h\)\.add\(t\.token\)\);\n\s*return;\n\s*\}/);
+  assert.ok(picker.indexOf("if (kept)") < picker.indexOf("router.push("));
+  assert.match(list, /const launcher = l && isAddress\(l\) \? l\.toLowerCase\(\) : undefined;/);
   // the connected wallet's own launches first; an answer for another wallet is never shown
   assert.match(picker, /const own = mine && mine\.wallet === wallet \? mine\.tokens : \[\];/);
   assert.match(picker, /BOOST_COPY\.pickerNote/);

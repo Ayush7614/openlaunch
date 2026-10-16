@@ -33,6 +33,7 @@ import {
   rankLane,
   BOOST_CLICK_SLOT_MS,
   BOOST_CLICKS_KEEP_DAYS,
+  BOOST_FROM_FLOOR,
   boostEntryLine,
   topBoosters,
   BOOST_SOURCES,
@@ -316,15 +317,16 @@ test("only the site's own pages may send the beacon: another site's visitors can
   assert.equal(boostBeaconSameOrigin(null, null, HOST), true);
 });
 
-test("the lane says what it takes to get in: open spots and the floor, or what the last place holds", () => {
-  assert.equal(boostEntryLine(2, { full: false, cutoff: null }), "2 open spots · from 100K TWIG");
-  assert.equal(boostEntryLine(1, null), "1 open spot · from 100K TWIG");
-  assert.equal(boostEntryLine(5, undefined), "5 open spots · from 100K TWIG", "an empty lane");
-  assert.equal(boostEntryLine(0, { full: true, cutoff: (1_234_567n * E18 + ID).toString() }), "Full · 5th place holds 1.23M TWIG");
-  assert.equal(boostEntryLine(0, undefined), null, "an older server mid-deploy: no line rather than a wrong one");
-  assert.equal(boostEntryLine(0, { full: true, cutoff: null }), null);
+test("the lane says what it takes to get in, read off the cards it shows", () => {
+  const twig = (whole: bigint) => (whole * E18 + ID).toString();
+  assert.equal(BOOST_FROM_FLOOR, "from 100K TWIG");
+  assert.equal(boostEntryLine([twig(3_000_000n), twig(500_000n), twig(300_000n)]), "2 open spots · from 100K TWIG");
+  assert.equal(boostEntryLine([twig(1n), twig(1n), twig(1n), twig(1n)]), "1 open spot · from 100K TWIG");
+  assert.equal(boostEntryLine([]), "5 open spots · from 100K TWIG", "an empty lane");
+  // full: the 5th card's own total, so the line and the cards always agree
+  assert.equal(boostEntryLine([twig(9_000_000n), twig(3_000_000n), twig(2_000_000n), twig(1_500_000n), twig(1_234_567n)]), "Full · 5th place holds 1.23M TWIG");
   const banned = /\b(moon|rally|buyback|guarantee[ds]?|pump|gem|100x|profit|invest(ment)?|returns?|yield|airdrop|reward)\b/i;
-  for (const line of [boostEntryLine(3, null), boostEntryLine(0, { full: true, cutoff: "1" })]) assert.ok(line && !banned.test(line), String(line));
+  for (const line of [boostEntryLine([twig(1n)]), boostEntryLine(Array(5).fill(twig(100_000n)))]) assert.ok(!banned.test(line), line);
 });
 
 test("a card credits the wallet that sent the most TWIG in the window; a tie goes to the newer boost, then the address", () => {
