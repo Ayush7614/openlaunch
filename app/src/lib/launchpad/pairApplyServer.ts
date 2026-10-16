@@ -112,7 +112,8 @@ export async function expireStaleApplications(chain?: ChainKey, address?: string
      WHERE ((a.status = 'open' AND a.paid_usd = 0 AND a.created_at < now() - ${`${PAIR_UNPAID_EXPIRE_MS / 1000} seconds`}::interval
              -- never while a fee quote is live, nor in the hour after it (a transfer sent under it may still be indexing)
              AND (a.quote_until IS NULL OR a.quote_until < now() - interval '1 hour')
-             AND NOT EXISTS (SELECT 1 FROM bb_pair_burns b WHERE b.application_id = a.id))
+             -- only burns sent for it count: a stray one sent before it existed must not keep it alive
+             AND NOT EXISTS (SELECT 1 FROM bb_pair_burns b WHERE b.application_id = a.id AND b.block_time >= a.created_at))
         OR (a.status = 'changes' AND a.paid_at < now() - ${`${PAIR_REVIEW_WINDOW_MS / 1000} seconds`}::interval)) ${scope}
     RETURNING id`;
   return rows.length;

@@ -160,7 +160,7 @@ test("nothing holds a token's place for good: unpaid applications expire after 4
   const exp = s.slice(s.indexOf("export async function expireStaleApplications"), s.indexOf("/** Whether a wallet has a visible profile"));
   assert.match(exp, /a\.status = 'open' AND a\.paid_usd = 0 AND a\.created_at < now\(\)/);
   assert.match(exp, /a\.quote_until IS NULL OR a\.quote_until < now\(\) - interval '1 hour'/, "never under a live quote");
-  assert.match(exp, /NOT EXISTS \(SELECT 1 FROM bb_pair_burns b WHERE b\.application_id = a\.id\)/, "never once anything was burned for it");
+  assert.match(exp, /NOT EXISTS \(SELECT 1 FROM bb_pair_burns b WHERE b\.application_id = a\.id AND b\.block_time >= a\.created_at\)/, "never once anything was burned for it (a stray burn from before it existed does not count)");
   assert.match(exp, /a\.status = 'changes' AND a\.paid_at < now\(\)/);
   const apply = s.slice(s.indexOf("export async function applicantAction"));
   assert.ok(apply.indexOf("await expireStaleApplications(chain, address);") < apply.indexOf("INSERT INTO bb_pair_applications"));
