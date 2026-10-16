@@ -15,7 +15,7 @@ To boost a launch: TWIG (${BOOST_TOKEN}).transfer(0x…dEaD, amount) with amount
 (whole = a count of whole TWIG, at least ${BOOST_FLOOR_TWIG}; token_id = the launch's position id, the list API's token_id field,
 greater than 0 and less than 10^11). The last 12 digits name the launch; a transfer outside these bounds is not a boost.
 Then POST ${SITE_URL}/api/launch/sync?chain=base&tx=0x… to show it at once. Burns are final.
-- GET  ${SITE_URL}/api/boost?chain=base                (the lane: twig, boosts, last_at, expires_at, clicks, launch)
+- GET  ${SITE_URL}/api/boost?chain=base                (the lane: twig, boosts, last_at, expires_at, clicks, top_booster, launch; entry)
 - GET  ${SITE_URL}/api/boost?chain=base&token=0x…      (one token: twig in the window, place, hidden)
 `;
 }

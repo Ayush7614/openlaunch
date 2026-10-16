@@ -22,7 +22,9 @@ import {
   buildBoostModMessage,
   isBoostModAction,
   rankLane,
+  topBoosters,
   type BoostSeen,
+  type BoosterTotal,
   type BoostStatsDays,
   type LaneEntry,
   type LaneTotals,
@@ -38,10 +40,12 @@ export { boostEnabled };
  */
 /**
  * `clicks`: the card's clicks from the lane in the last 24 hours (bb_boost_clicks), the window its TWIG is counted in.
- * Optional for readers: a machine still on the older build answers polls without it while a deploy rolls.
+ * `top_booster`: the wallet that sent the most TWIG for it in that window (the card's credit).
+ * `entry` (on the lane): is it full, and what its last place holds: the lane's "what it takes" line.
+ * All three optional for readers: a machine still on an older build answers polls without them while a deploy rolls.
  */
-export type BoostLaneItem = LaneTotals & { expires_at: string; launch: LaunchRow; clicks?: number };
-export type BoostLane = { enabled: false } | { enabled: true; window_h: number; floor_twig: string; items: BoostLaneItem[] };
+export type BoostLaneItem = LaneTotals & { expires_at: string; launch: LaunchRow; clicks?: number; top_booster?: string };
+export type BoostLane = { enabled: false } | { enabled: true; window_h: number; floor_twig: string; items: BoostLaneItem[]; entry?: LaneEntry };
 export type TokenBoost =
   | { enabled: false }
   | { enabled: true; hidden: boolean; twig: string; boosts: number; boosters: number; last_at: string | null; last_tx: string | null; expires_at: string | null; place: number | null; entry: LaneEntry };
@@ -115,11 +119,35 @@ async function laneClicks(tokens: readonly string[]): Promise<Map<string, number
   }
 }
 
+/**
+ * Each token's wallets and what each sent for it inside the window, for the card's credit (topBoosters picks). A failed
+ * read is no credit shown, never a lane that fails.
+ */
+async function laneBoosters(tokens: readonly string[]): Promise<Map<string, string>> {
+  const db = maybeDb();
+  if (!db || tokens.length === 0) return new Map();
+  try {
+    const rows = await db<BoosterTotal[]>`
+      SELECT l.token, b.booster, sum(b.amount)::text AS twig, max(b.block_time) AS last_at
+        FROM bb_boosts b
+        JOIN bb_launches l ON l.chain_id = b.chain_id AND l.token_id = b.tag
+       WHERE b.chain_id = ${BOOST_CHAIN_ID} AND l.token = ANY(${tokens as string[]}::text[])
+         AND b.block_time > now() - make_interval(hours => ${BOOST_WINDOW_H})
+         AND b.amount >= ${RAW_FLOOR}::numeric
+       GROUP BY l.token, b.booster`;
+    return topBoosters(rows);
+  } catch (err) {
+    console.warn("[boost] lane boosters read failed:", err instanceof Error ? err.message : err);
+    return new Map();
+  }
+}
+
 /** The Boosted lane: the top BOOST_LANE_SIZE tokens with their market rows. `{ enabled: false }` while the switch is off. */
 export async function getBoostLane(ethUsd: number | null): Promise<BoostLane> {
   if (!boostEnabled()) return { enabled: false };
+  const ranked = await rankedLane();
   // a few spare candidates, so a token whose market row cannot be read leaves its place to the next one, not a hole
-  const top = (await rankedLane()).slice(0, BOOST_LANE_SIZE + 3);
+  const top = ranked.slice(0, BOOST_LANE_SIZE + 3);
   const rows = top.length > 0 ? await getLaunchesByRefs(top.map((t) => ({ chain: BOOST_CHAIN, token: t.token })), ethUsd) : [];
   const byToken = new Map(rows.map((r) => [r.launch.token, r.launch]));
   const shown = top
@@ -128,9 +156,10 @@ export async function getBoostLane(ethUsd: number | null): Promise<BoostLane> {
       return launch ? [{ ...t, expires_at: new Date(boostExpiresAt(t.last_at)).toISOString(), launch }] : [];
     })
     .slice(0, BOOST_LANE_SIZE);
-  const clicks = await laneClicks(shown.map((t) => t.token));
-  const items = shown.map((t) => ({ ...t, clicks: clicks.get(t.token) ?? 0 }));
-  return { enabled: true, window_h: BOOST_WINDOW_H, floor_twig: BOOST_FLOOR_TWIG.toString(), items };
+  const tokens = shown.map((t) => t.token);
+  const [clicks, boosters] = await Promise.all([laneClicks(tokens), laneBoosters(tokens)]);
+  const items = shown.map((t) => ({ ...t, clicks: clicks.get(t.token) ?? 0, top_booster: boosters.get(t.token) }));
+  return { enabled: true, window_h: BOOST_WINDOW_H, floor_twig: BOOST_FLOOR_TWIG.toString(), items, entry: laneEntry(ranked) };
 }
 
 /**
