@@ -35,6 +35,23 @@ amount = whole TWIG × 10^18 + the launch's position id
 
 Nothing in the lane moves on its own, the same rule as the Trending board above it. Each card has a **fuse**: a thin warm line along its bottom edge whose length is the share of its 24 hours still left, stepped with the card's 30-second clock. When a poll shows a card with more TWIG than before and a boost under 3 minutes old (`boostIgnitions`), the card **lights up** once: a warm inset ring, the amount rolling up to its new total, and a few embers rising from it. A token that only moved up because another expired stays still. Places change with a short slide. With reduced motion only the colour ring plays: no embers, no roll, no slide.
 
+The whole card opens the token (the name link's `::after` covers it; only "Latest burn" sits above as its own link). Under 640px a card is one compact two-line row, the name on the left and the TWIG, clicks and time left on the right, so all five places fit on a phone screen; "Latest burn" is on the token page there. From 640px it is the stacked card. One set of parts, placed by CSS grid areas. A hover is the visitor's own doing, so it may move: the card warms, a still warm edge and an arrow show, the avatar grows a little and the fuse brightens. It applies only under a pointer that hovers (no stuck hover on phones, where a tap shows a pressed shade), and with reduced motion only the colours change.
+
+## Views and clicks
+
+The lane counts how often it is seen and how often its cards are opened, to tell whether a place in it brings visitors. **Each card shows its clicks** of the last 24 hours (the window its TWIG is counted in) with a pointer icon, once it has one: nothing at 0, so a fresh boost never reads "0", and the number rolls up when a poll brings more. /admin has every figure (a "Views and clicks" table under the Boosted lane, 24 h / 7 d / 30 d). Nothing in the ranking reads them (`boost-ui.test.ts`). Views are not on the cards: one page load is a view for every card in the lane, so they would read nearly the same on all five.
+
+- **A view** is a page load that brought the lane, with cards in it, a third on screen: one beacon per page, and the server adds 1 to this hour of every token in the lane then (`bb_boost_views`). Views are tallied in memory and written once every 10 seconds per machine, so a busy page never queues writes on the same few rows; a restart loses at most those seconds.
+- **A click** is a card opened by a click, a Cmd/Ctrl-click or a middle click. It counts **only while the token is in the lane**: the server checks the token against the same few-second lane the pages read, takes its place from there (never from the request), and a tab left open after the boost ran out counts nothing. One click per visitor, token and 30-minute slot, so a reload or a double click counts once (`bb_boost_clicks`).
+- The beacon is `POST /api/boost/seen` (`navigator.sendBeacon`, so it never holds up the navigation). **Only the site's own pages may send it:** a request whose `Sec-Fetch-Site` is not `same-origin` (or, without that header, whose `Origin` is another host) gets a 403, so another site cannot raise a card's count from its own visitors' browsers. Bots are skipped, each IP has 60 a minute, the body is capped at 512 bytes, and the answer is a 204 otherwise.
+- Click rows are kept 90 days (each names a visitor of one day; /admin reads 30 at most) and pruned hourly. View rows are plain hourly counts and stay.
+- **Nothing names a person.** The visitor is the presence hash (sha256 of IP, user agent and a daily salt, see `presence.ts`) mixed with the token and cut short: it changes every UTC day and cannot link one person's clicks on two tokens. No IP, user agent or wallet is stored. "Visitors" in the table is one per person per day.
+- **Set `PRESENCE_SALT`** (any long random string, `fly secrets set PRESENCE_SALT=$(openssl rand -hex 32)`) so every machine salts the same way. Without it each machine draws its own salt at start, so a repeat click that lands on the other machine counts again, and a restart starts new visitors (the site's visit counter has the same gap).
+- The lane's own read (`GET /api/boost`, the live poll) carries each card's `clicks`; a failed click read shows no counts and never fails the lane.
+- `GET /api/boost/stats?wallet=<admin>&days=1|7|30` serves the table: per token, views, clicks, visitors, the click rate, and the TWIG burned for it in the period with the clicks per 100K TWIG. Views, clicks and burns start at the same whole hour. The top 100 tokens are listed and the totals cover all of them; visitors have no total, since a visitor is counted per token.
+
+A script with rotating user agents behind many IPs can still add clicks; the count is a guide, not a payout, and nothing is paid or ranked on it.
+
 ## The dialog
 
 On a Base token page (or from **Boost** on a launch in /me, which opens it there): whole TWIG only, presets 100K / 300K / 1M / 5M, the balance, Max (tag included), an estimate in dollars at today's TWIG price, and the last digits the amount will carry. It states plainly that the TWIG goes to 0x…dEaD, cannot be undone or refunded, and counts toward the token's place in the lane for 24 hours without changing the ranking. When the lane is full and the amount would leave the token under the 5th place, the dialog says so before anything is sent and offers the amount that would show it now. The done screen names the token's place, or says it is not in the lane yet.
@@ -62,4 +79,14 @@ On an anvil fork of Base, a wallet with TWIG can boost any launch the local data
 ```sql
 SELECT date_trunc('week', block_time) AS wk, count(*) AS boosts, count(DISTINCT booster) AS boosters, sum(amount) / 1e18 AS twig
   FROM bb_boosts WHERE chain_id = 8453 GROUP BY 1 ORDER BY 1 DESC;
+```
+
+Lane views and clicks per week:
+
+```sql
+SELECT wk, sum(views) AS views, sum(clicks) AS clicks, round(100.0 * sum(clicks) / NULLIF(sum(views), 0), 1) AS click_pct FROM (
+  SELECT date_trunc('week', hour_at) AS wk, views, 0 AS clicks FROM bb_boost_views WHERE chain_id = 8453
+  UNION ALL
+  SELECT date_trunc('week', clicked_at), 0, 1 FROM bb_boost_clicks WHERE chain_id = 8453
+) x GROUP BY wk ORDER BY wk DESC;
 ```

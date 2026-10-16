@@ -194,6 +194,89 @@ export function boostShowsNow(entry: LaneEntry, current: bigint, raw: bigint, in
   return current + raw >= BigInt(entry.cutoff);
 }
 
+/* ─────────────────────────────── views and clicks ─────────────────────────────── */
+
+/**
+ * The lane counts how often it is seen and its cards are clicked: each card shows its clicks, /admin shows them all,
+ * and the ranking never reads them (boost-ui.test.ts). A click counts only while its token is in the lane, at the place
+ * the server's lane gives it.
+ */
+export const BOOST_SOURCES = ["home", "base"] as const;
+export type BoostSource = (typeof BOOST_SOURCES)[number];
+/** One click per visitor, token and slot: a reload or a double click counts once. */
+export const BOOST_CLICK_SLOT_MS = 30 * 60_000;
+/** The periods /admin can read. */
+export const BOOST_STATS_DAYS = [1, 7, 30] as const;
+export type BoostStatsDays = (typeof BOOST_STATS_DAYS)[number];
+
+/** What the lane's beacon reports: the lane came on screen, or a card was clicked. */
+export type BoostSeen = { kind: "view"; source: BoostSource } | { kind: "click"; source: BoostSource; token: string };
+
+/** A beacon body → what it reports (the token lowercased), or null when it is not one. Other fields are ignored. */
+export function parseBoostSeen(body: unknown): BoostSeen | null {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+  const b = body as Record<string, unknown>;
+  if (typeof b.source !== "string" || !(BOOST_SOURCES as readonly string[]).includes(b.source)) return null;
+  const source = b.source as BoostSource;
+  if (b.kind === "view") return { kind: "view", source };
+  if (b.kind === "click" && typeof b.token === "string" && /^0x[0-9a-fA-F]{40}$/.test(b.token)) return { kind: "click", source, token: b.token.toLowerCase() };
+  return null;
+}
+
+/** A token's place in the lane as it stands now (1-based), or null when it is not in it: then a click counts nothing. */
+export function boostPlace(lane: readonly string[], token: string): number | null {
+  const i = lane.indexOf(token.toLowerCase());
+  return i >= 0 ? i + 1 : null;
+}
+
+/** The start of the 30-minute slot a moment falls in (UTC). */
+export function boostClickSlot(nowMs: number): string {
+  return new Date(Math.floor(nowMs / BOOST_CLICK_SLOT_MS) * BOOST_CLICK_SLOT_MS).toISOString();
+}
+
+/** The hour a view is counted in (UTC). */
+export function boostViewHour(nowMs: number): string {
+  return new Date(Math.floor(nowMs / 3_600_000) * 3_600_000).toISOString();
+}
+
+/** Click rows are kept this long (each names a visitor of one day); /admin reads 30 days at most. Views are counts and stay. */
+export const BOOST_CLICKS_KEEP_DAYS = 90;
+
+/**
+ * Whether a beacon came from one of the site's own pages. Browsers send Sec-Fetch-Site on every request and Origin on
+ * every POST, so a page elsewhere that sends beacons from its own visitors' browsers (a text/plain beacon needs no CORS
+ * preflight) is refused here. A request with neither header is not a browser; it could forge both, and the per-IP
+ * limit is what holds it.
+ */
+export function boostBeaconSameOrigin(secFetchSite: string | null, origin: string | null, host: string | null): boolean {
+  if (secFetchSite) return secFetchSite === "same-origin";
+  if (origin) {
+    try {
+      return host !== null && new URL(origin).host === host;
+    } catch {
+      return false; // "null" (a sandboxed frame) or garbage
+    }
+  }
+  return true;
+}
+
+export function isBoostStatsDays(v: unknown): v is BoostStatsDays {
+  return typeof v === "number" && (BOOST_STATS_DAYS as readonly number[]).includes(v);
+}
+
+/** "4.2%": clicks per lane view; "–" before any view. */
+export function boostClickRate(clicks: number, views: number): string {
+  if (!(views > 0)) return "–";
+  return `${((clicks / views) * 100).toFixed(1)}%`;
+}
+
+/** Clicks per 100K TWIG (the floor) burned for the token in the same period; null when nothing was burned in it. */
+export function boostClicksPerFloor(clicks: number, twigRaw: string): number | null {
+  const whole = Number(boostWholeOf(BigInt(twigRaw)));
+  if (!(whole > 0)) return null;
+  return (clicks * Number(BOOST_FLOOR_TWIG)) / whole;
+}
+
 /* ─────────────────────────────── moderation ─────────────────────────────── */
 
 export const BOOST_MOD_ACTIONS = ["hide", "unhide"] as const;
