@@ -17,7 +17,7 @@ import { codeHashOf, isCoreQuote, poolLiquidityUsd, readPairLeg, readPairUsd, sa
  */
 type PairDbRow = {
   chain_id: number; address: string; symbol: string; name: string; decimals: number; logo_url: string | null; website: string | null; x_handle: string | null; description: string | null;
-  status: PairStatus; status_by: "admin" | "monitor"; status_reason: string | null; status_at: Date | string; in_form: boolean; price_kind: PairPriceKind; price_pool: string; price_quote: string; price_hook: string | null;
+  status: PairStatus; status_by: "admin" | "monitor"; status_reason: string | null; status_at: Date | string; price_kind: PairPriceKind; price_pool: string; price_quote: string; price_hook: string | null;
   code_hash: string | null; failing_since: Date | string | null; checked_at: Date | string | null; listed_at: Date | string;
 };
 const iso = (v: Date | string) => new Date(v).toISOString();
@@ -27,7 +27,7 @@ function publicOf(r: PairDbRow, usd: number | null): PairPublic | null {
   if (!chain) return null;
   return {
     chain, address: r.address, symbol: r.symbol, name: r.name, decimals: r.decimals, logo: r.logo_url, website: r.website, x_handle: r.x_handle, description: r.description,
-    status: r.status, status_reason: r.status_reason, status_at: iso(r.status_at), listed_at: iso(r.listed_at), in_form: r.in_form,
+    status: r.status, status_reason: r.status_reason, status_at: iso(r.status_at), listed_at: iso(r.listed_at),
     price_kind: r.price_kind, price_pool: r.price_pool, price_quote: r.price_quote, price_hook: r.price_hook, usd,
     checked_at: r.checked_at ? iso(r.checked_at) : null, failing_since: r.failing_since ? iso(r.failing_since) : null,
   };
@@ -148,7 +148,7 @@ export function readListing(b: Record<string, unknown>): { ok: true; listing: Pa
   if (b.price_kind === "univ4" ? !/^0x[0-9a-f]{64}$/.test(pool) : !isAddress(pool)) return fail(b.price_kind === "univ4" ? "a v4 pool is named by its 32-byte pool id" : "bad pool address", 400);
   if (!isAddress(quote)) return fail("bad quote address", 400);
   if (hook && !isAddress(hook)) return fail("bad hook address", 400);
-  return { ok: true, listing: { logo, website, x_handle: x, description, in_form: b.in_form === true, price_kind: b.price_kind, price_pool: pool, price_quote: quote, price_hook: hook } };
+  return { ok: true, listing: { logo, website, x_handle: x, description, price_kind: b.price_kind, price_pool: pool, price_quote: quote, price_hook: hook } };
 }
 
 /** What can be read about the token and its price pool before it is listed or changed; an error says what is wrong. */
@@ -261,16 +261,16 @@ async function moderate(b: Record<string, unknown>): Promise<{ ok: true; pair: P
     if (!got.ok) return got;
     if (action === "list") {
       await dbWrite(() => db`
-        INSERT INTO bb_pairs (chain_id, address, symbol, name, decimals, logo_url, website, x_handle, description, status, status_by, status_reason, status_at, in_form, price_kind, price_pool, price_quote, price_hook, code_hash, failing_since, checked_at, listed_at)
-        VALUES (${cid}, ${address}, ${got.symbol}, ${got.name}, ${got.decimals}, ${l.logo || null}, ${l.website || null}, ${l.x_handle || null}, ${l.description || null}, 'listed', 'admin', NULL, now(), ${l.in_form}, ${l.price_kind}, ${l.price_pool}, ${l.price_quote}, ${l.price_hook || null}, ${got.code_hash}, NULL, NULL, now())
+        INSERT INTO bb_pairs (chain_id, address, symbol, name, decimals, logo_url, website, x_handle, description, status, status_by, status_reason, status_at, price_kind, price_pool, price_quote, price_hook, code_hash, failing_since, checked_at, listed_at)
+        VALUES (${cid}, ${address}, ${got.symbol}, ${got.name}, ${got.decimals}, ${l.logo || null}, ${l.website || null}, ${l.x_handle || null}, ${l.description || null}, 'listed', 'admin', NULL, now(), ${l.price_kind}, ${l.price_pool}, ${l.price_quote}, ${l.price_hook || null}, ${got.code_hash}, NULL, NULL, now())
         ON CONFLICT (chain_id, address) DO UPDATE SET symbol = EXCLUDED.symbol, name = EXCLUDED.name, decimals = EXCLUDED.decimals, logo_url = EXCLUDED.logo_url, website = EXCLUDED.website, x_handle = EXCLUDED.x_handle,
-          description = EXCLUDED.description, status = 'listed', status_by = 'admin', status_reason = NULL, status_at = now(), in_form = EXCLUDED.in_form, price_kind = EXCLUDED.price_kind, price_pool = EXCLUDED.price_pool,
+          description = EXCLUDED.description, status = 'listed', status_by = 'admin', status_reason = NULL, status_at = now(), price_kind = EXCLUDED.price_kind, price_pool = EXCLUDED.price_pool,
           price_quote = EXCLUDED.price_quote, price_hook = EXCLUDED.price_hook, code_hash = EXCLUDED.code_hash, failing_since = NULL, checked_at = NULL, listed_at = now()`);
       await event("listed", null);
     } else {
       await dbWrite(() => db`
         UPDATE bb_pairs SET symbol = ${got.symbol}, name = ${got.name}, decimals = ${got.decimals}, logo_url = ${l.logo || null}, website = ${l.website || null}, x_handle = ${l.x_handle || null}, description = ${l.description || null},
-          in_form = ${l.in_form}, price_kind = ${l.price_kind}, price_pool = ${l.price_pool}, price_quote = ${l.price_quote}, price_hook = ${l.price_hook || null}
+          price_kind = ${l.price_kind}, price_pool = ${l.price_pool}, price_quote = ${l.price_quote}, price_hook = ${l.price_hook || null}
          WHERE chain_id = ${cid} AND address = ${address}`);
     }
   } else {

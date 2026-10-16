@@ -18,7 +18,7 @@ import { PAIR_PRICE_KINDS, PAIR_PRICE_KIND_LABEL, buildPairAdminMessage, pairPat
 const CHAIN = "base" as const;
 /** The core quotes a Base price pool may trade against: the same list the server checks (config.ts coreQuotes). */
 const CORE_QUOTES = coreQuotes(CHAIN).map((q) => ({ label: q.address === NATIVE ? `${q.symbol} (native)` : q.symbol, address: q.address.toLowerCase() }));
-const EMPTY = { address: "", logo: "", website: "", x_handle: "", description: "", in_form: true, price_kind: "univ3" as PairPriceKind, price_pool: "", price_quote: CORE_QUOTES.find((q) => q.label === "WETH")?.address ?? CORE_QUOTES[0].address, price_hook: "" };
+const EMPTY = { address: "", logo: "", website: "", x_handle: "", description: "", price_kind: "univ3" as PairPriceKind, price_pool: "", price_quote: CORE_QUOTES.find((q) => q.label === "WETH")?.address ?? CORE_QUOTES[0].address, price_hook: "" };
 type Draft = typeof EMPTY;
 
 /**
@@ -69,7 +69,7 @@ export default function PairsAdmin() {
     }
   }
 
-  const listing = (d: Draft): PairListing => ({ logo: d.logo.trim(), website: d.website.trim(), x_handle: d.x_handle.trim().replace(/^@/, ""), description: d.description.trim(), in_form: d.in_form, price_kind: d.price_kind, price_pool: d.price_pool.trim().toLowerCase(), price_quote: d.price_quote.toLowerCase(), price_hook: d.price_kind === "univ4" ? d.price_hook.trim().toLowerCase() : "" });
+  const listing = (d: Draft): PairListing => ({ logo: d.logo.trim(), website: d.website.trim(), x_handle: d.x_handle.trim().replace(/^@/, ""), description: d.description.trim(), price_kind: d.price_kind, price_pool: d.price_pool.trim().toLowerCase(), price_quote: d.price_quote.toLowerCase(), price_hook: d.price_kind === "univ4" ? d.price_hook.trim().toLowerCase() : "" });
   const editing = pairs?.some((p) => p.address === draft.address.trim().toLowerCase() && p.status !== "delisted") ?? false;
   const field = "min-h-9 w-full rounded-lg border border-line bg-paper px-3 text-xs text-ink";
 
@@ -82,7 +82,7 @@ export default function PairsAdmin() {
         <div key={p.address} className={`${card} space-y-2 p-4`}>
           <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
             <Link href={pairPath(p.chain, p.address)} className="font-semibold text-ink">{p.symbol}</Link>
-            <span className="font-mono text-[11px] text-muted">{p.status} · {p.price_kind} · {p.usd !== null ? fmtUsd(p.usd) : "no price"}{p.in_form ? " · in form" : ""}{p.failing_since ? ` · failing since ${p.failing_since.slice(0, 16)}` : ""}</span>
+            <span className="font-mono text-[11px] text-muted">{p.status} · {p.price_kind} · {p.usd !== null ? fmtUsd(p.usd) : "no price"}{p.failing_since ? ` · failing since ${p.failing_since.slice(0, 16)}` : ""}</span>
           </div>
           {p.status_reason ? <p className="text-xs text-muted">{p.status_reason}</p> : null}
           <div className="flex flex-wrap gap-2">
@@ -90,7 +90,7 @@ export default function PairsAdmin() {
             {p.status === "listed" ? <button type="button" disabled={!address || busy || !reasons[p.address]?.trim()} onClick={() => void act("suspend", p.address, { reason: reasons[p.address].trim() })} className={`${btn.secondarySm} text-down-ink`}>Suspend</button> : null}
             {p.status !== "delisted" ? <button type="button" disabled={!address || busy || !reasons[p.address]?.trim()} onClick={() => void act("delist", p.address, { reason: reasons[p.address].trim() })} className={`${btn.secondarySm} text-down-ink`}>Delist</button> : null}
             {p.status !== "listed" ? <button type="button" disabled={!address || busy} onClick={() => void act("reinstate", p.address, { reason: reasons[p.address]?.trim() ?? "" })} className={btn.secondarySm}>Reinstate</button> : null}
-            {p.status !== "delisted" ? <button type="button" disabled={busy} onClick={() => setDraft({ address: p.address, logo: p.logo ?? "", website: p.website ?? "", x_handle: p.x_handle ?? "", description: p.description ?? "", in_form: p.in_form, price_kind: p.price_kind, price_pool: p.price_pool, price_quote: p.price_quote, price_hook: p.price_hook ?? "" })} className={btn.secondarySm}>Edit</button> : null}
+            {p.status !== "delisted" ? <button type="button" disabled={busy} onClick={() => setDraft({ address: p.address, logo: p.logo ?? "", website: p.website ?? "", x_handle: p.x_handle ?? "", description: p.description ?? "", price_kind: p.price_kind, price_pool: p.price_pool, price_quote: p.price_quote, price_hook: p.price_hook ?? "" })} className={btn.secondarySm}>Edit</button> : null}
           </div>
         </div>
       ))}
@@ -108,7 +108,6 @@ export default function PairsAdmin() {
         <input aria-label="Logo URL" value={draft.logo} onChange={(e) => setDraft({ ...draft, logo: e.target.value })} placeholder="Logo: uploaded image URL, or /file.png" maxLength={300} className={field} />
         <input aria-label="Website" value={draft.website} onChange={(e) => setDraft({ ...draft, website: e.target.value })} placeholder="https://…" maxLength={200} className={field} />
         <input aria-label="X handle" value={draft.x_handle} onChange={(e) => setDraft({ ...draft, x_handle: e.target.value })} placeholder="X handle" className={field} />
-        <label className="flex items-center gap-2 text-xs text-body"><input type="checkbox" checked={draft.in_form} onChange={(e) => setDraft({ ...draft, in_form: e.target.checked })} /> Offer it in the launch form</label>
         <textarea aria-label="About" value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} placeholder="About (one or two sentences, 280 max)" maxLength={280} className={`${field} min-h-16 py-2 sm:col-span-2`} />
         <div className="flex flex-wrap gap-2 sm:col-span-2">
           <button type="submit" disabled={!address || busy || !isAddress(draft.address.trim())} className={btn.primarySm}>{editing ? "Sign and update" : "Sign and list"}</button>

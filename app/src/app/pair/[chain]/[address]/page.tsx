@@ -59,7 +59,6 @@ export default async function PairPage({ params }: { params: Promise<{ chain: st
   return (
     <main className={shell.page}>
       <SectionIntro eyebrow="Community pair" title={pairTitle(p)} description={p.description ? `${p.description} ${PAIR_COPY.pageNote}` : PAIR_COPY.pageNote}>
-        {p.status === "listed" && p.in_form ? <Link href={`/launch?chain=${c}&quote=${p.address}`} className={shell.action}>{PAIR_COPY.launchWith(p.symbol)} <ArrowRight size={15} aria-hidden="true" /></Link> : null}
         <Link href="/pairs" className={shell.textLink}>All community pairs <ArrowRight size={14} aria-hidden="true" /></Link>
       </SectionIntro>
 
@@ -86,6 +85,7 @@ export default async function PairPage({ params }: { params: Promise<{ chain: st
         <ul className="mt-4 space-y-2 text-sm text-body">
           <li>USD price: from {PAIR_PRICE_KIND_LABEL[p.price_kind]} against {quoteSym} (<a href={src.href} target={src.href.startsWith("/") ? undefined : "_blank"} rel="noopener noreferrer" className="text-brand hover:text-ink">{src.label}</a>), times {quoteSym}&apos;s own price.{p.price_hook ? ` The pool runs a hook (${shortAddr(p.price_hook)}), named when it was listed.` : ""} A spot more than 25% off the 30-minute average is replaced by the average.</li>
           <li>Every hour: the contract&apos;s code must be the code it was listed with, the pool must give a price, and the pool must hold at least ${PAIR_MONITOR_LIQUIDITY_USD.toLocaleString("en-US")}. A code change suspends the pair at once; any other check failing for 24 hours suspends it; 14 days suspended delists it.</li>
+          <li>{PAIR_COPY.noForm}</li>
           <li>{p.checked_at ? `Last checked ${day(p.checked_at)}, ${new Date(p.checked_at).toISOString().slice(11, 16)} UTC.` : "Not checked yet."}{p.failing_since ? ` Failing since ${day(p.failing_since)}.` : ""}</li>
         </ul>
       </section>

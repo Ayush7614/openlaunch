@@ -5,7 +5,6 @@ import { ethUsd } from "@/lib/launchpad/ethPrice";
 import { gitlawbUsd } from "@/lib/launchpad/gitlawbServer";
 import { DEFAULT_CHAIN, chainKeyOr, type ChainKey } from "@/lib/chainPublic";
 import { CONFIGURED_CHAINS, launchpad } from "@/lib/launchpad/config";
-import { loadPairs } from "@/lib/launchpad/pairsServer";
 
 export const metadata: Metadata = pageMetadata({
   path: "/launch",
@@ -21,11 +20,9 @@ function initialChainFor(param: string | undefined): ChainKey {
   return launchpad(wanted).configured ? wanted : (CONFIGURED_CHAINS[0] ?? wanted);
 }
 
-export default async function LaunchPage({ searchParams }: { searchParams: Promise<{ chain?: string; quote?: string }> }) {
+export default async function LaunchPage({ searchParams }: { searchParams: Promise<{ chain?: string }> }) {
   const sp = await searchParams;
-  const [usd, gitlawb, pairs] = await Promise.all([ethUsd(), gitlawbUsd(), loadPairs()]);
-  // ?quote=<address> from a pair page's "Launch with" button preselects that community pair (when it is open for launches)
-  const initialPair = typeof sp.quote === "string" && /^0x[0-9a-fA-F]{40}$/.test(sp.quote) ? sp.quote : null;
+  const [usd, gitlawb] = await Promise.all([ethUsd(), gitlawbUsd()]);
   return (
     <>
       <main className="relative mx-auto max-w-6xl px-4 pt-6 sm:pt-10 pb-16 space-y-5 sm:space-y-6">
@@ -33,7 +30,7 @@ export default async function LaunchPage({ searchParams }: { searchParams: Promi
           <h1 className="font-display font-bold tracking-[-0.02em] text-ink text-3xl sm:text-4xl">Launch a token</h1>
           <p className="mt-2 text-base text-body">Pick a chain, fill this in, sign once, done. No platform fee. You only pay gas.</p>
         </header>
-        <LaunchForm ethUsd={usd} gitlawbUsd={gitlawb} initialChain={initialChainFor(sp.chain)} pairs={pairs.filter((p) => p.status === "listed" && p.in_form)} initialPair={initialPair} />
+        <LaunchForm ethUsd={usd} gitlawbUsd={gitlawb} initialChain={initialChainFor(sp.chain)} />
       </main>
     </>
   );
