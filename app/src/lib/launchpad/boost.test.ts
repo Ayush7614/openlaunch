@@ -33,6 +33,9 @@ import {
   rankLane,
   BOOST_CLICK_SLOT_MS,
   BOOST_CLICKS_KEEP_DAYS,
+  BOOST_FROM_FLOOR,
+  boostEntryLine,
+  topBoosters,
   BOOST_SOURCES,
   boostBeaconSameOrigin,
   boostViewHour,
@@ -312,4 +315,33 @@ test("only the site's own pages may send the beacon: another site's visitors can
   assert.equal(boostBeaconSameOrigin(null, "https://openlaunch.lol", null), false, "no host to compare");
   // neither header: not a browser page (a script could forge both); the per-IP limit holds it
   assert.equal(boostBeaconSameOrigin(null, null, HOST), true);
+});
+
+test("the lane says what it takes to get in, read off the cards it shows", () => {
+  const twig = (whole: bigint) => (whole * E18 + ID).toString();
+  assert.equal(BOOST_FROM_FLOOR, "from 100K TWIG");
+  assert.equal(boostEntryLine([twig(3_000_000n), twig(500_000n), twig(300_000n)]), "2 open spots · from 100K TWIG");
+  assert.equal(boostEntryLine([twig(1n), twig(1n), twig(1n), twig(1n)]), "1 open spot · from 100K TWIG");
+  assert.equal(boostEntryLine([]), "5 open spots · from 100K TWIG", "an empty lane");
+  // full: the 5th card's own total, so the line and the cards always agree
+  assert.equal(boostEntryLine([twig(9_000_000n), twig(3_000_000n), twig(2_000_000n), twig(1_500_000n), twig(1_234_567n)]), "Full · 5th place holds 1.23M TWIG");
+  const banned = /\b(moon|rally|buyback|guarantee[ds]?|pump|gem|100x|profit|invest(ment)?|returns?|yield|airdrop|reward)\b/i;
+  for (const line of [boostEntryLine([twig(1n)]), boostEntryLine(Array(5).fill(twig(100_000n)))]) assert.ok(!banned.test(line), line);
+});
+
+test("a card credits the wallet that sent the most TWIG in the window; a tie goes to the newer boost, then the address", () => {
+  const row = (token: string, booster: string, whole: bigint, at: string) => ({ token, booster, twig: (whole * E18).toString(), last_at: at });
+  const picked = topBoosters([
+    row("0xt1", "0xaaa", 300_000n, "2026-10-16T01:00:00Z"),
+    row("0xt1", "0xbbb", 1_000_000n, "2026-10-16T00:00:00Z"), // most TWIG
+    row("0xt1", "0xccc", 100_000n, "2026-10-16T05:00:00Z"),
+    row("0xt2", "0xddd", 500_000n, "2026-10-16T01:00:00Z"),
+    row("0xt2", "0xeee", 500_000n, "2026-10-16T02:00:00Z"), // tie: the newer boost
+    row("0xt3", "0xfff", 100_000n, "2026-10-16T01:00:00Z"),
+    row("0xt3", "0x999", 100_000n, "2026-10-16T01:00:00Z"), // tie on both: the lower address
+  ]);
+  assert.equal(picked.get("0xt1"), "0xbbb");
+  assert.equal(picked.get("0xt2"), "0xeee");
+  assert.equal(picked.get("0xt3"), "0x999");
+  assert.equal(topBoosters([]).size, 0);
 });

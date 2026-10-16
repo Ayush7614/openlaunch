@@ -197,10 +197,12 @@ test("CodeRabbit round 1: the done screen, admin errors and the agent formula", 
   assert.match(llms, /greater than 0 and less than 10\^11/);
 });
 
-test("the whole card opens the token; only the burn link sits above it as its own target", () => {
+test("the whole card opens the token; only the credit's name sits above it as its own target", () => {
   // the token link's ::after covers the card (LaunchCard's pattern), and keyboard focus rings the whole card
   assert.match(lane, /className="flex min-w-0 items-center gap-2\.5 outline-none \[grid-area:link\] after:absolute after:inset-0 after:z-\[1\] focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand sm:pr-5"/);
-  assert.match(lane, /<a href=\{explorerTx\(l\.chain, b\.last_tx\)\} target="_blank" rel="noreferrer" className="relative z-\[2\] /);
+  // the credit: the profile link (or the address's explorer link) is raised above the card's link; "by" stays the card's
+  assert.match(lane, /<WhoName\n\s*address=\{b\.top_booster\}\n\s*className="relative z-\[2\] text-\[10px\]"/);
+  assert.match(lane, /href=\{explorerAddress\(BOOST_CHAIN, b\.top_booster\)\} target="_blank" rel="noreferrer" className="relative z-\[2\] /);
   // one link per card: no link wraps the card, and the stats tooltip moved onto the link that covers it
   assert.equal((lane.match(/<Link\b/g) ?? []).length, 1);
   assert.match(lane, /<Link\n\s*href=\{`\/t\/\$\{l\.chain\}\/\$\{l\.token\}`\}\n\s*title=\{`\$\{b\.boosts\}/);
@@ -272,17 +274,19 @@ test("each card shows its clicks of the last 24 hours, never a 0, and a failed r
   const body = server.slice(server.indexOf("async function laneClicks("), server.indexOf("export async function getBoostLane("));
   assert.match(body, /AND clicked_at > now\(\) - make_interval\(hours => \$\{BOOST_WINDOW_H\}\)/);
   assert.match(body, /\} catch \(err\) \{\n\s*console\.warn\("\[boost\] lane clicks read failed:"[^\n]*\n\s*return new Map\(\);/);
-  assert.match(server, /const items = shown\.map\(\(t\) => \(\{ \.\.\.t, clicks: clicks\.get\(t\.token\) \?\? 0 \}\)\);/);
+  assert.match(server, /const items = shown\.map\(\(t\) => \(\{ \.\.\.t, clicks: clicks\.get\(t\.token\) \?\? 0, top_booster: boosters\.get\(t\.token\) \}\)\);/);
   // a click count is no ignition: only more TWIG lights a card
   assert.match(read("../../lib/launchpad/boost.ts"), /const grew = before === undefined \|\| BigInt\(it\.twig\) > BigInt\(before\);/);
 });
 
 test("a phone gets a compact row with all five places; from 640px the stacked card", () => {
-  assert.match(lane, /\[grid-template-areas:'link_twig_twig'_'link_clicks_left'\]/);
-  assert.match(lane, /sm:\[grid-template-areas:'link_link'_'twig_left'_'burn_clicks'\]/);
-  for (const area of ["link", "twig", "clicks", "left", "burn"]) assert.match(lane, new RegExp(`\\[grid-area:${area}\\]`), area);
-  // "Latest burn" from 640px only (the token page has it on a phone); every place stays a full-width tap target
-  assert.match(lane, /className="relative z-\[2\] hidden w-fit items-center gap-0\.5 text-\[10px\] text-muted \[grid-area:burn\] hover:text-ink sm:inline-flex"/);
+  assert.match(lane, /\[grid-template-areas:'link_twig_twig'_'link_clicks_left'_'by_by_by'\]/);
+  assert.match(lane, /sm:\[grid-template-areas:'link_link'_'twig_left'_'by_clicks'\]/);
+  for (const area of ["link", "twig", "clicks", "left", "by"]) assert.match(lane, new RegExp(`\\[grid-area:${area}\\]`), area);
+  // the credit lines up under the name on a phone (avatar 32 + gap 10)
+  assert.match(lane, /\[grid-area:by\] max-sm:pl-\[42px\]/);
+  // the burn proof left the card for the credit; the token page keeps it
+  assert.doesNotMatch(lane, /Latest burn|explorerTx/);
   assert.match(panel, /explorerTx\(BOOST_CHAIN, state\.last_tx\)/);
 });
 
@@ -317,4 +321,64 @@ test("the lane never counts a view of its empty line, and the hover arrow never 
   assert.match(lane, /const hasCards = shown\.length > 0;/);
   assert.match(lane, /const items = shown;/);
   assert.match(lane, /<ArrowUpRight size=\{14\} aria-hidden="true" className="pointer-events-none absolute right-3 top-3 text-warm-ink max-sm:hidden /);
+});
+
+const picker = read("./BoostPicker.tsx");
+const list = read("../../app/api/launch/list/route.ts");
+
+test("the lane invites a boost: a header button, every open place a button, and what it takes to get in", () => {
+  assert.match(lane, /const open = Math\.max\(0, BOOST_LANE_SIZE - items\.length\);\n\s*\/\/ read off the cards shown, so it can never contradict them\n\s*const entryLine = boostEntryLine\(items\.map\(\(b\) => b\.twig\)\);/);
+  assert.doesNotMatch(server.slice(server.indexOf("export async function getBoostLane("), server.indexOf("export async function boostLaneOrNull(")), /laneEntry/, "the lane's line is never the server's ranked cutoff");
+  assert.match(lane, /<button type="button" onClick=\{pick\} className=\{`\$\{btn\.warmOutlineSm\} ml-auto shrink-0`\}>\n\s*<Flame size=\{14\} aria-hidden="true" \/>\n\s*\{BOOST_COPY\.cta\}/);
+  // the entry line never squeezes beside the button on a phone: a full line of its own there
+  assert.match(lane, /<p className="order-last basis-full text-\[12px\] text-warm-ink tnum sm:order-none sm:basis-auto">\{entryLine\}<\/p>/);
+  // one button per open place from 1024px, one row for all of them below; none once the lane is full
+  assert.match(lane, /\{Array\.from\(\{ length: open \}, \(_, i\) => \(\n\s*<li key=\{`open-\$\{i\}`\} className="hidden min-h-\[104px\] bg-card lg:flex">\n\s*<button type="button" onClick=\{pick\}/);
+  assert.match(lane, /\{open > 0 \? \(\n\s*<li className="bg-card sm:col-span-2 lg:hidden">/);
+  assert.doesNotMatch(lane, /aria-hidden="true" className="hidden items-center justify-center bg-card/, "open places are buttons now, not hidden text");
+  // the picker loads on first use; the lane itself never sends anything
+  assert.match(lane, /const BoostPicker = dynamic\(\(\) => import\("\.\/BoostPicker"\), \{ ssr: false \}\);/);
+  assert.match(lane, /\{picking \? <BoostPicker onClose=\{\(\) => setPicking\(false\)\} \/> : null\}/);
+  // the list counts the lane's places (cards, then open ones), not only boosted tokens
+  assert.match(lane, /<ol aria-label="Places in the Boosted lane"/);
+  // the credited wallets' names come with the lane (null = no profile), so the first paint has no address-to-name swap
+  assert.match(server, /items, names: await creditNames\(\[\.\.\.boosters\.values\(\)\]\) \};/);
+  assert.match(server, /const known = await namesFor\(wallets\)\.catch\(\(\) => null\);\n\s*return known \? Object\.fromEntries\(wallets\.map\(\(w\) => \[w, known\[w\] \?\? null\]\)\) : \{\};/);
+  assert.match(lane, /<NamesProvider names=\{lane\.names \?\? NO_NAMES\}>/);
+  // a public read of the lane comes from the same few-second cache: polling it adds no database pass
+  assert.match(boostRoute, /const lane = await boostLaneOrNull\(await ethUsd\(\)\);/);
+  assert.doesNotMatch(boostRoute, /getBoostLane/);
+});
+
+test("the picker only navigates: the boost happens on the token's page, with every check the dialog has", () => {
+  assert.match(picker, /router\.push\(`\/t\/\$\{BOOST_CHAIN\}\/\$\{t\.token\}\?boost=1#boost`\);/);
+  assert.doesNotMatch(picker, /wagmi|viem|writeContract|sendTransaction|simulateContract|signMessage|BoostDialog/);
+  // Base only, in every list it reads; the wallet's own launches by the launcher filter, only as many as are shown
+  assert.match(picker, /\/api\/launch\/search\?q=\$\{encodeURIComponent\(q\)\}&chain=\$\{BOOST_CHAIN\}&order=holders/);
+  assert.match(picker, /\/api\/launch\/list\?chain=\$\{BOOST_CHAIN\}&sort=live/);
+  assert.match(picker, /\/api\/launch\/list\?chain=\$\{BOOST_CHAIN\}&launcher=\$\{wallet\}&sort=new&limit=\$\{MINE_MAX\}/);
+  assert.doesNotMatch(picker, /\/api\/me/);
+  assert.equal((picker.match(/\.filter\(\(l\) => l\.chain === BOOST_CHAIN\)/g) ?? []).length, 3);
+  // a token an admin keeps out of the lane is said so here, never a trip to a page with no Boost button
+  assert.match(picker, /const kept = await fetch\(`\/api\/boost\?chain=\$\{BOOST_CHAIN\}&token=\$\{t\.token\}`/);
+  assert.match(picker, /if \(kept\) \{\n\s*setHidden\(\(h\) => new Set\(h\)\.add\(t\.token\)\);\n\s*return;\n\s*\}/);
+  assert.ok(picker.indexOf("if (kept)") < picker.indexOf("router.push("));
+  // closing the picker mid-check aborts the check, and an aborted check never navigates (CodeRabbit #101)
+  assert.match(picker, /useEffect\(\(\) => \(\) => pickCheck\.current\?\.abort\(\), \[\]\);/);
+  assert.match(picker, /\{ cache: "no-store", signal: ac\.signal \}\)/);
+  assert.match(picker, /if \(ac\.signal\.aborted\) return;/);
+  const pickBody = picker.slice(picker.indexOf("const pick = async"), picker.indexOf("const row = "));
+  assert.ok(pickBody.indexOf("if (ac.signal.aborted) return;") < pickBody.indexOf("setChecking(null)"));
+  assert.ok(pickBody.indexOf("if (ac.signal.aborted) return;") < pickBody.indexOf("router.push("));
+  assert.match(list, /const launcher = l && isAddress\(l\) \? l\.toLowerCase\(\) : undefined;/);
+  // the connected wallet's own launches first; an answer for another wallet is never shown
+  assert.match(picker, /const own = mine && mine\.wallet === wallet \? mine\.tokens : \[\];/);
+  assert.match(picker, /BOOST_COPY\.pickerNote/);
+});
+
+test("a card credits the wallet that sent the most TWIG for it; a failed read shows no credit, never no lane", () => {
+  const body = server.slice(server.indexOf("async function laneBoosters("), server.indexOf("/** The Boosted lane: the top"));
+  assert.match(body, /AND b\.block_time > now\(\) - make_interval\(hours => \$\{BOOST_WINDOW_H\}\)\n\s*AND b\.amount >= \$\{RAW_FLOOR\}::numeric\n\s*GROUP BY l\.token, b\.booster`;\n\s*return topBoosters\(rows\);/);
+  assert.match(body, /\} catch \(err\) \{\n\s*console\.warn\("\[boost\] lane boosters read failed:"[^\n]*\n\s*return new Map\(\);/);
+  assert.match(lane, /\{b\.top_booster \? \(/);
 });

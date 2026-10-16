@@ -194,6 +194,51 @@ export function boostShowsNow(entry: LaneEntry, current: bigint, raw: bigint, in
   return current + raw >= BigInt(entry.cutoff);
 }
 
+/* ─────────────────────────────── the lane's invitation ─────────────────────────────── */
+
+/** "1st", "2nd", "5th": the place the lane's entry line names. */
+function ordinal(n: number): string {
+  const tens = n % 100;
+  if (tens >= 11 && tens <= 13) return `${n}th`;
+  return `${n}${["th", "st", "nd", "rd"][n % 10] ?? "th"}`;
+}
+
+/** "from 100K TWIG": what an open place asks, in the lane's entry line and on its open-place buttons. */
+export const BOOST_FROM_FLOOR = `from ${compactWhole(Number(BOOST_FLOOR_TWIG))} ${TWIG_SYMBOL}`;
+
+/**
+ * What it takes to get into the lane, read off the cards it shows (raw TWIG totals in lane order), so the line can
+ * never contradict them: "2 open spots · from 100K TWIG" while there is room, "Full · 5th place holds 1.2M TWIG" (what
+ * the last card shows, and what a boost has to reach) once there is not.
+ */
+export function boostEntryLine(totals: readonly string[]): string {
+  const open = BOOST_LANE_SIZE - totals.length;
+  if (open > 0) return `${open} open ${open === 1 ? "spot" : "spots"} · ${BOOST_FROM_FLOOR}`;
+  return `Full · ${ordinal(BOOST_LANE_SIZE)} place holds ${fmtBoostTwig(totals[BOOST_LANE_SIZE - 1])}`;
+}
+
+/** One wallet's boosts on one token inside the window (the database groups; topBoosters picks). */
+export type BoosterTotal = { token: string; booster: string; twig: string; last_at: string };
+
+/**
+ * Who a card credits: per token, the wallet that sent the most TWIG for it in the window; a tie goes to the newer
+ * boost, then to the address, so the credit never flickers between polls.
+ */
+export function topBoosters(rows: readonly BoosterTotal[]): Map<string, string> {
+  const best = new Map<string, BoosterTotal>();
+  for (const r of rows) {
+    const cur = best.get(r.token);
+    if (!cur) {
+      best.set(r.token, r);
+      continue;
+    }
+    const d = BigInt(r.twig) - BigInt(cur.twig);
+    const t = Date.parse(r.last_at) - Date.parse(cur.last_at);
+    if (d > 0n || (d === 0n && (t > 0 || (t === 0 && r.booster < cur.booster)))) best.set(r.token, r);
+  }
+  return new Map([...best].map(([token, r]) => [token, r.booster]));
+}
+
 /* ─────────────────────────────── views and clicks ─────────────────────────────── */
 
 /**
@@ -305,6 +350,15 @@ export const BOOST_COPY = {
   laneTitle: "Boosted",
   laneNote: "Paid in TWIG sent to 0x…dEaD. Not a ranking: the Live sort and Trending count outside wallets only.",
   laneEmpty: "Nothing is boosted right now. Any Base launch can be boosted with TWIG from its page.",
+  cta: "Boost a token",
+  openSpot: "Open spot",
+  pickerNote: "Pick a Base token. The boost happens on its page, where you see the amount and the lane before anything is sent.",
+  pickerMine: "Your launches",
+  pickerTrending: "Trending on Base",
+  pickerSearch: "Search Base tokens",
+  pickerNone: "No Base token matches.",
+  pickerFailed: "Search is unavailable right now. Any token's page still has its Boost button.",
+  pickerHidden: "Not shown in the lane",
   what: "The Boosted lane shows the 5 tokens with the most TWIG sent for them in the last 24 hours. A boost counts toward that total for 24 hours. It does not change the Live sort or the Trending board, and it is not an endorsement.",
   tag: "The last digits of the amount name this token, so the transfer itself records what it boosted.",
   final: "The TWIG goes to 0x…dEaD. It cannot be undone or refunded, and nothing is paid to openlaunch or Twigpine.",
