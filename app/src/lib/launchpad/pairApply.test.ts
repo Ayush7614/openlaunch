@@ -197,6 +197,21 @@ test("a late burn on a closed application never marks it paid (status or date)",
   assert.match(settle, /paid_at = CASE WHEN a\.paid_at IS NULL AND a\.status = 'open' AND s\.total >=/);
 });
 
+/* ── pre-deploy review fixes (2026-10-16) ── */
+
+test("a burn sent before its application existed never counts, and is never retried", () => {
+  const s = src("pairApplyServer.ts");
+  const value = s.slice(s.indexOf("async function valueBurn"), s.indexOf("async function settleApplication"));
+  assert.match(value, /if \(sentAt\.getTime\(\) < new Date\(app\.created_at\)\.getTime\(\)\) return;/);
+  assert.match(s, /WHERE b\.usd IS NULL AND b\.block_time >= a\.created_at LIMIT 20/);
+});
+
+test("llms.txt explains the application fee only while applications are open", () => {
+  const llms = src("../../app/llms.txt/route.ts");
+  assert.match(llms, /function pairApplySection\(\): string \{\n  if \(!applicationsOpen\(\)\) return "";/);
+  assert.equal((llms.match(/3 × 10\^11 \+ application id/g) ?? []).length, 1, "only inside pairApplySection");
+});
+
 /* ── wiring ── */
 
 test("server: verified identity, a passing check, signatures before writes, a lock never replaced, approval through the listing's own checks", () => {

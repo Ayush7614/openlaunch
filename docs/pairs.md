@@ -30,7 +30,7 @@ A v4 pool's key is read from the v4 PositionManager (`poolKeys`), so the pool mu
 
 Every listed pair (and every pair the monitor itself suspended) is checked about hourly, by one machine at a time (`pairsTick`, from the sync loop):
 
-- **Code**: the runtime code's hash must match the one recorded at listing. A pair listed without one (the seeded MUSEWORLD) is pinned on its first check. A change, or no code at all, **suspends at once**.
+- **Code**: the runtime code's hash must match the one recorded at listing. A pair listed without one (the seeded MUSEWORLD) is pinned on its first check. A change **suspends at once**; reading no code at all counts as a failing check (one lagging node can answer empty, and a token's code cannot vanish).
 - **Pool**: the price pool must give a spot and an average.
 - **Liquidity**: the pool must hold at least $25,000 (GeckoTerminal's figure; unknown counts as no answer, not a failure).
 

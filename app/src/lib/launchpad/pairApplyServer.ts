@@ -243,6 +243,8 @@ async function valueBurn(cid: number, tx: string, log: number, appId: number, wh
   const db = maybeDb()!;
   const [app] = await db<AppRow[]>`SELECT * FROM bb_pair_applications WHERE id = ${appId} AND chain_id = ${cid}`;
   if (!app) return; // names no application (yet): kept as a fact, never counted
+  // sent before the application existed (an early or stray burn whose tag happens to name it): kept as a fact, never counted
+  if (sentAt.getTime() < new Date(app.created_at).getTime()) return;
   const parts = await gitlawbUsdParts();
   const live = [parts.spot, parts.twap].filter((p): p is number => p !== null && p > 0);
   const quote = app.quote_price_usd && app.quote_at && app.quote_until ? { priceUsd: app.quote_price_usd, from: new Date(app.quote_at).getTime(), until: new Date(app.quote_until).getTime() } : null;
@@ -273,7 +275,7 @@ export async function revaluePairBurns(now = Date.now()): Promise<void> {
   lastRevalue = now;
   const rows = await db<{ chain_id: number; tx_hash: string; log_index: number; application_id: string; twig: string; block_time: Date }[]>`
     SELECT b.chain_id, b.tx_hash, b.log_index, b.application_id, b.twig::text AS twig, b.block_time FROM bb_pair_burns b
-      JOIN bb_pair_applications a ON a.id = b.application_id WHERE b.usd IS NULL LIMIT 20`;
+      JOIN bb_pair_applications a ON a.id = b.application_id WHERE b.usd IS NULL AND b.block_time >= a.created_at LIMIT 20`;
   for (const r of rows) {
     await valueBurn(r.chain_id, r.tx_hash, r.log_index, Number(r.application_id), BigInt(r.twig), new Date(r.block_time));
     await settleApplication(Number(r.application_id));
