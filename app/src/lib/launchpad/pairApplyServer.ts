@@ -21,6 +21,7 @@ import {
   buildPairReviewMessage,
   canAskAgain,
   isPairApplyAction,
+  isPaid,
   isPairReviewDecision,
   pairBurnAmount,
   pairBurnUsd,
@@ -309,6 +310,8 @@ export async function reviewApplication(b: Record<string, unknown>): Promise<{ o
   if (!(await consumeNonce(b.nonce, wallet))) return fail("nonce already used", 401);
   const [app] = await db<AppRow[]>`SELECT * FROM bb_pair_applications WHERE id = ${id}`;
   if (!app) return fail("no such application", 404);
+  // a fee already paid is not waived: a paid application in "changes" goes back through "again" and then "approve"
+  if (decision === "waive" && isPaid(app.paid_usd, app.fee_usd)) return fail("this application has paid its fee: approve it after the applicant asks again", 409);
   // an admin may close (reject) any application still in progress, so nothing can hold a token's place; approving and
   // asking for changes need a paid one; waiving the fee approves one that has not paid
   const allowed: PairApplicationStatus[] = decision === "reject" ? ["paid", "open", "changes"] : decision === "waive" ? ["open", "changes"] : ["paid"];
@@ -323,8 +326,6 @@ export async function reviewApplication(b: Record<string, unknown>): Promise<{ o
   const claimed = await db`UPDATE bb_pair_applications SET status = ${status}, reviews_used = ${used}, reason = ${why || null}, decided_by = ${wallet}, decided_at = now() WHERE id = ${id} AND status = ${app.status} RETURNING id`;
   if (claimed.length === 0) return fail("this application changed meanwhile: reload", 409);
   if (approving) {
-    // already listed (an admin listed the token directly): the application is simply marked approved
-    const [listed] = await db`SELECT 1 FROM bb_pairs WHERE chain_id = ${app.chain_id} AND address = ${app.address} AND status = 'listed'`;
     // not listed, whether refused or thrown: the application goes back to where it was, its review not used. An unpaid one
     // whose fee was paid by a burn that settled while the listing ran goes back as paid (settlement will not look again)
     const restore = () => db`
@@ -335,6 +336,8 @@ export async function reviewApplication(b: Record<string, unknown>): Promise<{ o
        WHERE id = ${id} AND status = 'approved'`;
     let w: { ok: true } | { ok: false; error: string; status: number };
     try {
+      // already listed (an admin listed the token directly): the application is simply marked approved
+      const [listed] = await db`SELECT 1 FROM bb_pairs WHERE chain_id = ${app.chain_id} AND address = ${app.address} AND status = 'listed'`;
       w = listed ? { ok: true } : await writeListing(chain, app.address, { logo: app.logo_url ?? "", website: app.website ?? "", x_handle: app.x_handle ?? "", description: app.description ?? "", price_kind: app.price_kind, price_pool: app.price_pool, price_quote: app.price_quote, price_hook: app.price_hook ?? "" }, wallet, "list");
     } catch (e) {
       await restore();

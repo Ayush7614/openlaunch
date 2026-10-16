@@ -127,7 +127,9 @@ test("a new v4 listing warms up for 40 minutes: a missing average then is not a 
   const health = src("pairsServer.ts").slice(src("pairsServer.ts").indexOf("async function poolHealth"), src("pairsServer.ts").indexOf("let lastMonitor"));
   assert.match(health, /const warming = leg\.twap === null && leg\.spot !== null && leg\.spot > 0 && pairWarmingUp\(/, "only a positive spot with no average is excused");
   assert.match(health, /if \(!warming && guardedPairPrice\(leg\.spot, leg\.twap\)\.price === null\) return \{ ok: false/);
-  assert.ok(health.indexOf("poolLiquidityUsd(") < health.indexOf("return warming ? null : { ok: true };"), "liquidity is still checked while warming up");
+  const liquidityCheck = health.indexOf("poolLiquidityUsd(");
+  const warmupReturn = health.indexOf("return warming ? null : { ok: true };");
+  assert.ok(liquidityCheck >= 0 && warmupReturn >= 0 && liquidityCheck < warmupReturn, "liquidity is still checked while warming up");
 });
 
 test("monitor: an unknown reading changes nothing; a soft failure suspends after 24 hours, a hard one at once", () => {

@@ -220,6 +220,10 @@ test("an admin can approve an unpaid application with the fee waived, and an alr
   assert.match(decide, /decision === "waive" \? \["open", "changes"\]/, "only an application that has not paid");
   assert.match(decide, /const why = decision === "waive" \? reason \|\| PAIR_FEE_WAIVED : reason;/);
   assert.match(decide, /SELECT 1 FROM bb_pairs WHERE chain_id = \$\{app\.chain_id\} AND address = \$\{app\.address\} AND status = 'listed'/);
+  // the listed check is inside the guarded block: a failing query restores the application too
+  assert.ok(decide.indexOf("try {") < decide.indexOf("SELECT 1 FROM bb_pairs WHERE chain_id"), "the listed-pair query runs inside the restore guard");
+  // a paid fee is never recorded as waived
+  assert.match(decide, /if \(decision === "waive" && isPaid\(app\.paid_usd, app\.fee_usd\)\) return fail\(/);
   assert.match(decide, /const restore = \(\) => db`\s*UPDATE bb_pair_applications SET\s*status = CASE WHEN \$\{app\.status\} = 'open' AND paid_usd >= fee_usd \* \$\{1 - PAIR_FEE_TOLERANCE\} THEN 'paid' ELSE \$\{app\.status\} END,[^`]*reviews_used = \$\{app\.reviews_used\}[^`]*AND status = 'approved'`/, "a failed listing puts the application back where it was (as paid when a burn settled meanwhile)");
   assert.match(decide, /\(decision === "changes" \|\| decision === "reject"\) && !reason/, "approving and waiving need no reason");
   assert.match(src("../../components/launchpad/PairReviewAdmin.tsx"), /decide\(a\.id, "waive"\)\} className=\{btn\.primarySm\}[^>]*>Approve without fee</);
