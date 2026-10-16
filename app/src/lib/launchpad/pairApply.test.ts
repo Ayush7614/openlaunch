@@ -220,10 +220,14 @@ test("an admin can approve an unpaid application with the fee waived, and an alr
   assert.match(decide, /decision === "waive" \? \["open", "changes"\]/, "only an application that has not paid");
   assert.match(decide, /const why = decision === "waive" \? reason \|\| PAIR_FEE_WAIVED : reason;/);
   assert.match(decide, /SELECT 1 FROM bb_pairs WHERE chain_id = \$\{app\.chain_id\} AND address = \$\{app\.address\} AND status = 'listed'/);
-  assert.match(decide, /SET status = \$\{app\.status\}, reviews_used = \$\{app\.reviews_used\}[^`]*AND status = 'approved'/, "a failed listing puts the application back where it was");
+  assert.match(decide, /const restore = \(\) => db`UPDATE bb_pair_applications SET status = \$\{app\.status\}, reviews_used = \$\{app\.reviews_used\}[^`]*AND status = 'approved'`/, "a failed listing puts the application back where it was");
   assert.match(decide, /\(decision === "changes" \|\| decision === "reject"\) && !reason/, "approving and waiving need no reason");
   assert.match(src("../../components/launchpad/PairReviewAdmin.tsx"), /decide\(a\.id, "waive"\)\} className=\{btn\.primarySm\}[^>]*>Approve without fee</);
-  assert.match(src("../../components/launchpad/PairApplication.tsx"), /app\.status === "approved" && app\.paid_usd < app\.fee_usd \* 0\.98 \? <p className="text-sm text-up">\{PAIR_APPLY_COPY\.waived\}/);
+  assert.match(src("../../components/launchpad/PairApplication.tsx"), /app\.status === "approved" && app\.paid_usd < app\.fee_usd \* 0\.98 \? <p className="text-sm text-up">\{app\.paid_usd > 0 \? PAIR_APPLY_COPY\.waivedRest\(app\.paid_usd\) : PAIR_APPLY_COPY\.waived\}/, "a partial payment is shown, and only the rest is waived");
+  assert.equal(PAIR_APPLY_COPY.waivedRest(12.5), "Paid: $12.50. openlaunch waived the rest of the fee.");
+  // a listing that throws (not only one refused) puts the application back
+  assert.match(decide, /\} catch \(e\) \{\n\s*await restore\(\);\n\s*throw e;/);
+  assert.match(decide, /if \(!w\.ok\) \{\n\s*await restore\(\);/);
   assert.match(buildPairReviewMessage({ decision: "waive", id: 1, wallet: "0xA", nonce: "n", ts: 0, reason: "" }), /^openlaunch\.lol community pair review\n\nDecision: waive\nApplication: 1\nReason: -\n/);
 });
 

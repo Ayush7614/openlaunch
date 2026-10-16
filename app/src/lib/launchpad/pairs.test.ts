@@ -124,7 +124,10 @@ test("a new v4 listing warms up for 40 minutes: a missing average then is not a 
   assert.equal(pairWarmingUp("univ4", t, t + 41 * 60_000), false);
   assert.equal(pairWarmingUp("univ3", t, t + 60_000), false, "a v3 oracle already has its history");
   assert.equal(pairWarmingUp("launch", t, t + 60_000), false, "our own swap index already has its history");
-  assert.match(src("pairsServer.ts"), /if \(leg\.twap === null && leg\.spot !== null && pairWarmingUp\(r\.price_kind, new Date\(r\.listed_at\)\.getTime\(\), Date\.now\(\)\)\) return null;/);
+  const health = src("pairsServer.ts").slice(src("pairsServer.ts").indexOf("async function poolHealth"), src("pairsServer.ts").indexOf("let lastMonitor"));
+  assert.match(health, /const warming = leg\.twap === null && leg\.spot !== null && leg\.spot > 0 && pairWarmingUp\(/, "only a positive spot with no average is excused");
+  assert.match(health, /if \(!warming && guardedPairPrice\(leg\.spot, leg\.twap\)\.price === null\) return \{ ok: false/);
+  assert.ok(health.indexOf("poolLiquidityUsd(") < health.indexOf("return warming ? null : { ok: true };"), "liquidity is still checked while warming up");
 });
 
 test("monitor: an unknown reading changes nothing; a soft failure suspends after 24 hours, a hard one at once", () => {

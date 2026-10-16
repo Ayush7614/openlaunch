@@ -332,15 +332,14 @@ export async function checkPair(r: PairDbRow, chain: ChainKey): Promise<{ health
 async function poolHealth(r: PairDbRow, chain: ChainKey): Promise<PairHealth> {
   const leg = await readPairLeg({ chain, address: r.address, decimals: r.decimals, price_kind: r.price_kind, price_pool: r.price_pool, price_quote: r.price_quote }).catch((e: unknown) => e as Error);
   if (leg instanceof Error) return { ok: false, hard: false, reason: `Its price pool cannot be read: ${leg.message}.` };
-  if (guardedPairPrice(leg.spot, leg.twap).price === null) {
-    // a v4 pool's average comes from our own minute samples: a pair listed minutes ago has none yet, which is not a failure
-    if (leg.twap === null && leg.spot !== null && pairWarmingUp(r.price_kind, new Date(r.listed_at).getTime(), Date.now())) return null;
-    return { ok: false, hard: false, reason: leg.twap === null ? "No 30-minute average from its price pool." : "Its price pool gives no price." };
-  }
+  // a v4 pool's average comes from our own minute samples: a pair listed minutes ago has none yet, which is not a failure
+  // (only the missing average is excused: a bad spot fails as before, and liquidity is still checked below)
+  const warming = leg.twap === null && leg.spot !== null && leg.spot > 0 && pairWarmingUp(r.price_kind, new Date(r.listed_at).getTime(), Date.now());
+  if (!warming && guardedPairPrice(leg.spot, leg.twap).price === null) return { ok: false, hard: false, reason: leg.twap === null ? "No 30-minute average from its price pool." : "Its price pool gives no price." };
   const poolId = r.price_kind === "launch" ? (await maybeDb()!<{ pool_id: string }[]>`SELECT pool_id FROM bb_launches WHERE chain_id = ${r.chain_id} AND token = ${r.price_pool}`)[0]?.pool_id : r.price_pool;
   const liq = poolId ? await poolLiquidityUsd(chain, poolId) : null;
   if (liq !== null && liq < PAIR_MONITOR_LIQUIDITY_USD) return { ok: false, hard: false, reason: `Its price pool holds about $${Math.round(liq).toLocaleString("en-US")}, under $${PAIR_MONITOR_LIQUIDITY_USD.toLocaleString("en-US")}.` };
-  return { ok: true };
+  return warming ? null : { ok: true };
 }
 
 let lastMonitor = 0;

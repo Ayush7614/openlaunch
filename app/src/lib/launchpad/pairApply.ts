@@ -167,4 +167,5 @@ export const PAIR_APPLY_COPY = {
   reviewNote: "Reviews look at the checks, the community (its X account, its age, its activity) and the proof post. A listing is not an endorsement.",
   disabled: "Applications open soon.",
   waived: "No fee: openlaunch waived it for this application.",
+  waivedRest: (paidUsd: number) => `Paid: $${paidUsd.toFixed(2)}. openlaunch waived the rest of the fee.`,
 } as const;

@@ -325,10 +325,17 @@ export async function reviewApplication(b: Record<string, unknown>): Promise<{ o
   if (approving) {
     // already listed (an admin listed the token directly): the application is simply marked approved
     const [listed] = await db`SELECT 1 FROM bb_pairs WHERE chain_id = ${app.chain_id} AND address = ${app.address} AND status = 'listed'`;
-    const w = listed ? ({ ok: true } as const) : await writeListing(chain, app.address, { logo: app.logo_url ?? "", website: app.website ?? "", x_handle: app.x_handle ?? "", description: app.description ?? "", price_kind: app.price_kind, price_pool: app.price_pool, price_quote: app.price_quote, price_hook: app.price_hook ?? "" }, wallet, "list");
+    // not listed, whether refused or thrown: the application goes back to where it was, its review not used
+    const restore = () => db`UPDATE bb_pair_applications SET status = ${app.status}, reviews_used = ${app.reviews_used}, reason = ${app.reason}, decided_by = ${app.decided_by}, decided_at = ${app.decided_at} WHERE id = ${id} AND status = 'approved'`;
+    let w: { ok: true } | { ok: false; error: string; status: number };
+    try {
+      w = listed ? { ok: true } : await writeListing(chain, app.address, { logo: app.logo_url ?? "", website: app.website ?? "", x_handle: app.x_handle ?? "", description: app.description ?? "", price_kind: app.price_kind, price_pool: app.price_pool, price_quote: app.price_quote, price_hook: app.price_hook ?? "" }, wallet, "list");
+    } catch (e) {
+      await restore();
+      throw e;
+    }
     if (!w.ok) {
-      // not listed: the application goes back to where it was, its review not used
-      await db`UPDATE bb_pair_applications SET status = ${app.status}, reviews_used = ${app.reviews_used}, reason = ${app.reason}, decided_by = ${app.decided_by}, decided_at = ${app.decided_at} WHERE id = ${id} AND status = 'approved'`;
+      await restore();
       return fail(`not listed: ${w.error}`, w.status);
     }
     await reloadPairs(); // this machine shows the new pair at once; the others within 15 s
