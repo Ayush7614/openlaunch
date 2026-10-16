@@ -94,6 +94,8 @@ Besides ETH and TWIG, a launch may be paired with a listed community token: the 
 unlisted one shows as "Unlisted pair", unpriced. Each listing is checked hourly and suspended when its checks fail.
 - GET  ${SITE_URL}/api/pairs                                        (every pair: address, symbol, decimals, status, usd, price source)
 Pages: /pairs, /pair/base/<address>. Launch with one exactly as with any ERC-20 quote (findSalt with the pair's address).
+Listing is applied for at /pairs/apply (a free check, then a fee in TWIG sent to 0x…dEaD naming the application: amount = whole TWIG × 10^18
++ 3 × 10^11 + application id; it pays for a review, not a listing, and is not refunded). Rules: https://github.com/Twigpine/openlaunch/blob/main/docs/pairs.md
 
 ## API
 - GET  ${SITE_URL}/api/launch/list?chain=base|robinhood|arc&sort=live|new|mcap|volume|gainers|holders&window=1h|24h|all&limit=50

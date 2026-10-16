@@ -13,6 +13,8 @@ import { redactUrls } from "./redact";
 import { ENTRY_POINTS, attributeSwap, type ReceiptLog } from "./attribution";
 import { TWIG_ADDRESSES } from "./twig";
 import { boostFromTransfer } from "./boost";
+import { pairBurnFromTransfer } from "./pairApply";
+import { recordPairBurn } from "./pairApplyServer";
 
 /**
  * Launchpad chain → Postgres indexer.
@@ -222,6 +224,20 @@ async function applyBoost(db: Db, chain: ChainKey, log: Log & { args: TransferAr
   return rows.length > 0;
 }
 
+/** Record one TWIG transfer to 0x…dEaD as a pair-application fee when its amount names an application (pairApply.ts, tag kind 3). */
+async function applyPairBurn(chain: ChainKey, log: Log & { args: TransferArgs }, locker: string): Promise<boolean> {
+  const twig = TWIG_ADDRESSES[chain];
+  if (!twig) return false;
+  const row = pairBurnFromTransfer(
+    { address: log.address, from: log.args.from, to: log.args.to, value: log.args.value, txHash: log.transactionHash!, logIndex: Number(log.logIndex!), blockNumber: log.blockNumber! },
+    twig,
+    DEAD,
+    [locker],
+  );
+  if (!row) return false;
+  return recordPairBurn(chain, row, new Date(await timeOf(chain, log.blockNumber!)));
+}
+
 type FeeLog = Log &
   (
     | { eventName: "Collected"; args: { tokenId: bigint; token: Address; quoteAmount: bigint; tokenAmount: bigint } }
@@ -333,7 +349,10 @@ async function applyRange(db: Db, chain: ChainKey, from: bigint, to: bigint): Pr
   const twig = TWIG_ADDRESSES[chain];
   if (twig) {
     const burnLogs = await fetchLogsSplit((f, t) => client.getLogs({ address: twig as Address, event: ERC20_TRANSFER_EVENT, args: { to: DEAD }, fromBlock: f, toBlock: t }), from, to);
-    for (const l of burnLogs) if (await applyBoost(db, chain, l as Log & { args: TransferArgs }, locker.toLowerCase())) boosts++;
+    for (const l of burnLogs) {
+      if (await applyBoost(db, chain, l as Log & { args: TransferArgs }, locker.toLowerCase())) boosts++;
+      else await applyPairBurn(chain, l as Log & { args: TransferArgs }, locker.toLowerCase());
+    }
   }
   // holder balances: every Transfer of every launched token (idempotent; backfill covers history)
   const tokens = [...new Set([...poolToToken.values()])];
@@ -867,7 +886,10 @@ export async function applyLaunchTx(chain: ChainKey, hash: Hex): Promise<ApplyLa
   const twig = TWIG_ADDRESSES[chain];
   if (twig) {
     const burnLogs = parseEventLogs({ abi: [ERC20_TRANSFER_EVENT], eventName: "Transfer", logs: receipt.logs.filter((l) => l.address.toLowerCase() === twig) });
-    for (const l of burnLogs) if (await applyBoost(db, chain, l as unknown as Log & { args: TransferArgs }, locker)) boosts++;
+    for (const l of burnLogs) {
+      if (await applyBoost(db, chain, l as unknown as Log & { args: TransferArgs }, locker)) boosts++;
+      else await applyPairBurn(chain, l as unknown as Log & { args: TransferArgs }, locker);
+    }
   }
   return { status: "applied", launches, swaps, fees, boosts, tokens };
 }

@@ -177,12 +177,13 @@ test("admin message: its own wording, and every listing field the server stores 
 });
 
 test("server: the signature is checked before anything is written, by an admin, once", () => {
-  const s = src("pairsServer.ts");
-  const order = ["if (!adminWallets().has(wallet))", "await verify(chain, wallet, message, b.signature)", "await consumeNonce(b.nonce, wallet)", "INSERT INTO bb_pairs"];
+  const all = src("pairsServer.ts");
+  const s = all.slice(all.indexOf("async function moderate("));
+  const order = ["if (!adminWallets().has(wallet))", "await verify(chain, wallet, message, b.signature)", "await consumeNonce(b.nonce, wallet)", "await writeListing(", "UPDATE bb_pairs SET status"];
   const at = order.map((o) => s.indexOf(o));
   assert.ok(at.every((i) => i > 0), JSON.stringify(at));
   assert.deepEqual([...at].sort((a, b) => a - b), at, "admin → verify → nonce → write");
-  assert.match(s, /FOR UPDATE SKIP LOCKED/, "one machine claims each pair's hourly check");
+  assert.match(all, /FOR UPDATE SKIP LOCKED/, "one machine claims each pair's hourly check");
   assert.match(src("loop.ts"), /void pairsTick\(\)/);
 });
 

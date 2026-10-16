@@ -539,3 +539,58 @@ ON CONFLICT (chain_id, address) DO NOTHING;
 INSERT INTO bb_pair_events (chain_id, address, status, reason, actor)
 SELECT 8453, '0x882c8e35504d58979b1280fe76d6553f717029f8', 'listed', 'Moved from an official quote to the community pairs list.', 'migration'
  WHERE NOT EXISTS (SELECT 1 FROM bb_pair_events WHERE chain_id = 8453 AND address = '0x882c8e35504d58979b1280fe76d6553f717029f8');
+
+-- ── community pair applications (2026-10-16; lib/launchpad/pairApply.ts) ─────────────────────────────────────────────
+-- A community applies for its token after the free pre-check passes; the fee ($200 of TWIG, PAIR_LISTING_USD) is sent to
+-- 0x…dEaD naming the application in its last digits (Boost tag kind 3) and pays for up to 3 reviews within 60 days.
+CREATE TABLE IF NOT EXISTS bb_pair_applications (
+  id              bigserial PRIMARY KEY,
+  chain_id        integer NOT NULL,
+  address         text NOT NULL,                            -- the token (lowercase)
+  applicant       text NOT NULL,                            -- the wallet that signed (a verified X profile)
+  code            text NOT NULL,                            -- for the proof post, e.g. OL-12-K7QX
+  symbol          text NOT NULL,
+  name            text NOT NULL,
+  decimals        integer NOT NULL,
+  price_kind      text NOT NULL,
+  price_pool      text NOT NULL,
+  price_quote     text NOT NULL,
+  price_hook      text,
+  logo_url        text,
+  website         text,
+  x_handle        text,
+  description     text,
+  proof_url       text,
+  precheck        jsonb NOT NULL,                           -- the pre-check as it stood when the application was made
+  status          text NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'paid', 'changes', 'approved', 'rejected')),
+  fee_usd         double precision NOT NULL,
+  paid_usd        double precision NOT NULL DEFAULT 0,
+  paid_at         timestamptz,
+  quote_twig      numeric(78,0),                            -- the locked quote: whole TWIG, its USD price, until when
+  quote_price_usd double precision,
+  quote_until     timestamptz,
+  reviews_used    integer NOT NULL DEFAULT 0,
+  reason          text,                                     -- the last decision's reason, shown to the applicant
+  decided_by      text,
+  decided_at      timestamptz,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS bb_pair_applications_status_idx ON bb_pair_applications (status, created_at DESC);
+CREATE INDEX IF NOT EXISTS bb_pair_applications_applicant_idx ON bb_pair_applications (applicant);
+-- One application in progress per token.
+CREATE UNIQUE INDEX IF NOT EXISTS bb_pair_applications_open_idx ON bb_pair_applications (chain_id, address) WHERE status IN ('open', 'paid', 'changes');
+-- TWIG sent to 0x…dEaD for an application (raw facts from the Transfer log), each valued in USD when indexed.
+CREATE TABLE IF NOT EXISTS bb_pair_burns (
+  chain_id       integer NOT NULL,
+  tx_hash        text NOT NULL,
+  log_index      integer NOT NULL,
+  application_id bigint NOT NULL,
+  sender         text NOT NULL,
+  twig           numeric(78,0) NOT NULL,                    -- whole TWIG
+  usd            double precision,                          -- null until a price was there to value it
+  priced_by      text CHECK (priced_by IN ('quote', 'live')),
+  block_number   bigint NOT NULL,
+  block_time     timestamptz NOT NULL,
+  PRIMARY KEY (chain_id, tx_hash, log_index)
+);
+CREATE INDEX IF NOT EXISTS bb_pair_burns_app_idx ON bb_pair_burns (application_id);

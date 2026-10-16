@@ -8,6 +8,8 @@ import { loadPairs, pairStats, type PairStats } from "@/lib/launchpad/pairsServe
 import { PAIR_CHAINS, PAIR_COPY, pairPath, pairVolumeLabel, type PairPublic } from "@/lib/launchpad/pairs";
 import { fmtUsd, units } from "@/lib/launchpad/math";
 import { CHAIN_LABELS } from "@/lib/chainPublic";
+import { applicationsOpen } from "@/lib/launchpad/pairApplyServer";
+import { pairListingUsd } from "@/lib/launchpad/pairApply";
 
 export const metadata = pageMetadata({
   path: "/pairs",
@@ -37,7 +39,15 @@ export default async function PairsPage() {
         <ul className="mt-6 grid gap-3 sm:grid-cols-2">
           {listed.map((p) => <PairCard key={`${p.chain}:${p.address}`} p={p} s={stats.get(`${p.chain}:${p.address}`)} />)}
         </ul>
-        <p className="mt-6 text-sm text-muted">{PAIR_COPY.applySoon}</p>
+        {applicationsOpen() ? (
+          <p className="mt-6 text-sm text-body">
+            Your community&apos;s token here?{" "}
+            <Link href="/pairs/apply" className="font-semibold text-brand hover:text-ink">Check it for free and apply →</Link>{" "}
+            <span className="text-muted">The fee is ${pairListingUsd()} in TWIG, burned, for a review.</span>
+          </p>
+        ) : (
+          <p className="mt-6 text-sm text-muted">{PAIR_COPY.applySoon}</p>
+        )}
       </section>
       {suspended.length ? (
         <section className={`${shell.anchorSection} mt-12`} aria-labelledby="pairs-suspended">

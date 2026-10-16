@@ -4,6 +4,7 @@ import ProfileQueue from "@/components/profile/ProfileQueue";
 import PointsAdmin from "@/components/points/PointsAdmin";
 import BoostAdmin from "@/components/launchpad/BoostAdmin";
 import PairsAdmin from "@/components/launchpad/PairsAdmin";
+import PairReviewAdmin from "@/components/launchpad/PairReviewAdmin";
 
 export const metadata: Metadata = { title: "Moderation", robots: { index: false, follow: false } };
 export const dynamic = "force-dynamic";
@@ -21,6 +22,7 @@ export default function AdminPage() {
       <PointsAdmin />
       <BoostAdmin />
       <PairsAdmin />
+      <PairReviewAdmin />
     </main>
   );
 }

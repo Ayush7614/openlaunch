@@ -1,0 +1,224 @@
+"use client";
+
+import Link from "next/link";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useConfig, useChainId, useReadContract, useSwitchChain } from "wagmi";
+import { getPublicClient, getWalletClient } from "wagmi/actions";
+import type { Hex } from "viem";
+import { useHydratedAccount } from "@/lib/useHydratedAccount";
+import { btn, card, helper, input } from "@/components/ui";
+import { BUILDER_DATA_SUFFIX, CHAINS, explorerTx, shortAddr } from "@/lib/chainPublic";
+import { ERC20_MIN_ABI, ERC20_TRANSFER_ABI } from "@/lib/launchpad/abi";
+import { DEAD } from "@/lib/launchpad/config";
+import { TWIG_ADDRESS, TWIG_WRAP_URL } from "@/lib/launchpad/twig";
+import { nowMs } from "@/lib/launchpad/time";
+import { nonce } from "@/lib/nonce";
+import { friendlyError } from "@/lib/errors";
+import { pairPath } from "@/lib/launchpad/pairs";
+import { PAIR_APPLY_COPY, buildPairApplyMessage, pairApplicationOf, proofPostText, proofPostUrl, type PairApplyAction } from "@/lib/launchpad/pairApply";
+import { intentUrl } from "@/lib/profiles/xpost";
+import type { PairApplicationPublic } from "@/lib/launchpad/pairApplyServer";
+import PrecheckReport from "./PrecheckReport";
+
+const CHAIN = "base" as const;
+const BASE = CHAINS[CHAIN];
+const group = (v: string | bigint) => BigInt(v).toLocaleString("en-US");
+
+/**
+ * One application, for its applicant and for anyone who opens it: the proof post, the fee (quote, lock, one TWIG
+ * transfer to 0x…dEaD that names the application), the review and its outcome. The page reloads the application
+ * every 15 seconds, so a burn the indexer records or a decision shows without a refresh.
+ */
+export default function PairApplication({ initial, open }: { initial: PairApplicationPublic; open: boolean }) {
+  const config = useConfig();
+  const chainId = useChainId();
+  const { switchChainAsync } = useSwitchChain();
+  const { address } = useHydratedAccount();
+  const [app, setApp] = useState(initial);
+  const [proof, setProof] = useState(initial.proof_url ?? "");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [sent, setSent] = useState<Hex | null>(null);
+  const [now, setNow] = useState(() => nowMs());
+  const lock = useRef(false);
+  const mine = Boolean(address && address.toLowerCase() === app.applicant);
+  const bal = useReadContract({ address: TWIG_ADDRESS, abi: ERC20_MIN_ABI, functionName: "balanceOf", args: address ? [address] : undefined, chainId: BASE.id, query: { enabled: Boolean(address) && app.status === "open", refetchInterval: 15_000 } });
+
+  const reload = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/pairs/application/${app.id}`, { cache: "no-store" });
+      if (res.ok) setApp((await res.json()) as PairApplicationPublic);
+    } catch {
+      // keep what is shown
+    }
+  }, [app.id]);
+  useEffect(() => {
+    const t = setInterval(() => {
+      setNow(nowMs());
+      void reload();
+    }, 15_000);
+    const s = setInterval(() => setNow(nowMs()), 1_000);
+    return () => {
+      clearInterval(t);
+      clearInterval(s);
+    };
+  }, [reload]);
+
+  async function sign(action: PairApplyAction, extra: { proof?: string }) {
+    if (!address || busy) return;
+    setBusy(action);
+    setMsg(null);
+    try {
+      const n = nonce();
+      const ts = nowMs();
+      const wallet = await getWalletClient(config, { chainId: BASE.id });
+      const signature = await wallet.signMessage({ message: buildPairApplyMessage({ action, chain: CHAIN, address: app.address, wallet: address, nonce: n, ts, id: app.id, ...extra }) });
+      const res = await fetch("/api/pairs/apply", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, chain: CHAIN, address: app.address, id: app.id, wallet: address, nonce: n, ts, signature, ...extra }) });
+      const d = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(d.error ?? `request failed (HTTP ${res.status})`);
+      setMsg({ ok: true, text: action === "proof" ? "Proof post saved." : "Sent back for review." });
+      await reload();
+    } catch (e) {
+      setMsg({ ok: false, text: friendlyError(e) });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function getQuote() {
+    if (busy) return;
+    setBusy("quote");
+    setMsg(null);
+    try {
+      const res = await fetch(`/api/pairs/application/${app.id}/quote`, { method: "POST" });
+      const d = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(d.error ?? `request failed (HTTP ${res.status})`);
+      await reload();
+    } catch (e) {
+      setMsg({ ok: false, text: friendlyError(e) });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function pay() {
+    const q = app.quote;
+    if (!address || !q || lock.current) return;
+    // the amount must name THIS application in its last digits: never send TWIG that would pay for another one
+    if (pairApplicationOf(BigInt(q.amount)) !== app.id) {
+      setMsg({ ok: false, text: "That amount does not name this application. Nothing was sent." });
+      return;
+    }
+    lock.current = true; // before the first await: one transfer per click
+    setBusy("pay");
+    setMsg(null);
+    try {
+      if (chainId !== BASE.id) await switchChainAsync({ chainId: BASE.id });
+      const pub = getPublicClient(config, { chainId: BASE.id })!;
+      const wallet = await getWalletClient(config, { chainId: BASE.id });
+      const { request } = await pub.simulateContract({ address: TWIG_ADDRESS, abi: ERC20_TRANSFER_ABI, functionName: "transfer", args: [DEAD, BigInt(q.amount)], account: address, dataSuffix: BUILDER_DATA_SUFFIX });
+      const hash = await wallet.writeContract(request);
+      setSent(hash);
+      try {
+        const rc = await pub.waitForTransactionReceipt({ hash });
+        if (rc.status !== "success") throw new Error("The transfer reverted on-chain. No TWIG was sent; you can try again.");
+      } catch (e) {
+        // sent, outcome unknown: say so, never offer to send the same TWIG again
+        setMsg({ ok: false, text: e instanceof Error && /reverted/.test(e.message) ? e.message : "Sent. Its confirmation is not in yet: this page updates when it is indexed." });
+        return;
+      }
+      await fetch(`/api/launch/sync?chain=${CHAIN}&tx=${hash}`, { method: "POST" }).catch(() => {});
+      setMsg({ ok: true, text: "Sent. It counts once indexed (seconds)." });
+      await reload();
+      void bal.refetch();
+    } catch (e) {
+      setMsg({ ok: false, text: friendlyError(e) });
+    } finally {
+      lock.current = false;
+      setBusy(null);
+    }
+  }
+
+  const q = app.quote;
+  const left = q ? Math.max(0, Math.floor((Date.parse(q.until) - now) / 1000)) : 0;
+  const short = q && bal.data !== undefined && (bal.data as bigint) < BigInt(q.amount);
+  const due = Math.max(0, app.fee_usd - app.paid_usd);
+  return (
+    <div className="space-y-5">
+      <div className={`${card} space-y-2 p-5 text-sm`}>
+        <p className="font-semibold text-ink">{statusLine(app)}</p>
+        {app.reason ? <p className="text-body">Reviewer: {app.reason}</p> : null}
+        {app.status === "approved" ? <Link href={pairPath(app.chain, app.address)} className="font-semibold text-brand hover:text-ink">See the pair →</Link> : null}
+        {app.can_ask_again ? (
+          mine ? <button type="button" onClick={() => void sign("again", {})} disabled={busy !== null} className={btn.secondarySm}>Ask for another review ({app.reviews_max - app.reviews_used} left)</button> : <p className={helper}>The applicant can ask for another review ({app.reviews_max - app.reviews_used} left).</p>
+        ) : null}
+        <p className={helper}>Applied by {shortAddr(app.applicant)} · {app.reviews_used} of {app.reviews_max} reviews used.</p>
+      </div>
+
+      <div className={`${card} space-y-3 p-5`}>
+        <h2 className="text-sm font-semibold text-ink">1 · Proof from the community</h2>
+        <p className="text-sm text-body">{PAIR_APPLY_COPY.proofAsk}</p>
+        <p className="rounded-lg border border-line bg-paper px-3 py-2 font-mono text-xs text-ink">{proofPostText(app.code, app.symbol)}</p>
+        <a href={intentUrl(proofPostText(app.code, app.symbol), {})} target="_blank" rel="noopener noreferrer" className="text-sm font-semibold text-brand hover:text-ink">Post it on X ↗</a>
+        {app.proof_url ? <p className="text-sm text-body">Saved: <a href={app.proof_url} target="_blank" rel="noopener noreferrer" className="underline decoration-line underline-offset-2">{app.proof_url}</a></p> : null}
+        {mine && app.status !== "approved" && app.status !== "rejected" ? (
+          <div className="flex flex-wrap gap-2">
+            <input value={proof} onChange={(e) => setProof(e.target.value)} placeholder="https://x.com/<community>/status/…" aria-label="Proof post link" className={`${input} h-10 min-w-0 flex-1 text-sm`} />
+            <button type="button" onClick={() => { const url = proofPostUrl(proof); if (url) void sign("proof", { proof: url }); else setMsg({ ok: false, text: "That is not a link to a post on X." }); }} disabled={busy !== null || !proof.trim()} className={btn.secondarySm}>Save</button>
+          </div>
+        ) : null}
+      </div>
+
+      <div className={`${card} space-y-3 p-5`}>
+        <h2 className="text-sm font-semibold text-ink">2 · The fee: ${app.fee_usd} in TWIG</h2>
+        <p className="text-sm text-body">{PAIR_APPLY_COPY.feeRule(app.fee_usd)}</p>
+        {app.status === "open" ? (
+          !open ? <p className={helper}>{PAIR_APPLY_COPY.disabled}</p> : !q ? (
+            <button type="button" onClick={() => void getQuote()} disabled={busy !== null} className={btn.primarySm}>{busy === "quote" ? "Pricing…" : `Get the amount for $${Math.ceil(due)}`}</button>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-sm text-ink">
+                ${Math.ceil(due)} = <span className="font-mono font-semibold">{group(q.twig)} TWIG</span> <span className="text-muted">· locked for {Math.floor(left / 60)}:{String(left % 60).padStart(2, "0")}</span>
+              </p>
+              <p className={helper}>{PAIR_APPLY_COPY.lockNote} The last digits of the amount name this application, so the transfer itself records what it paid for.</p>
+              {short ? (
+                <p className="text-xs text-warm-ink">
+                  This wallet holds less TWIG than that. <a href={TWIG_WRAP_URL} target="_blank" rel="noreferrer" className="underline">Get TWIG ↗</a>
+                </p>
+              ) : null}
+              <p className="text-xs text-warm-ink">{PAIR_APPLY_COPY.sentFinal}</p>
+              <button type="button" onClick={() => void pay()} disabled={!address || busy !== null || left === 0 || Boolean(short)} className={btn.primary}>{!address ? "Connect a wallet to pay" : busy === "pay" ? "Sending…" : `Send ${group(q.twig)} TWIG to 0x…dEaD`}</button>
+            </div>
+          )
+        ) : (
+          <p className="text-sm text-up">Paid: ${app.paid_usd.toFixed(2)} of ${app.fee_usd}.</p>
+        )}
+        {sent ? <p className={helper}><a href={explorerTx(CHAIN, sent)} target="_blank" rel="noopener noreferrer" className="underline">Your transfer ↗</a></p> : null}
+        {app.burns.length ? (
+          <ul className="space-y-1 text-xs text-body">
+            {app.burns.map((b) => (
+              <li key={b.tx_hash}>
+                <a href={explorerTx(CHAIN, b.tx_hash)} target="_blank" rel="noopener noreferrer" className="underline decoration-line underline-offset-2">{group(b.twig)} TWIG</a> · {b.usd !== null ? `$${b.usd.toFixed(2)} (${b.priced_by === "quote" ? "at the locked price" : "at the price when it landed"})` : "not valued yet"} · from {shortAddr(b.sender)}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+
+      <div className={`${card} space-y-3 p-5`}>
+        <h2 className="text-sm font-semibold text-ink">3 · The check, as it stood when you applied</h2>
+        <PrecheckReport p={app.precheck} />
+        <p className={helper}>{PAIR_APPLY_COPY.reviewNote}</p>
+      </div>
+      {msg ? <p role="status" className={`text-sm ${msg.ok ? "text-up" : "text-down-ink"}`}>{msg.text}</p> : null}
+    </div>
+  );
+}
+
+function statusLine(a: PairApplicationPublic): string {
+  if (a.status === "open") return `Application ${a.code}: waiting for the fee.`;
+  if (a.status === "paid") return `Application ${a.code}: paid, waiting for review.`;
+  if (a.status === "changes") return `Application ${a.code}: the reviewer asked for changes.`;
+  if (a.status === "approved") return `Application ${a.code}: approved. ${a.symbol} is a community pair.`;
+  return `Application ${a.code}: not listed.`;
+}

@@ -200,6 +200,46 @@ async function inspect(chain: ChainKey, address: string, l: PairListing, others:
 }
 
 class SymbolTaken extends Error {}
+
+/**
+ * Write a listing (a new one, a relisting of a delisted pair, or a change), after reading the token and its pool
+ * (inspect). Shared by the admin "list" / "update" actions and an approved application, so both pass the same checks.
+ * `actor` goes on the public record.
+ */
+export async function writeListing(chain: ChainKey, address: string, l: PairListing, actor: string, mode: "list" | "update", cur?: PairDbRow | null, others?: PairPublic[]): Promise<{ ok: true } | Fail> {
+  try {
+    return await write(chain, address, l, actor, mode, cur, others);
+  } catch (e) {
+    if (e instanceof SymbolTaken) return fail(e.message, 409);
+    throw e;
+  }
+}
+async function write(chain: ChainKey, address: string, l: PairListing, actor: string, mode: "list" | "update", cur?: PairDbRow | null, others?: PairPublic[]): Promise<{ ok: true } | Fail> {
+  const db = maybeDb();
+  if (!db) return fail("db unconfigured", 503);
+  const cid = chainIdOf(chain);
+  const row = cur !== undefined ? cur : ((await db<PairDbRow[]>`SELECT * FROM bb_pairs WHERE chain_id = ${cid} AND address = ${address}`)[0] ?? null);
+  if (mode === "list" && row && row.status !== "delisted") return fail("already listed: use update", 409);
+  if (mode === "update" && !row) return fail("not listed", 404);
+  const got = await inspect(chain, address, l, others ?? (await loadPairs()));
+  if (!got.ok) return got;
+  if (mode === "list") {
+    await dbWrite(() => db`
+      INSERT INTO bb_pairs (chain_id, address, symbol, name, decimals, logo_url, website, x_handle, description, status, status_by, status_reason, status_at, in_form, price_kind, price_pool, price_quote, price_hook, code_hash, failing_since, checked_at, listed_at)
+      VALUES (${cid}, ${address}, ${got.symbol}, ${got.name}, ${got.decimals}, ${l.logo || null}, ${l.website || null}, ${l.x_handle || null}, ${l.description || null}, 'listed', 'admin', NULL, now(), ${l.in_form}, ${l.price_kind}, ${l.price_pool}, ${l.price_quote}, ${l.price_hook || null}, ${got.code_hash}, NULL, NULL, now())
+      ON CONFLICT (chain_id, address) DO UPDATE SET symbol = EXCLUDED.symbol, name = EXCLUDED.name, decimals = EXCLUDED.decimals, logo_url = EXCLUDED.logo_url, website = EXCLUDED.website, x_handle = EXCLUDED.x_handle,
+        description = EXCLUDED.description, status = 'listed', status_by = 'admin', status_reason = NULL, status_at = now(), in_form = EXCLUDED.in_form, price_kind = EXCLUDED.price_kind, price_pool = EXCLUDED.price_pool,
+        price_quote = EXCLUDED.price_quote, price_hook = EXCLUDED.price_hook, code_hash = EXCLUDED.code_hash, failing_since = NULL, checked_at = NULL, listed_at = now()`);
+    await db`INSERT INTO bb_pair_events (chain_id, address, status, reason, actor) VALUES (${cid}, ${address}, 'listed', NULL, ${actor})`;
+  } else {
+    await dbWrite(() => db`
+      UPDATE bb_pairs SET symbol = ${got.symbol}, name = ${got.name}, decimals = ${got.decimals}, logo_url = ${l.logo || null}, website = ${l.website || null}, x_handle = ${l.x_handle || null}, description = ${l.description || null},
+        in_form = ${l.in_form}, price_kind = ${l.price_kind}, price_pool = ${l.price_pool}, price_quote = ${l.price_quote}, price_hook = ${l.price_hook || null}
+       WHERE chain_id = ${cid} AND address = ${address}`);
+  }
+  return { ok: true };
+}
+
 /** A write that may meet the one-listed-symbol-per-chain index: that conflict becomes a clear refusal. */
 async function dbWrite(run: () => PromiseLike<unknown>): Promise<void> {
   try {
@@ -254,25 +294,8 @@ async function moderate(b: Record<string, unknown>): Promise<{ ok: true; pair: P
   };
 
   if (action === "list" || action === "update") {
-    const l = listing!;
-    if (action === "list" && cur && cur.status !== "delisted") return fail("already listed: use update", 409);
-    if (action === "update" && !cur) return fail("not listed", 404);
-    const got = await inspect(chain, address, l, others);
-    if (!got.ok) return got;
-    if (action === "list") {
-      await dbWrite(() => db`
-        INSERT INTO bb_pairs (chain_id, address, symbol, name, decimals, logo_url, website, x_handle, description, status, status_by, status_reason, status_at, in_form, price_kind, price_pool, price_quote, price_hook, code_hash, failing_since, checked_at, listed_at)
-        VALUES (${cid}, ${address}, ${got.symbol}, ${got.name}, ${got.decimals}, ${l.logo || null}, ${l.website || null}, ${l.x_handle || null}, ${l.description || null}, 'listed', 'admin', NULL, now(), ${l.in_form}, ${l.price_kind}, ${l.price_pool}, ${l.price_quote}, ${l.price_hook || null}, ${got.code_hash}, NULL, NULL, now())
-        ON CONFLICT (chain_id, address) DO UPDATE SET symbol = EXCLUDED.symbol, name = EXCLUDED.name, decimals = EXCLUDED.decimals, logo_url = EXCLUDED.logo_url, website = EXCLUDED.website, x_handle = EXCLUDED.x_handle,
-          description = EXCLUDED.description, status = 'listed', status_by = 'admin', status_reason = NULL, status_at = now(), in_form = EXCLUDED.in_form, price_kind = EXCLUDED.price_kind, price_pool = EXCLUDED.price_pool,
-          price_quote = EXCLUDED.price_quote, price_hook = EXCLUDED.price_hook, code_hash = EXCLUDED.code_hash, failing_since = NULL, checked_at = NULL, listed_at = now()`);
-      await event("listed", null);
-    } else {
-      await dbWrite(() => db`
-        UPDATE bb_pairs SET symbol = ${got.symbol}, name = ${got.name}, decimals = ${got.decimals}, logo_url = ${l.logo || null}, website = ${l.website || null}, x_handle = ${l.x_handle || null}, description = ${l.description || null},
-          in_form = ${l.in_form}, price_kind = ${l.price_kind}, price_pool = ${l.price_pool}, price_quote = ${l.price_quote}, price_hook = ${l.price_hook || null}
-         WHERE chain_id = ${cid} AND address = ${address}`);
-    }
+    const w = await writeListing(chain, address, listing!, wallet, action, cur ?? null, others);
+    if (!w.ok) return w;
   } else {
     if (!cur) return fail("not listed", 404);
     const next: PairStatus = action === "reinstate" ? "listed" : action === "suspend" ? "suspended" : "delisted";
