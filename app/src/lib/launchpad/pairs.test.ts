@@ -49,7 +49,7 @@ test("a pair's symbol: short, plain, never a core quote's, never another pair's"
 
 test("listing fields: our own logos only, https sites, real X handles", () => {
   assert.equal(isSiteLogoPath("/museworld-mark.png"), true);
-  for (const bad of ["https://evil.example/x.png", "/../etc/passwd", "/a/b.png", "museworld-mark.png", "/x.svg", "//evil.example/x.png"]) assert.equal(isSiteLogoPath(bad), false, bad);
+  for (const bad of ["https://evil.example/x.png", "/../etc/passwd", "/a/b.png", "museworld-mark.png", "/x.svg", "//evil.example/x.png", "/museworld-mark.webp"]) assert.equal(isSiteLogoPath(bad), false, bad);
   assert.equal(isPairWebsite("https://noice.so"), true);
   for (const bad of ["http://noice.so", "javascript:alert(1)", "https://user:pw@noice.so", "https://localhost", `https://${"a".repeat(200)}.so`]) assert.equal(isPairWebsite(bad), false, bad);
   assert.equal(isXHandle("noicedotso"), true);

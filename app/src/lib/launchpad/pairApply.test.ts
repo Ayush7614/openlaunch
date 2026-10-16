@@ -186,6 +186,15 @@ test("the fee step never offers to send again while a sent transfer is not index
   assert.match(page, /const waiting = sent !== null && !indexed && app\.status === "open";/);
   assert.match(page, /window\.sessionStorage\.setItem\(sentKey, h\)/, "kept across a reload");
   assert.match(page, /\{app\.status === "open" && waiting \? \(/);
+  // a reverted transfer sent nothing: the guard is lifted so the applicant can try again
+  assert.match(page, /if \(rc\.status !== "success"\) \{\n\s*remember\(null\);/);
+});
+
+test("a late burn on a closed application never marks it paid (status or date)", () => {
+  const s = src("pairApplyServer.ts");
+  const settle = s.slice(s.indexOf("async function settleApplication"), s.indexOf("let lastRevalue"));
+  assert.match(settle, /status = CASE WHEN a\.status = 'open' AND s\.total >=/);
+  assert.match(settle, /paid_at = CASE WHEN a\.paid_at IS NULL AND a\.status = 'open' AND s\.total >=/);
 });
 
 /* ── wiring ── */

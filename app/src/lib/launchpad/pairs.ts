@@ -94,9 +94,12 @@ export function pairSymbolProblem(symbol: string, taken: readonly string[]): str
   return null;
 }
 
-/** A site path to a logo we serve ourselves (the seeded MUSEWORLD tile); uploaded logos are checked against our image host instead. */
+/**
+ * A site path to a logo we serve ourselves (the seeded MUSEWORLD tile); uploaded logos are checked against our image host
+ * instead. PNG only: the share card inlines these files as they are, and its renderer cannot read WebP.
+ */
 export function isSiteLogoPath(v: string): boolean {
-  return /^\/[a-z0-9][a-z0-9-]{0,40}\.(png|webp)$/.test(v);
+  return /^\/[a-z0-9][a-z0-9-]{0,40}\.png$/.test(v);
 }
 export function isPairWebsite(v: string): boolean {
   if (v.length > 200) return false;

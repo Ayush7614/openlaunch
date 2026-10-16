@@ -260,7 +260,7 @@ async function settleApplication(appId: number): Promise<void> {
     UPDATE bb_pair_applications a SET
       paid_usd = s.total,
       status = CASE WHEN a.status = 'open' AND s.total >= a.fee_usd * ${1 - PAIR_FEE_TOLERANCE} THEN 'paid' ELSE a.status END,
-      paid_at = CASE WHEN a.paid_at IS NULL AND s.total >= a.fee_usd * ${1 - PAIR_FEE_TOLERANCE} THEN now() ELSE a.paid_at END
+      paid_at = CASE WHEN a.paid_at IS NULL AND a.status = 'open' AND s.total >= a.fee_usd * ${1 - PAIR_FEE_TOLERANCE} THEN now() ELSE a.paid_at END
       FROM (SELECT COALESCE(sum(usd), 0) AS total FROM bb_pair_burns WHERE application_id = ${appId}) s
      WHERE a.id = ${appId} AND a.paid_usd IS DISTINCT FROM s.total`;
 }

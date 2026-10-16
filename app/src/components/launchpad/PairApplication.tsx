@@ -166,7 +166,10 @@ export default function PairApplication({ initial, open }: { initial: PairApplic
       remember(hash);
       try {
         const rc = await pub.waitForTransactionReceipt({ hash });
-        if (rc.status !== "success") throw new Error("The transfer reverted on-chain. No TWIG was sent; you can try again.");
+        if (rc.status !== "success") {
+          remember(null); // reverted: nothing was sent, so nothing guards against sending it again
+          throw new Error("The transfer reverted on-chain. No TWIG was sent; you can try again.");
+        }
       } catch (e) {
         // sent, outcome unknown: say so, never offer to send the same TWIG again
         setMsg({ ok: false, text: e instanceof Error && /reverted/.test(e.message) ? e.message : "Sent. Its confirmation is not in yet: this page updates when it is indexed." });
