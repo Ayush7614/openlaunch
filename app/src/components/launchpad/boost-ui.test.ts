@@ -189,7 +189,7 @@ test("CodeRabbit round 1: the done screen, admin errors and the agent formula", 
   assert.doesNotMatch(dialog, /settle\([^)]*, true\)/);
   assert.match(dialog, /const showsAfter = \(w: bigint\): boolean => !tagOk \|\| boostShowsNow\(entry, current, boostAmount\(w, tag\), inLane\);/);
   // an error page that is not JSON still reports the HTTP failure; a bad lane read never throws from the effect
-  assert.match(admin, /const d = \(await res\.json\(\)\.catch\(\(\) => \(\{\}\)\)\) as \{ error\?: string \};/);
+  assert.match(admin, /const d = \(await res\.json\(\)\.catch\(\(\) => \(\{\}\)\)\) as \{ error\?: string; lane\?: BoostLane \| null \};/);
   assert.match(admin, /throw new Error\(d\.error \?\? `request failed \(HTTP \$\{res\.status\}\)`\);/);
   assert.match(admin, /const load = useCallback\(async \(\) => \{\n\s*try \{/);
   // agents get the bounds the decoder enforces (isLaunchTag: 0 < tag < 10^11; whole TWIG >= the floor)
@@ -345,14 +345,19 @@ test("the lane invites a boost: a header button, every open place a button, and 
   assert.match(server, /items, names: await creditNames\(\[\.\.\.boosters\.values\(\)\]\) \};/);
   assert.match(server, /const known = await namesFor\(wallets\)\.catch\(\(\) => null\);\n\s*return known \? Object\.fromEntries\(wallets\.map\(\(w\) => \[w, known\[w\] \?\? null\]\)\) : \{\};/);
   assert.match(lane, /<NamesProvider names=\{lane\.names \?\? NO_NAMES\}>/);
-  // a public read of the lane comes from the same few-second cache: polling it adds no database pass; only an admin
-  // wallet gets it fresh (the moderation panel after a hide)
-  assert.match(boostRoute, /const fresh = u\.searchParams\.get\("fresh"\) === "1" && adminWallets\(\)\.has\(\(u\.searchParams\.get\("wallet"\) \?\? ""\)\.toLowerCase\(\)\);/);
-  assert.match(boostRoute, /const lane = fresh \? await getBoostLane\(await ethUsd\(\), \{ fresh: true \}\) : await boostLaneOrNull\(await ethUsd\(\)\);/);
-  assert.equal((boostRoute.match(/getBoostLane\(/g) ?? []).length, 1);
+  // a public read of the lane comes from the same few-second cache: polling it adds no database pass, and no query
+  // parameter skips it (CodeRabbit #102: a wallet in the URL is not proof of an admin)
+  assert.match(boostRoute, /const lane = await boostLaneOrNull\(await ethUsd\(\)\);/);
+  assert.doesNotMatch(boostRoute, /getBoostLane|searchParams\.get\("fresh"\)|adminWallets/);
+  // the only fresh read is the answer to a signed, single-use moderation request, after the write
+  const modRoute = read("../../app/api/boost/mod/route.ts");
+  assert.ok(modRoute.indexOf("if (!r.ok) return") < modRoute.indexOf("getBoostLane(await ethUsd(), { fresh: true })"), "fresh only after a verified write");
+  assert.match(modRoute, /return NextResponse\.json\(\{ \.\.\.r, lane \}\);/);
   assert.match(server, /const ranked = opts\.fresh \? rankLane\(await laneTotals\(BOOST_LANE_SIZE \* 4\), BOOST_LANE_SIZE \* 4\) : await rankedLane\(\);/);
-  assert.match(admin, /fetch\(`\/api\/boost\?chain=\$\{BOOST_CHAIN\}\$\{address \? `&fresh=1&wallet=\$\{address\}` : ""\}`/);
-  assert.doesNotMatch(admin, /justHidden|JUST_HIDDEN/, "no timer guess: the admin's read is simply fresh");
+  // the panel takes that lane; its own reads are the cached ones everyone gets
+  assert.match(admin, /if \(d\.lane\) \{\n\s*setLane\(d\.lane\);\n\s*\} else \{/);
+  assert.match(admin, /fetch\(`\/api\/boost\?chain=\$\{BOOST_CHAIN\}`, \{ cache: "no-store" \}\)/);
+  assert.doesNotMatch(admin, /fresh=1|justHidden|JUST_HIDDEN/);
 });
 
 test("the picker only navigates: the boost happens on the token's page, with every check the dialog has", () => {
