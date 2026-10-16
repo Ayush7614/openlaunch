@@ -7,7 +7,7 @@ import { getWalletClient } from "wagmi/actions";
 import { isAddress } from "viem";
 import { useHydratedAccount } from "@/lib/useHydratedAccount";
 import { btn, card } from "@/components/ui";
-import type { BoostLane, BoostStatsRow } from "@/lib/launchpad/boostServer";
+import type { BoostLane, BoostStats } from "@/lib/launchpad/boostServer";
 import { BOOST_CHAIN, BOOST_STATS_DAYS, boostClickRate, boostClicksPerFloor, buildBoostModMessage, fmtBoostTwig, type BoostModAction, type BoostStatsDays } from "@/lib/launchpad/boost";
 import { CHAINS } from "@/lib/chainPublic";
 import { nowMs } from "@/lib/launchpad/time";
@@ -99,27 +99,28 @@ const num = (n: number) => n.toLocaleString("en-US");
  */
 function LaneStats({ wallet }: { wallet: string }) {
   const [days, setDays] = useState<BoostStatsDays>(7);
-  const [got, setGot] = useState<{ key: string; rows: BoostStatsRow[] } | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  // both keyed by period: a period still loading shows "Loading…", never the last period's figures or error
+  const [got, setGot] = useState<{ key: string; stats: BoostStats } | null>(null);
+  const [failed, setFailed] = useState<{ key: string; text: string } | null>(null);
   const key = `${wallet.toLowerCase()}:${days}`;
   useEffect(() => {
     const ac = new AbortController();
     fetch(`/api/boost/stats?wallet=${wallet}&days=${days}`, { cache: "no-store", signal: ac.signal })
       .then(async (res) => {
-        const d = (await res.json().catch(() => ({}))) as { rows?: BoostStatsRow[]; error?: string };
-        if (!res.ok) throw new Error(d.error ?? `request failed (HTTP ${res.status})`);
-        setGot({ key, rows: d.rows ?? [] });
-        setErr(null);
+        const d = (await res.json().catch(() => ({}))) as Partial<BoostStats> & { error?: string };
+        if (!res.ok || !d.rows || !d.total) throw new Error(d.error ?? `request failed (HTTP ${res.status})`);
+        setGot({ key, stats: { rows: d.rows, total: d.total } });
       })
       .catch((e) => {
-        if (!ac.signal.aborted) setErr(friendlyError(e));
+        if (!ac.signal.aborted) setFailed({ key, text: friendlyError(e) });
       });
     return () => ac.abort();
   }, [wallet, days, key]);
 
-  // a period still loading shows nothing rather than the last period's figures under the new heading
-  const rows = got?.key === key ? got.rows : null;
-  const total = rows?.reduce((t, r) => ({ views: t.views + r.views, clicks: t.clicks + r.clicks, visitors: t.visitors + r.visitors, twig: t.twig + BigInt(r.twig) }), { views: 0, clicks: 0, visitors: 0, twig: 0n });
+  const stats = got?.key === key ? got.stats : null;
+  const err = !stats && failed?.key === key ? failed.text : null;
+  const rows = stats?.rows ?? null;
+  const total = stats?.total;
   const per = (clicks: number, twig: string) => {
     const v = boostClicksPerFloor(clicks, twig);
     return v === null ? "–" : v.toFixed(1);
@@ -136,7 +137,7 @@ function LaneStats({ wallet }: { wallet: string }) {
           ))}
         </div>
       </div>
-      <p className="text-[11px] leading-relaxed text-muted">A view is a page that brought the lane on screen. A click counts once per visitor every 30 minutes, only while the token is in the lane. Visitors: one per person per day.</p>
+      <p className="text-[11px] leading-relaxed text-muted">A view is a page that brought the lane on screen. A click counts once per visitor every 30 minutes, only while the token is in the lane. Visitors: one per person per day, per token. The top {num(100)} tokens are listed; the totals cover all.</p>
       {err ? <p role="status" className="text-xs text-down-ink">{err}</p> : null}
       {rows === null ? (
         err ? null : <p className="text-xs text-muted">Loading…</p>
@@ -174,13 +175,14 @@ function LaneStats({ wallet }: { wallet: string }) {
             {total ? (
               <tfoot className="font-mono tnum text-ink">
                 <tr className="border-t border-line-strong">
-                  <th scope="row" className="py-1.5 pr-3 text-left font-sans font-medium">All</th>
+                  <th scope="row" className="py-1.5 pr-3 text-left font-sans font-medium">{total.tokens > rows.length ? `All ${num(total.tokens)}` : "All"}</th>
                   <td className="py-1.5 pr-3 text-right">{num(total.views)}</td>
                   <td className="py-1.5 pr-3 text-right">{num(total.clicks)}</td>
                   <td className="py-1.5 pr-3 text-right">{boostClickRate(total.clicks, total.views)}</td>
-                  <td className="py-1.5 pr-3 text-right">{num(total.visitors)}</td>
-                  <td className="py-1.5 pr-3 text-right">{total.twig > 0n ? fmtBoostTwig(total.twig) : "–"}</td>
-                  <td className="py-1.5 text-right">{per(total.clicks, total.twig.toString())}</td>
+                  {/* a visitor is counted per token: one person on five cards cannot be told from five people */}
+                  <td className="py-1.5 pr-3 text-right text-muted" title="Not added up: a visitor is counted per token">–</td>
+                  <td className="py-1.5 pr-3 text-right">{BigInt(total.twig) > 0n ? fmtBoostTwig(total.twig) : "–"}</td>
+                  <td className="py-1.5 text-right">{per(total.clicks, total.twig)}</td>
                 </tr>
               </tfoot>
             ) : null}

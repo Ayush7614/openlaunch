@@ -101,8 +101,10 @@ export default function BoostedLane({ initial, serverNow, source }: { initial: B
     };
   }, [subscribe]);
 
-  // one view per page: the first time the lane, with cards in it, is a third on screen
-  const hasCards = lane.enabled && lane.items.length > 0;
+  // a boost that ran out between polls leaves at once rather than showing "0m left"
+  const shown = lane.enabled ? lane.items.filter((b) => boostTimeLeft(b.last_at, now) !== null) : [];
+  // one view per page: the first time the lane, with cards on screen (never its empty line), is a third in view
+  const hasCards = shown.length > 0;
   useEffect(() => {
     const el = section.current;
     if (!hasCards || viewed.current || !el || typeof IntersectionObserver === "undefined") return;
@@ -120,8 +122,7 @@ export default function BoostedLane({ initial, serverNow, source }: { initial: B
   }, [hasCards, source]);
 
   if (!lane.enabled) return null;
-  // a boost that ran out between polls leaves at once rather than showing "0m left"
-  const items = lane.items.filter((b) => boostTimeLeft(b.last_at, now) !== null);
+  const items = shown;
   return (
     <section ref={section} id="boosted" aria-labelledby="boosted-heading" className="scroll-mt-24 rounded-2xl border border-line bg-card">
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-line px-4 py-3 sm:px-5">
@@ -165,7 +166,7 @@ export default function BoostedLane({ initial, serverNow, source }: { initial: B
                 {lit ? <span key={`ring-${lit}`} aria-hidden="true" className="bb-boost-ring pointer-events-none absolute inset-0" /> : null}
                 {/* hover: a still warm edge and an arrow, only under a pointer that hovers; reduced motion keeps the colour */}
                 <span aria-hidden="true" className="pointer-events-none absolute inset-0 opacity-0 shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--color-warm)_40%,transparent)] transition-opacity duration-150 group-hover/card:opacity-100 motion-reduce:transition-none" />
-                <ArrowUpRight size={14} aria-hidden="true" className="pointer-events-none absolute right-3 top-3 text-warm-ink opacity-0 transition duration-150 group-hover/card:opacity-100 motion-safe:-translate-x-0.5 motion-safe:translate-y-0.5 motion-safe:group-hover/card:translate-x-0 motion-safe:group-hover/card:translate-y-0 motion-reduce:transition-none" />
+                <ArrowUpRight size={14} aria-hidden="true" className="pointer-events-none absolute right-3 top-3 text-warm-ink max-sm:hidden opacity-0 transition duration-150 group-hover/card:opacity-100 motion-safe:-translate-x-0.5 motion-safe:translate-y-0.5 motion-safe:group-hover/card:translate-x-0 motion-safe:group-hover/card:translate-y-0 motion-reduce:transition-none" />
                 <Link
                   href={`/t/${l.chain}/${l.token}`}
                   title={`${b.boosts} ${b.boosts === 1 ? "boost" : "boosts"} from ${b.boosters} ${b.boosters === 1 ? "wallet" : "wallets"} · ${b.clicks} ${b.clicks === 1 ? "click" : "clicks"} from this lane, in the last 24 hours`}

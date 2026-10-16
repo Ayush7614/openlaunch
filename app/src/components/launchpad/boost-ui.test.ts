@@ -235,9 +235,11 @@ test("a click counts only while the token is in the lane, at the server's place,
   assert.match(body, /const place = boostPlace\(lane, seen\.token\);\n\s*if \(place === null\) return false;/);
   assert.match(body, /ON CONFLICT DO NOTHING RETURNING 1/);
   assert.doesNotMatch(body, /seen\.place|seen\.source === /, "nothing but the token and the source come from the request");
-  // the lane is the one pages show (same cache), minus a boost that ran out since
-  assert.match(server, /const lane = await boostLaneOrNull\(ethUsdNow\);\n\s*if \(!lane\?\.enabled\) return \[\];/);
-  assert.match(server, /lane\.items\.filter\(\(b\) => boostTimeLeft\(b\.last_at, now\) !== null\)\.map\(\(b\) => b\.token\)/);
+  // the lane is the one pages and polls read (same cache), and a boost that ran out inside it is dropped there, once
+  assert.match(server, /const lane = await boostLaneOrNull\(ethUsdNow\);\n\s*return lane\?\.enabled \? lane\.items\.map\(\(b\) => b\.token\) : \[\];/);
+  const orNull = server.slice(server.indexOf("export async function boostLaneOrNull("), server.indexOf("/** One token's boost state"));
+  assert.match(orNull, /return \{ \.\.\.lane, items: lane\.items\.filter\(\(b\) => boostTimeLeft\(b\.last_at, now\) !== null\) \};/);
+  assert.equal((server.match(/boostTimeLeft\(/g) ?? []).length, 1, "one expiry filter on the server");
   // no address, wallet or raw presence hash is stored: the visitor is the daily hash mixed with the token
   assert.match(server, /createHash\("sha256"\)\.update\(`\$\{visitorHash\}\|\$\{token\}`\)\.digest\("hex"\)\.slice\(0, 32\)/);
   assert.match(seenRoute, /await recordBoostSeen\(seen, visitorHash\(ip, ua\), await ethUsd\(\)\);/);
@@ -270,4 +272,37 @@ test("a phone gets a compact row with all five places; from 640px the stacked ca
   // "Latest burn" from 640px only (the token page has it on a phone); every place stays a full-width tap target
   assert.match(lane, /className="relative z-\[2\] hidden w-fit items-center gap-0\.5 text-\[10px\] text-muted \[grid-area:burn\] hover:text-ink sm:inline-flex"/);
   assert.match(panel, /explorerTx\(BOOST_CHAIN, state\.last_tx\)/);
+});
+
+test("a page view never writes in the request: views are tallied and flushed every few seconds per machine", () => {
+  const record = server.slice(server.indexOf("export async function recordBoostSeen("), server.indexOf("/** One token's lane figures"));
+  assert.match(record, /if \(seen\.kind === "view"\) \{\n\s*if \(lane\.length === 0\) return false;\n\s*queueViews\(lane, Date\.now\(\)\);\n\s*return true;\n\s*\}/);
+  assert.doesNotMatch(record, /bb_boost_views/);
+  assert.match(server, /const VIEW_FLUSH_MS = 10_000;/);
+  assert.match(server, /viewFlush = setTimeout\(\(\) => void flushViews\(\), VIEW_FLUSH_MS\);\n\s*viewFlush\.unref\?\.\(\);/);
+  assert.match(server, /ON CONFLICT \(chain_id, token, hour_at\) DO UPDATE SET views = bb_boost_views\.views \+ EXCLUDED\.views/);
+  // the batch is taken before the write, so a failed flush cannot grow the tally; a bound anyway
+  assert.match(server, /const batch = \[\.\.\.pendingViews\];\n\s*pendingViews\.clear\(\);/);
+  assert.match(server, /if \(pendingViews\.size > 1_000\) pendingViews\.clear\(\);/);
+  // click rows (a visitor of one day each) are pruned hourly, off the request path
+  assert.match(server, /DELETE FROM bb_boost_clicks WHERE chain_id = \$\{BOOST_CHAIN_ID\} AND clicked_at < now\(\) - make_interval\(days => \$\{BOOST_CLICKS_KEEP_DAYS\}\)/);
+});
+
+test("the admin figures compare like with like and total every token", () => {
+  const stats = server.slice(server.indexOf("export async function getBoostStats("));
+  // views, clicks and burns start at the same whole hour
+  assert.equal((stats.match(/>= date_trunc\('hour', now\(\) - make_interval\(days => \$\{days\}\)\)/g) ?? []).length, 3);
+  // totals are window sums over every token, taken before LIMIT
+  assert.match(stats, /\(count\(\*\) OVER \(\)\)::int AS all_tokens, \(sum\(COALESCE\(v\.views, 0\)\) OVER \(\)\)::int AS all_views/);
+  assert.match(stats, /LIMIT \$\{STATS_ROWS\}/);
+  // visitors have no total (a visitor is counted per token), and a period never shows another period's error
+  assert.match(admin, /title="Not added up: a visitor is counted per token">–<\/td>/);
+  assert.match(admin, /const err = !stats && failed\?\.key === key \? failed\.text : null;/);
+});
+
+test("the lane never counts a view of its empty line, and the hover arrow never covers the TWIG on a narrow window", () => {
+  assert.match(lane, /const shown = lane\.enabled \? lane\.items\.filter\(\(b\) => boostTimeLeft\(b\.last_at, now\) !== null\) : \[\];/);
+  assert.match(lane, /const hasCards = shown\.length > 0;/);
+  assert.match(lane, /const items = shown;/);
+  assert.match(lane, /<ArrowUpRight size=\{14\} aria-hidden="true" className="pointer-events-none absolute right-3 top-3 text-warm-ink max-sm:hidden /);
 });

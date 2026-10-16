@@ -20,7 +20,7 @@ export async function GET(req: Request) {
   const days = Number(u.searchParams.get("days") ?? "7");
   if (!isBoostStatsDays(days)) return NextResponse.json({ error: "bad days" }, { status: 400 });
   try {
-    return NextResponse.json({ days, rows: await getBoostStats(days) }, { headers: { "cache-control": "no-store" } });
+    return NextResponse.json({ days, ...(await getBoostStats(days)) }, { headers: { "cache-control": "no-store" } });
   } catch (err) {
     console.error("[boost] stats read failed:", err instanceof Error ? err.message : err);
     return NextResponse.json({ error: "could not load stats" }, { status: 502 });

@@ -13,10 +13,12 @@ import {
   BOOST_FLOOR_TWIG,
   BOOST_LANE_SIZE,
   BOOST_WINDOW_H,
+  BOOST_CLICKS_KEEP_DAYS,
   boostClickSlot,
   boostExpiresAt,
   boostPlace,
   boostTimeLeft,
+  boostViewHour,
   buildBoostModMessage,
   isBoostModAction,
   rankLane,
@@ -131,13 +133,17 @@ export async function getBoostLane(ethUsd: number | null): Promise<BoostLane> {
 /**
  * The lane for a page render or a live poll, shared for a few seconds; null when it could not be read. Never the reason
  * a page fails: a page then shows no lane, and a poll sends none, so open tabs keep what they show until the next tick.
+ * A boost that ran out inside the cache's few seconds is dropped here, once, for every reader (pages, polls, beacons).
  */
 export async function boostLaneOrNull(ethUsd: number | null): Promise<BoostLane | null> {
   if (!boostEnabled()) return { enabled: false };
-  return memo(LANE_KEY, LANE_TTL_MS, () => getBoostLane(ethUsd)).catch((err) => {
+  const lane = await memo(LANE_KEY, LANE_TTL_MS, () => getBoostLane(ethUsd)).catch((err) => {
     console.warn("[boost] lane read failed:", err instanceof Error ? err.message : err);
     return null;
   });
+  if (!lane?.enabled) return lane;
+  const now = Date.now();
+  return { ...lane, items: lane.items.filter((b) => boostTimeLeft(b.last_at, now) !== null) };
 }
 
 /** One token's boost state for its page: TWIG inside the window, its place in the lane (1-based) and whether an admin hid it. */
@@ -175,14 +181,58 @@ export async function getTokenBoost(token: string): Promise<TokenBoost> {
   };
 }
 
-/* ─────────────────────────────── views and clicks (/admin only) ─────────────────────────────── */
+/* ─────────────────────────────── views and clicks ─────────────────────────────── */
 
-/** The lane's tokens as pages show them now, in order: the same few-second cache, minus a boost that ran out since. */
+/** The lane's tokens as pages show them now, in order: the same few-second cache the pages and polls read. */
 async function laneTokensNow(ethUsdNow: number | null): Promise<string[]> {
   const lane = await boostLaneOrNull(ethUsdNow);
-  if (!lane?.enabled) return [];
-  const now = Date.now();
-  return lane.items.filter((b) => boostTimeLeft(b.last_at, now) !== null).map((b) => b.token);
+  return lane?.enabled ? lane.items.map((b) => b.token) : [];
+}
+
+/**
+ * Views are tallied in memory and written once every VIEW_FLUSH_MS per machine, not once per page: every view touches
+ * the same few rows (one per lane token per hour), and a busy page must not queue writes on them. A restart loses at
+ * most the views of the last few seconds.
+ */
+const VIEW_FLUSH_MS = 10_000;
+const pendingViews = new Map<string, number>(); // `${token}|${hour}` → views
+let viewFlush: ReturnType<typeof setTimeout> | null = null;
+
+function queueViews(tokens: readonly string[], nowMs: number): void {
+  const hour = boostViewHour(nowMs);
+  // 5 tokens and at most 2 hours between flushes; a bound anyway, should flushes keep failing
+  if (pendingViews.size > 1_000) pendingViews.clear();
+  for (const t of tokens) pendingViews.set(`${t}|${hour}`, (pendingViews.get(`${t}|${hour}`) ?? 0) + 1);
+  if (!viewFlush) {
+    viewFlush = setTimeout(() => void flushViews(), VIEW_FLUSH_MS);
+    viewFlush.unref?.();
+  }
+}
+
+let lastPrune = 0;
+
+async function flushViews(): Promise<void> {
+  viewFlush = null;
+  const batch = [...pendingViews];
+  pendingViews.clear();
+  const db = maybeDb();
+  if (!db || batch.length === 0) return;
+  const keys = batch.map(([k]) => k.split("|"));
+  try {
+    await db`INSERT INTO bb_boost_views (chain_id, token, hour_at, views)
+             SELECT ${BOOST_CHAIN_ID}, u.t, u.h::timestamptz, u.n
+               FROM unnest(${keys.map((k) => k[0])}::text[], ${keys.map((k) => k[1])}::text[], ${batch.map(([, n]) => n)}::int[]) AS u(t, h, n)
+             ON CONFLICT (chain_id, token, hour_at) DO UPDATE SET views = bb_boost_views.views + EXCLUDED.views`;
+  } catch (err) {
+    console.warn("[boost] views flush failed:", err instanceof Error ? err.message : err);
+  }
+  // click rows name a visitor of one day: none outlives BOOST_CLICKS_KEEP_DAYS. Hourly, off the request path.
+  if (Date.now() - lastPrune > 3_600_000) {
+    lastPrune = Date.now();
+    await db`DELETE FROM bb_boost_clicks WHERE chain_id = ${BOOST_CHAIN_ID} AND clicked_at < now() - make_interval(days => ${BOOST_CLICKS_KEEP_DAYS})`.catch((err) => {
+      console.warn("[boost] clicks prune failed:", err instanceof Error ? err.message : err);
+    });
+  }
 }
 
 /** A click's visitor: the presence hash (daily salt) mixed with the token, cut short, so two tokens' clicks never link. */
@@ -191,7 +241,8 @@ function clickVisitor(visitorHash: string, token: string): string {
 }
 
 /**
- * Record a lane beacon; true when it counted. A view adds 1 to this hour of every token in the lane now. A click counts
+ * Record a lane beacon; true when it counted. A view adds 1 to this hour of every token in the lane now (queued, see
+ * queueViews). A click counts
  * once per visitor, token and 30-minute slot, and only while the token is in the lane: its place is read from the
  * server's lane, never taken from the request, and a tab left open after a boost ran out counts nothing.
  */
@@ -202,9 +253,7 @@ export async function recordBoostSeen(seen: BoostSeen, visitorHash: string, ethU
   const lane = await laneTokensNow(ethUsdNow);
   if (seen.kind === "view") {
     if (lane.length === 0) return false;
-    await db`INSERT INTO bb_boost_views (chain_id, token, hour_at, views)
-             SELECT ${BOOST_CHAIN_ID}, t, date_trunc('hour', now()), 1 FROM unnest(${lane}::text[]) AS t
-             ON CONFLICT (chain_id, token, hour_at) DO UPDATE SET views = bb_boost_views.views + 1`;
+    queueViews(lane, Date.now());
     return true;
   }
   const place = boostPlace(lane, seen.token);
@@ -217,37 +266,57 @@ export async function recordBoostSeen(seen: BoostSeen, visitorHash: string, ethU
 
 /** One token's lane figures over a period: views, clicks, visitors (one per person per day) and the TWIG burned for it. */
 export type BoostStatsRow = { token: string; name: string | null; symbol: string | null; views: number; clicks: number; visitors: number; twig: string; boosts: number };
+/**
+ * The period's totals over every token, not only the rows listed. Visitors have no total: a visitor is counted per
+ * token (the hash mixes the token in), so one person on five cards cannot be told from five people.
+ */
+export type BoostStats = { rows: BoostStatsRow[]; total: { tokens: number; views: number; clicks: number; twig: string } };
 
-/** Every token seen, clicked or boosted in the last `days` days, most clicks first. */
-export async function getBoostStats(days: BoostStatsDays): Promise<BoostStatsRow[]> {
+const STATS_ROWS = 100;
+
+/**
+ * Every token seen, clicked or boosted in the last `days` days, most clicks first. Views, clicks and burns all start
+ * at the same whole hour, so the click rate compares like with like (views are counted by the hour).
+ */
+export async function getBoostStats(days: BoostStatsDays): Promise<BoostStats> {
   const db = maybeDb();
-  if (!db) return [];
-  return db<BoostStatsRow[]>`
+  const empty: BoostStats = { rows: [], total: { tokens: 0, views: 0, clicks: 0, twig: "0" } };
+  if (!db) return empty;
+  const rows = await db<(BoostStatsRow & { all_tokens: number; all_views: number; all_clicks: number; all_twig: string })[]>`
     WITH v AS (
       SELECT token, sum(views)::int AS views FROM bb_boost_views
-       WHERE chain_id = ${BOOST_CHAIN_ID} AND hour_at > now() - make_interval(days => ${days})
+       WHERE chain_id = ${BOOST_CHAIN_ID} AND hour_at >= date_trunc('hour', now() - make_interval(days => ${days}))
        GROUP BY token
     ), k AS (
       SELECT token, count(*)::int AS clicks, count(DISTINCT visitor)::int AS visitors FROM bb_boost_clicks
-       WHERE chain_id = ${BOOST_CHAIN_ID} AND clicked_at > now() - make_interval(days => ${days})
+       WHERE chain_id = ${BOOST_CHAIN_ID} AND clicked_at >= date_trunc('hour', now() - make_interval(days => ${days}))
        GROUP BY token
     ), b AS (
-      SELECT l.token, sum(x.amount)::text AS twig, count(*)::int AS boosts
+      SELECT l.token, sum(x.amount) AS twig, count(*)::int AS boosts
         FROM bb_boosts x
         JOIN bb_launches l ON l.chain_id = x.chain_id AND l.token_id = x.tag
-       WHERE x.chain_id = ${BOOST_CHAIN_ID} AND x.block_time > now() - make_interval(days => ${days})
+       WHERE x.chain_id = ${BOOST_CHAIN_ID} AND x.block_time >= date_trunc('hour', now() - make_interval(days => ${days}))
          AND x.amount >= ${RAW_FLOOR}::numeric
        GROUP BY l.token
     ), t AS (SELECT token FROM v UNION SELECT token FROM k UNION SELECT token FROM b)
     SELECT t.token, l.name, l.symbol, COALESCE(v.views, 0) AS views, COALESCE(k.clicks, 0) AS clicks,
-           COALESCE(k.visitors, 0) AS visitors, COALESCE(b.twig, '0') AS twig, COALESCE(b.boosts, 0) AS boosts
+           COALESCE(k.visitors, 0) AS visitors, COALESCE(b.twig, 0)::text AS twig, COALESCE(b.boosts, 0) AS boosts,
+           -- window totals run before LIMIT: they cover every token, not only the rows listed
+           (count(*) OVER ())::int AS all_tokens, (sum(COALESCE(v.views, 0)) OVER ())::int AS all_views,
+           (sum(COALESCE(k.clicks, 0)) OVER ())::int AS all_clicks, (sum(COALESCE(b.twig, 0)) OVER ())::text AS all_twig
       FROM t
       LEFT JOIN v ON v.token = t.token
       LEFT JOIN k ON k.token = t.token
       LEFT JOIN b ON b.token = t.token
       LEFT JOIN bb_launches l ON l.chain_id = ${BOOST_CHAIN_ID} AND l.token = t.token
      ORDER BY clicks DESC, views DESC, t.token
-     LIMIT 100`;
+     LIMIT ${STATS_ROWS}`;
+  if (rows.length === 0) return empty;
+  const first = rows[0];
+  return {
+    rows: rows.map((r) => ({ token: r.token, name: r.name, symbol: r.symbol, views: r.views, clicks: r.clicks, visitors: r.visitors, twig: r.twig, boosts: r.boosts })),
+    total: { tokens: first.all_tokens, views: first.all_views, clicks: first.all_clicks, twig: first.all_twig },
+  };
 }
 
 type Fail = { ok: false; error: string; status: number };

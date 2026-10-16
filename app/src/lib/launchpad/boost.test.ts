@@ -32,7 +32,10 @@ import {
   parseBoostWhole,
   rankLane,
   BOOST_CLICK_SLOT_MS,
+  BOOST_CLICKS_KEEP_DAYS,
   BOOST_SOURCES,
+  boostBeaconSameOrigin,
+  boostViewHour,
   BOOST_STATS_DAYS,
   boostClickRate,
   boostClickSlot,
@@ -286,4 +289,27 @@ test("the admin figures: periods, click rate and clicks per 100K TWIG", () => {
   assert.equal(boostClickRate(3, 0), "–", "no view yet: no rate, never a confident 0");
   assert.equal(boostClicksPerFloor(30, (300_000n * E18 + ID).toString()), 10, "30 clicks for 300K TWIG = 10 per 100K (the tag is ignored)");
   assert.equal(boostClicksPerFloor(5, "0"), null, "nothing burned in the period");
+});
+
+test("views count by the hour; click rows are kept 90 days, past the longest period /admin reads", () => {
+  assert.equal(boostViewHour(Date.parse("2026-10-16T09:59:59.999Z")), "2026-10-16T09:00:00.000Z");
+  assert.equal(boostViewHour(Date.parse("2026-10-16T10:00:00.000Z")), "2026-10-16T10:00:00.000Z");
+  assert.ok(BOOST_CLICKS_KEEP_DAYS > Math.max(...BOOST_STATS_DAYS));
+});
+
+test("only the site's own pages may send the beacon: another site's visitors cannot raise a card's count", () => {
+  const HOST = "openlaunch.lol";
+  assert.equal(boostBeaconSameOrigin("same-origin", "https://openlaunch.lol", HOST), true);
+  assert.equal(boostBeaconSameOrigin("cross-site", "https://promoter.example", HOST), false, "a beacon from another site");
+  assert.equal(boostBeaconSameOrigin("same-site", "https://x.openlaunch.lol", HOST), false, "a subdomain is another origin");
+  assert.equal(boostBeaconSameOrigin("none", null, HOST), false, "not a page's request");
+  assert.equal(boostBeaconSameOrigin("cross-site", "https://openlaunch.lol", HOST), false, "Sec-Fetch-Site wins over a matching Origin");
+  // a browser without Sec-Fetch-Site still sends Origin on a POST
+  assert.equal(boostBeaconSameOrigin(null, "https://openlaunch.lol", HOST), true);
+  assert.equal(boostBeaconSameOrigin(null, "http://localhost:3000", "localhost:3000"), true);
+  assert.equal(boostBeaconSameOrigin(null, "https://promoter.example", HOST), false);
+  assert.equal(boostBeaconSameOrigin(null, "null", HOST), false, "a sandboxed frame");
+  assert.equal(boostBeaconSameOrigin(null, "https://openlaunch.lol", null), false, "no host to compare");
+  // neither header: not a browser page (a script could forge both); the per-IP limit holds it
+  assert.equal(boostBeaconSameOrigin(null, null, HOST), true);
 });

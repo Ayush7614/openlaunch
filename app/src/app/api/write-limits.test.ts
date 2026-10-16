@@ -48,6 +48,9 @@ test("sync still validates tx/chain shapes with 400s", () => {
 test("the Boosted lane beacon skips bots before the limiter, and caps its body", () => {
   const src = source("./boost/seen/route.ts");
   assert.ok(src.indexOf("looksLikeBot(ua)") < src.indexOf("rateLimited(`boost-seen:ip"), "bot beacons never touch the limiter or the DB");
+  // another site's beacons are refused before they use a bucket or reach the DB
+  assert.match(src, /if \(!boostBeaconSameOrigin\(req\.headers\.get\("sec-fetch-site"\), req\.headers\.get\("origin"\), req\.headers\.get\("host"\)\)\) \{\n\s*return NextResponse\.json\(\{ error: "cross-site" \}, \{ status: 403 \}\);/);
+  assert.ok(src.indexOf("boostBeaconSameOrigin(req") < src.indexOf("rateLimited(`boost-seen:ip"));
   assert.ok(src.indexOf("rateLimited(`boost-seen:ip") < src.indexOf("recordBoostSeen("));
   assert.match(src, /parseBoostSeen\(await readJson\(req, 512\)\)/);
 });
