@@ -153,11 +153,16 @@ async function creditNames(wallets: readonly string[]): Promise<Record<string, N
   return known ? Object.fromEntries(wallets.map((w) => [w, known[w] ?? null])) : {};
 }
 
-/** The Boosted lane: the top BOOST_LANE_SIZE tokens with their market rows. `{ enabled: false }` while the switch is off. */
-export async function getBoostLane(ethUsd: number | null): Promise<BoostLane> {
+/**
+ * The Boosted lane: the top BOOST_LANE_SIZE tokens with their market rows. `{ enabled: false }` while the switch is off.
+ * `fresh` skips the few-second ranking memo too (the admin panel after a hide: the other machine's memos may still hold
+ * the token); pages and polls read it through boostLaneOrNull instead.
+ */
+export async function getBoostLane(ethUsd: number | null, opts: { fresh?: boolean } = {}): Promise<BoostLane> {
   if (!boostEnabled()) return { enabled: false };
+  const ranked = opts.fresh ? rankLane(await laneTotals(BOOST_LANE_SIZE * 4), BOOST_LANE_SIZE * 4) : await rankedLane();
   // a few spare candidates, so a token whose market row cannot be read leaves its place to the next one, not a hole
-  const top = (await rankedLane()).slice(0, BOOST_LANE_SIZE + 3);
+  const top = ranked.slice(0, BOOST_LANE_SIZE + 3);
   const rows = top.length > 0 ? await getLaunchesByRefs(top.map((t) => ({ chain: BOOST_CHAIN, token: t.token })), ethUsd) : [];
   const byToken = new Map(rows.map((r) => [r.launch.token, r.launch]));
   const shown = top
@@ -199,7 +204,7 @@ export async function getTokenBoost(token: string): Promise<TokenBoost> {
   const t = token.toLowerCase();
   const none = { enabled: true as const, hidden: false, twig: "0", boosts: 0, boosters: 0, last_at: null, last_tx: null, expires_at: null, place: null, entry: { full: false, cutoff: null }, clicks: 0 };
   if (!db) return none;
-  const [[row], [setting], ranked, [seen]] = await Promise.all([
+  const [[row], [setting], ranked] = await Promise.all([
     db<{ twig: string; boosts: number; boosters: number; last_at: string | null; last_tx: string | null }[]>`
       SELECT COALESCE(sum(b.amount), 0)::text AS twig, count(*)::int AS boosts, count(DISTINCT b.booster)::int AS boosters,
              max(b.block_time) AS last_at,
@@ -211,15 +216,10 @@ export async function getTokenBoost(token: string): Promise<TokenBoost> {
          AND b.amount >= ${RAW_FLOOR}::numeric`,
     db<{ boost_hidden: boolean }[]>`SELECT boost_hidden FROM bb_token_settings WHERE chain_id = ${BOOST_CHAIN_ID} AND token = ${t}`,
     rankedLane(),
-    // the lane's own window; a failed count shows no clicks line, never a panel that fails
-    db<{ clicks: number }[]>`
-      SELECT count(*)::int AS clicks FROM bb_boost_clicks
-       WHERE chain_id = ${BOOST_CHAIN_ID} AND token = ${t}
-         AND clicked_at > now() - make_interval(hours => ${BOOST_WINDOW_H})`.catch((err) => {
-      console.warn("[boost] token clicks read failed:", err instanceof Error ? err.message : err);
-      return [{ clicks: 0 }];
-    }),
   ]);
+  // the lane's own count (same window, same rows as the card); only for a token boosted in the window, since the panel
+  // shows nothing otherwise. laneClicks never throws: a failed read is no clicks line.
+  const clicks = row?.last_at ? ((await laneClicks([t])).get(t) ?? 0) : 0;
   const i = ranked.findIndex((r) => r.token === t);
   return {
     enabled: true,
@@ -232,7 +232,7 @@ export async function getTokenBoost(token: string): Promise<TokenBoost> {
     expires_at: row?.last_at ? new Date(boostExpiresAt(row.last_at)).toISOString() : null,
     place: i >= 0 && i < BOOST_LANE_SIZE ? i + 1 : null,
     entry: laneEntry(ranked),
-    clicks: seen?.clicks ?? 0,
+    clicks,
   };
 }
 

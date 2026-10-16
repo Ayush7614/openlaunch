@@ -345,9 +345,14 @@ test("the lane invites a boost: a header button, every open place a button, and 
   assert.match(server, /items, names: await creditNames\(\[\.\.\.boosters\.values\(\)\]\) \};/);
   assert.match(server, /const known = await namesFor\(wallets\)\.catch\(\(\) => null\);\n\s*return known \? Object\.fromEntries\(wallets\.map\(\(w\) => \[w, known\[w\] \?\? null\]\)\) : \{\};/);
   assert.match(lane, /<NamesProvider names=\{lane\.names \?\? NO_NAMES\}>/);
-  // a public read of the lane comes from the same few-second cache: polling it adds no database pass
-  assert.match(boostRoute, /const lane = await boostLaneOrNull\(await ethUsd\(\)\);/);
-  assert.doesNotMatch(boostRoute, /getBoostLane/);
+  // a public read of the lane comes from the same few-second cache: polling it adds no database pass; only an admin
+  // wallet gets it fresh (the moderation panel after a hide)
+  assert.match(boostRoute, /const fresh = u\.searchParams\.get\("fresh"\) === "1" && adminWallets\(\)\.has\(\(u\.searchParams\.get\("wallet"\) \?\? ""\)\.toLowerCase\(\)\);/);
+  assert.match(boostRoute, /const lane = fresh \? await getBoostLane\(await ethUsd\(\), \{ fresh: true \}\) : await boostLaneOrNull\(await ethUsd\(\)\);/);
+  assert.equal((boostRoute.match(/getBoostLane\(/g) ?? []).length, 1);
+  assert.match(server, /const ranked = opts\.fresh \? rankLane\(await laneTotals\(BOOST_LANE_SIZE \* 4\), BOOST_LANE_SIZE \* 4\) : await rankedLane\(\);/);
+  assert.match(admin, /fetch\(`\/api\/boost\?chain=\$\{BOOST_CHAIN\}\$\{address \? `&fresh=1&wallet=\$\{address\}` : ""\}`/);
+  assert.doesNotMatch(admin, /justHidden|JUST_HIDDEN/, "no timer guess: the admin's read is simply fresh");
 });
 
 test("the picker only navigates: the boost happens on the token's page, with every check the dialog has", () => {
@@ -383,15 +388,15 @@ test("a card credits the wallet that sent the most TWIG for it; a failed read sh
   assert.match(lane, /\{b\.top_booster \? \(/);
 });
 
-const liveRouteSrc = read("../../app/api/launch/live/route.ts");
 
 test("the token page shows what the lane brought: clicks in the same 24 hours, from 10 up, only while boosted", () => {
   assert.match(panel, /const clicks = state\.clicks \?\? 0;/);
   assert.match(panel, /\{active && clicks >= BOOST_PANEL_CLICKS_MIN \? \(/);
   assert.match(panel, /clicks from the lane in the last 24 hours/);
+  // the lane card's own count (laneClicks: same window, never throws), and only for a token boosted in the window
   const body = server.slice(server.indexOf("export async function getTokenBoost("), server.indexOf("/* ─────────────────────────────── views and clicks"));
-  assert.match(body, /SELECT count\(\*\)::int AS clicks FROM bb_boost_clicks\n\s*WHERE chain_id = \$\{BOOST_CHAIN_ID\} AND token = \$\{t\}\n\s*AND clicked_at > now\(\) - make_interval\(hours => \$\{BOOST_WINDOW_H\}\)`\.catch\(/);
-  assert.match(body, /return \[\{ clicks: 0 \}\];/, "a failed count is no line, never a panel that fails");
+  assert.match(body, /const clicks = row\?\.last_at \? \(\(await laneClicks\(\[t\]\)\)\.get\(t\) \?\? 0\) : 0;/);
+  assert.doesNotMatch(body, /FROM bb_boost_clicks/, "one click count for the card and the page, not two copies");
 });
 
 test("after a confirmed boost the booster can share it on X: its own post, in a new tab", () => {
@@ -405,14 +410,10 @@ test("the agents' notes name the lane's fields as they are", () => {
   assert.doesNotMatch(llms, /launch; entry\)/);
 });
 
-test("a list's first page with no wallet filter shares the live poll's few-second memo; paged and per-wallet reads never do", () => {
-  assert.match(list, /const page = offset === 0 && !launcher \? await memo\(listPageKey\(opts\), 2_000, \(\) => listLaunchesPage\(opts\)\) : await listLaunchesPage\(opts\);/);
-  assert.match(liveRouteSrc, /listOpts \? memo\(listPageKey\(listOpts\), 2_000, \(\) => listLaunchesPage\(listOpts\)\)/);
-  assert.match(queries, /export function listPageKey\(o: Pick<ListOpts, "sort" \| "window" \| "chain" \| "filter" \| "limit">\): string \{\n\s*return `list:\$\{o\.chain \?\? "all"\}:\$\{o\.sort\}:\$\{o\.window\}:\$\{o\.filter \?\? "-"\}:\$\{o\.limit\}`;/);
-});
 
-test("a token hidden from the admin panel stays out of its list past both machines' lane caches", () => {
-  assert.match(admin, /const JUST_HIDDEN_MS = 15_000;/);
-  assert.match(admin, /lane\.items\.filter\(\(b\) => !justHidden\.has\(b\.token\)\)\.map\(/);
-  assert.match(admin, /if \(action === "hide"\) next\.add\(t\);\n\s*else next\.delete\(t\);/);
+
+test("one X intent builder: the booster's post and the token page's Share both go through intentUrl", () => {
+  assert.match(read("../../lib/launchpad/boost.ts"), /return intentUrl\(boostShareText\(symbol, raw\), \{ url: pageUrl, via: BRAND_X \}\);/);
+  assert.match(tokenPage, /<a href=\{intentUrl\(shareText, \{ url: `\$\{SITE_URL\}\/t\/\$\{chain\}\/\$\{l\.token\}` \}\)\} target="_blank"/);
+  for (const f of ["../../lib/launchpad/boost.ts", "../../app/t/[chain]/[token]/page.tsx"]) assert.doesNotMatch(read(f), /https:\/\/x\.com\/intent/, f);
 });

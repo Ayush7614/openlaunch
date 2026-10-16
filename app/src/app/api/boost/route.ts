@@ -4,7 +4,8 @@ import { rateLimited } from "@/lib/launchpad/editServer";
 import { clientIp } from "@/lib/profiles/http";
 import { ethUsd } from "@/lib/launchpad/ethPrice";
 import { BOOST_CHAIN } from "@/lib/launchpad/boost";
-import { boostEnabled, boostLaneOrNull, getTokenBoost } from "@/lib/launchpad/boostServer";
+import { boostEnabled, boostLaneOrNull, getBoostLane, getTokenBoost } from "@/lib/launchpad/boostServer";
+import { adminWallets } from "@/lib/launchpad/postsServer";
 
 export const dynamic = "force-dynamic";
 
@@ -27,8 +28,10 @@ export async function GET(req: Request) {
       if (!isAddress(token)) return NextResponse.json({ error: "bad token" }, { status: 400 });
       return NextResponse.json(await getTokenBoost(token), { headers: NO_STORE });
     }
-    // the same few-second cache pages and polls read: a caller polling this cannot add a database pass per request
-    const lane = await boostLaneOrNull(await ethUsd());
+    // the same few-second cache pages and polls read: a caller polling this cannot add a database pass per request.
+    // An admin wallet may ask for it fresh (the moderation panel after a hide), like the reported-posts queue's gate.
+    const fresh = u.searchParams.get("fresh") === "1" && adminWallets().has((u.searchParams.get("wallet") ?? "").toLowerCase());
+    const lane = fresh ? await getBoostLane(await ethUsd(), { fresh: true }) : await boostLaneOrNull(await ethUsd());
     if (!lane) return NextResponse.json({ error: "could not load boosts" }, { status: 502 });
     return NextResponse.json(lane, { headers: NO_STORE });
   } catch (err) {

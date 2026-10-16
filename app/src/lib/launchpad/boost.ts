@@ -14,6 +14,7 @@
 import { TWIG_ADDRESS, TWIG_DECIMALS, TWIG_SYMBOL } from "./twig.ts";
 import { CHAIN_IDS } from "../chainKeys.ts";
 import { BRAND_DOMAIN, BRAND_X } from "../brand.ts";
+import { intentUrl } from "../profiles/xpost.ts";
 
 /** Boosts exist on Base only: TWIG has not been bridged anywhere. */
 export const BOOST_CHAIN = "base" as const;
@@ -253,9 +254,9 @@ export function boostShareText(symbol: string, raw: bigint | string): string {
   return `Boosted $${symbol} with ${fmtBoostTwig(raw)} on ${BRAND_DOMAIN}. The TWIG went to 0x…dEaD.`;
 }
 
-/** The X intent for that post: the token's page as its link, via the official account (the token page's Share uses the same intent). */
+/** The X intent for that post: the token's page as its link, via the official account (the one intent builder, xpost.ts). */
 export function boostShareUrl(symbol: string, raw: bigint | string, pageUrl: string): string {
-  return `https://x.com/intent/post?text=${encodeURIComponent(boostShareText(symbol, raw))}&url=${encodeURIComponent(pageUrl)}&via=${BRAND_X}`;
+  return intentUrl(boostShareText(symbol, raw), { url: pageUrl, via: BRAND_X });
 }
 
 /* ─────────────────────────────── views and clicks ─────────────────────────────── */

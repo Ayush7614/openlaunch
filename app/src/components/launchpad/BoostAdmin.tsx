@@ -19,27 +19,22 @@ import { nonce } from "@/lib/nonce";
  * no longer listed anywhere, so showing it again takes its address). Each action is an admin-wallet signature. Hiding
  * never refunds: the TWIG was burned on-chain. Below them, the lane's views and clicks per token.
  */
-/** How long a token hidden from this panel stays out of its list, past both machines' lane caches. */
-const JUST_HIDDEN_MS = 15_000;
-
 export default function BoostAdmin() {
   const { address } = useHydratedAccount();
   const config = useConfig();
   const [lane, setLane] = useState<BoostLane | null>(null);
   const [target, setTarget] = useState("");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  // a token hidden here stays out of the list for a while: the reload after a hide can reach the other machine, whose
-  // lane cache (two stacked few-second memos) may still hold it for up to ~10 seconds
-  const [justHidden, setJustHidden] = useState<ReadonlySet<string>>(new Set());
   // a failed or unreadable answer (a proxy's HTML page) keeps the last list on screen; it never throws from the effect
+  // an admin wallet reads the lane fresh: right after a hide the other machine's few-second caches may still hold it
   const load = useCallback(async () => {
     try {
-      const res = await fetch(`/api/boost?chain=${BOOST_CHAIN}`, { cache: "no-store" });
+      const res = await fetch(`/api/boost?chain=${BOOST_CHAIN}${address ? `&fresh=1&wallet=${address}` : ""}`, { cache: "no-store" });
       if (res.ok) setLane((await res.json()) as BoostLane);
     } catch {
       // keep the last lane
     }
-  }, []);
+  }, [address]);
   useEffect(() => {
     const id = setTimeout(() => void load(), 0);
     return () => clearTimeout(id);
@@ -57,14 +52,6 @@ export default function BoostAdmin() {
       const d = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) throw new Error(d.error ?? `request failed (HTTP ${res.status})`);
       setMsg({ ok: true, text: `${action === "hide" ? "Hidden" : "Shown again"}: ${token}` });
-      const t = token.toLowerCase();
-      setJustHidden((s) => {
-        const next = new Set(s);
-        if (action === "hide") next.add(t);
-        else next.delete(t);
-        return next;
-      });
-      if (action === "hide") setTimeout(() => setJustHidden((s) => (s.has(t) ? new Set([...s].filter((x) => x !== t)) : s)), JUST_HIDDEN_MS);
       // a hidden card leaves the list at once; the next read (fresh on the machine that took the write) confirms it
       if (action === "hide") setLane((l) => (l?.enabled ? { ...l, items: l.items.filter((b) => b.token !== token.toLowerCase()) } : l));
       await load();
@@ -80,7 +67,7 @@ export default function BoostAdmin() {
       {!address ? <p className={`${card} p-6 text-sm text-muted`}>Connect the admin wallet.</p> : null}
       {lane?.enabled && lane.items.length === 0 ? <p className={`${card} p-6 text-sm text-muted`}>Nothing is boosted right now.</p> : null}
       {lane?.enabled
-        ? lane.items.filter((b) => !justHidden.has(b.token)).map((b) => (
+        ? lane.items.map((b) => (
             <div key={b.token} className={`${card} flex flex-wrap items-center justify-between gap-3 p-4`}>
               <div className="min-w-0 text-sm">
                 <Link href={`/t/${BOOST_CHAIN}/${b.token}`} className="font-semibold text-ink">{b.launch.name}</Link>

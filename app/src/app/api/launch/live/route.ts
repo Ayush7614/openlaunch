@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { visibleChainOr } from "@/lib/launchpad/config";
 import { isFilter } from "@/lib/launchpad/search";
 import { clampLimit } from "@/lib/launchpad/paging";
-import { VOLUME_WINDOWS, getLaunchFeed, getLaunchTotals, getTrending, isTrendingSource, listLaunchesPage, listPageKey, parseSort, trendingFrom, type VolumeWindow } from "@/lib/launchpad/queries";
+import { VOLUME_WINDOWS, getLaunchFeed, getLaunchTotals, getTrending, isTrendingSource, listLaunchesPage, parseSort, trendingFrom, type VolumeWindow } from "@/lib/launchpad/queries";
 import { ethUsd } from "@/lib/launchpad/ethPrice";
 import { memo } from "@/lib/launchpad/memo";
 import { listFeed } from "@/lib/launchpad/postsServer";
@@ -36,7 +36,7 @@ export async function GET(req: Request) {
     const [feed, totals, page, posts, fetchedTrending, boost] = await Promise.all([
       memo("feed", 2_000, () => getLaunchFeed(24, usd)),
       memo("totals", 2_000, () => getLaunchTotals(usd)),
-      listOpts ? memo(listPageKey(listOpts), 2_000, () => listLaunchesPage(listOpts)) : Promise.resolve(null),
+      listOpts ? memo(`list:${chain ?? "all"}:${sort}:${window}:${filter ?? "-"}:${limit}`, 2_000, () => listLaunchesPage(listOpts)) : Promise.resolve(null),
       memo(feedPostsKey(0), 2_000, () => listFeed(FEED_POSTS_LIMIT, 0)), // the same entry /api/posts?feed=1 serves
       deriveTrending ? Promise.resolve(null) : memo("trending", 2_000, () => getTrending(usd)),
       // the switch is read on every poll, so turning BOOST off reaches open tabs within one tick; a failed read sends nothing

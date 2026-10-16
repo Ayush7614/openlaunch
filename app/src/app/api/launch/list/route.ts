@@ -3,8 +3,7 @@ import { isAddress } from "viem";
 import { visibleChainOr } from "@/lib/launchpad/config";
 import { isFilter } from "@/lib/launchpad/search";
 import { clampLimit, clampOffset } from "@/lib/launchpad/paging";
-import { VOLUME_WINDOWS, listLaunchesPage, listPageKey, parseSort, type VolumeWindow } from "@/lib/launchpad/queries";
-import { memo } from "@/lib/launchpad/memo";
+import { VOLUME_WINDOWS, listLaunchesPage, parseSort, type VolumeWindow } from "@/lib/launchpad/queries";
 import { ethUsd } from "@/lib/launchpad/ethPrice";
 
 export const dynamic = "force-dynamic";
@@ -28,10 +27,7 @@ export async function GET(req: Request) {
   const launcher = l && isAddress(l) ? l.toLowerCase() : undefined;
   try {
     const usd = await ethUsd();
-    const opts = { sort, window, chain, filter, limit, offset, launcher, ethUsd: usd };
-    // a first page with no wallet filter shares the live poll's few-second memo (same key): the picker's trending, the
-    // palette and the launches list's first page cost one query between them; a paged or per-wallet read is never shared
-    const page = offset === 0 && !launcher ? await memo(listPageKey(opts), 2_000, () => listLaunchesPage(opts)) : await listLaunchesPage(opts);
+    const page = await listLaunchesPage({ sort, window, chain, filter, limit, offset, launcher, ethUsd: usd });
     return NextResponse.json({ sort, window, chain, filter, limit, offset, has_more: page.hasMore, ethUsd: usd, launches: page.items }, { headers: { "cache-control": "no-store" } });
   } catch (err) {
     console.error("[launch] list failed:", err instanceof Error ? err.message : err);
