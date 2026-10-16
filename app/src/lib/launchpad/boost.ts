@@ -234,25 +234,6 @@ export function boostClickSlot(nowMs: number): string {
   return new Date(Math.floor(nowMs / BOOST_CLICK_SLOT_MS) * BOOST_CLICK_SLOT_MS).toISOString();
 }
 
-/**
- * What a click is counted once per 30 minutes for: the client's address alone, never its user agent (which the caller
- * picks, so one address could otherwise pass for a new visitor on every request). An IPv6 address is cut to its /64,
- * the block one home or phone is given; an IPv4-mapped IPv6 address is its IPv4 address. People behind one shared
- * address (an office, a mobile carrier) count once per 30 minutes: the public count leans low rather than high.
- */
-export function boostClickAddress(ip: string): string {
-  const a = ip.trim().toLowerCase().replace(/^\[|\]$/g, "").split("%")[0];
-  if (!a.includes(":")) return a;
-  const mapped = /^(?:(?:0{1,4}:){5}|::)ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(a);
-  if (mapped) return mapped[1];
-  const parts = a.split("::");
-  if (parts.length > 2) return a; // not an address; whatever it is, it is its own key
-  const head = parts[0] ? parts[0].split(":") : [];
-  const tail = parts.length === 2 && parts[1] ? parts[1].split(":") : [];
-  const groups = parts.length === 2 ? [...head, ...Array<string>(Math.max(0, 8 - head.length - tail.length)).fill("0"), ...tail] : head;
-  return `${groups.slice(0, 4).map((g) => (parseInt(g, 16) || 0).toString(16)).join(":")}::/64`;
-}
-
 /** The hour a view is counted in (UTC). */
 export function boostViewHour(nowMs: number): string {
   return new Date(Math.floor(nowMs / 3_600_000) * 3_600_000).toISOString();

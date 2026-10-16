@@ -35,7 +35,6 @@ import {
   BOOST_CLICKS_KEEP_DAYS,
   BOOST_SOURCES,
   boostBeaconSameOrigin,
-  boostClickAddress,
   boostViewHour,
   BOOST_STATS_DAYS,
   boostClickRate,
@@ -313,24 +312,4 @@ test("only the site's own pages may send the beacon: another site's visitors can
   assert.equal(boostBeaconSameOrigin(null, "https://openlaunch.lol", null), false, "no host to compare");
   // neither header: not a browser page (a script could forge both); the per-IP limit holds it
   assert.equal(boostBeaconSameOrigin(null, null, HOST), true);
-});
-
-test("a click is counted per address, an IPv6 one by its /64: a new user agent or a new address in one's own block adds nothing", () => {
-  assert.equal(boostClickAddress("203.0.113.7"), "203.0.113.7");
-  assert.equal(boostClickAddress(" 203.0.113.7 "), "203.0.113.7");
-  // one /64, however it is written or whichever host in it
-  const block = "2001:db8:abcd:12::/64";
-  for (const ip of ["2001:db8:abcd:12::1", "2001:0db8:abcd:0012:ffff:1:2:3", "2001:DB8:ABCD:12:0:0:0:9", "[2001:db8:abcd:12::77]", "2001:db8:abcd:12::1%eth0"]) {
-    assert.equal(boostClickAddress(ip), block, ip);
-  }
-  assert.notEqual(boostClickAddress("2001:db8:abcd:13::1"), block, "the next /64 is another address");
-  // compressed zeros in the network half are expanded before the cut
-  assert.equal(boostClickAddress("2001:db8::1"), "2001:db8:0:0::/64");
-  assert.equal(boostClickAddress("::1"), "0:0:0:0::/64");
-  // an IPv4 client seen through IPv6 is its IPv4 address
-  assert.equal(boostClickAddress("::ffff:203.0.113.7"), "203.0.113.7");
-  assert.equal(boostClickAddress("0:0:0:0:0:ffff:203.0.113.7"), "203.0.113.7");
-  // anything else is its own key, never a crash
-  assert.equal(boostClickAddress("1::2::3"), "1::2::3");
-  assert.equal(boostClickAddress("0.0.0.0"), "0.0.0.0");
 });

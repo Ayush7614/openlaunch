@@ -3,7 +3,8 @@ import { rateLimited } from "@/lib/launchpad/editServer";
 import { clientIp, readJson } from "@/lib/profiles/http";
 import { looksLikeBot, visitorHash } from "@/lib/launchpad/presence";
 import { ethUsd } from "@/lib/launchpad/ethPrice";
-import { boostBeaconSameOrigin, boostClickAddress, parseBoostSeen } from "@/lib/launchpad/boost";
+import { boostBeaconSameOrigin, parseBoostSeen } from "@/lib/launchpad/boost";
+import { boostClickAddress } from "@/lib/launchpad/boostAddress";
 import { recordBoostSeen } from "@/lib/launchpad/boostServer";
 
 export const runtime = "nodejs";
