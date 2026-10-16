@@ -4,6 +4,7 @@ import { clientIp, readJson } from "@/lib/profiles/http";
 import { looksLikeBot, visitorHash } from "@/lib/launchpad/presence";
 import { ethUsd } from "@/lib/launchpad/ethPrice";
 import { boostBeaconSameOrigin, parseBoostSeen } from "@/lib/launchpad/boost";
+import { boostClickAddress } from "@/lib/launchpad/boostAddress";
 import { recordBoostSeen } from "@/lib/launchpad/boostServer";
 
 export const runtime = "nodejs";
@@ -22,13 +23,15 @@ export async function POST(req: Request) {
   if (!boostBeaconSameOrigin(req.headers.get("sec-fetch-site"), req.headers.get("origin"), req.headers.get("host"))) {
     return NextResponse.json({ error: "cross-site" }, { status: 403 });
   }
-  const ip = clientIp(req);
+  // the address, an IPv6 one by its /64 (boostClickAddress): rotating within one's own block buys no fresh bucket
+  const ip = boostClickAddress(clientIp(req));
   // a person sends one view per page and a click per card opened; 60 a minute leaves room for a shared address
   if (rateLimited(`boost-seen:ip:${ip}`, 60)) return NextResponse.json({ error: "slow down" }, { status: 429 });
   const seen = parseBoostSeen(await readJson(req, 512));
   if (!seen) return NextResponse.json({ error: "bad beacon" }, { status: 400 });
   try {
-    await recordBoostSeen(seen, visitorHash(ip, ua), await ethUsd());
+    // the address alone, no user agent: the caller picks that, and a click must not count again for a new one
+    await recordBoostSeen(seen, visitorHash(ip, ""), await ethUsd());
   } catch (err) {
     console.warn("[boost] beacon failed:", err instanceof Error ? err.message : err);
   }
