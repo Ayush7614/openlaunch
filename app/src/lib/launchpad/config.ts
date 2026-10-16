@@ -1,7 +1,6 @@
 import { isAddress, type Address } from "viem";
 import { CHAIN_KEYS, SITE_URL, isChainKey, type ChainKey } from "@/lib/chainPublic";
 import { unlistedQuote } from "./unlisted-quote";
-import { MUSEWORLD_ADDRESS, MUSEWORLD_DECIMALS, MUSEWORLD_LOGO_PATH, MUSEWORLD_NAME, MUSEWORLD_SYMBOL } from "./museworld";
 import { GITLAWB_ADDRESS, GITLAWB_ADDRESS_ROBINHOOD, GITLAWB_DECIMALS, GITLAWB_LOGO_PATH, GITLAWB_NAME, GITLAWB_SYMBOL } from "./gitlawb";
 import { TWIG_ADDRESS, TWIG_DECIMALS, TWIG_LOGO_PATH, TWIG_NAME, TWIG_SYMBOL } from "./twig";
 
@@ -20,11 +19,11 @@ export const BPS = 10_000;
 export const MAX_RECIPIENTS = 7;
 
 /**
- * key "twig" = TWIG, the GITLAWB wrapper the Base form offers (twig.ts); "museworld" = an official quote the form does not offer (museworld.ts); "stock" = a registry stock; "other" = an ERC-20 no list knows (an unlisted pair, unlisted-quote.ts). `decimalsKnown`
+ * key "twig" = TWIG, the GITLAWB wrapper the Base form offers (twig.ts); "pair" = a community pair from the database list (pairs.ts; the server resolves it, this static config never does); "stock" = a registry stock; "other" = an ERC-20 no list knows (an unlisted pair, unlisted-quote.ts). `decimalsKnown`
  * is false only for an unlisted quote whose decimals have not been read yet: its 18 is a placeholder and it must not trade.
  * `unpriced` is true only for a registry stock nothing prices (a Coinbase stock without a Chainlink feed): its null `usd` is the normal state, not an outage.
  */
-export type Quote = { key: "eth" | "usdg" | "usdc" | "gitlawb" | "twig" | "museworld" | "stock" | "other"; address: Address; symbol: string; decimals: number; usd: number | null /* fixed USD price (stables); live for stocks, GITLAWB and TWIG (server-filled) */; name?: string; logo?: string | null; decimalsKnown?: boolean; unpriced?: boolean; issued?: boolean | null /* stocks, from /api/quotes: false = none in circulation yet */ };
+export type Quote = { key: "eth" | "usdg" | "usdc" | "gitlawb" | "twig" | "pair" | "stock" | "other"; address: Address; symbol: string; decimals: number; usd: number | null /* fixed USD price (stables); live for stocks, GITLAWB and TWIG (server-filled) */; name?: string; logo?: string | null; decimalsKnown?: boolean; unpriced?: boolean; issued?: boolean | null /* stocks, from /api/quotes: false = none in circulation yet */; pairKind?: "launch" | "univ3" | "univ4" /* community pairs: where the price comes from */ };
 export type V4 = { poolManager: Address; positionManager: Address; stateView: Address; quoter: Address; universalRouter: Address; permit2: Address; swapLayout: "v1" | "v2" };
 export type ChainLaunchpad = { key: ChainKey; factory: Address | null; locker: Address | null; v4: V4; quotes: Quote[]; configured: boolean };
 
@@ -45,8 +44,6 @@ const TWIG: Quote = { key: "twig", address: TWIG_ADDRESS as Address, symbol: TWI
  */
 const USDC_BASE: Quote = { key: "usdc", address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", symbol: "USDC", decimals: 6, usd: 1 };
 const WETH_BASE: Quote = { key: "eth", address: "0x4200000000000000000000000000000000000006", symbol: "WETH", decimals: 18, usd: null, name: "Wrapped Ether" };
-/** MUSEWORLD: usd is null here (client-safe static); the server fills the price from its own GITLAWB pool (queries.ts). */
-const MUSEWORLD: Quote = { key: "museworld", address: MUSEWORLD_ADDRESS, symbol: MUSEWORLD_SYMBOL, decimals: MUSEWORLD_DECIMALS, usd: null, name: MUSEWORLD_NAME, logo: MUSEWORLD_LOGO_PATH };
 
 /** Canonical Uniswap v4 deployments (developers.uniswap.org/docs/protocols/v4/deployments). */
 const V4_BY_CHAIN: Record<ChainKey, V4> = {
@@ -85,9 +82,9 @@ const QUOTES_BY_CHAIN: Record<ChainKey, Quote[]> = { base: [ETH, TWIG], robinhoo
  * Official quotes: known, badged and priced wherever a launch paired with them is listed, but NEVER offered in the
  * launch form. Kept out of QUOTES_BY_CHAIN on purpose. GITLAWB on Base: the form offers TWIG (its 1:1 wrapper) instead,
  * while launches already paired with GITLAWB, and any an agent still makes against the factory, keep their badge and
- * price. MUSEWORLD: its launches are made inside Museworld by its agents.
+ * price. Community tokens are not here: they are community pairs, a database list with public checks (pairs.ts).
  */
-const OFFICIAL_QUOTES: Record<ChainKey, Quote[]> = { base: [GITLAWB, MUSEWORLD], robinhood: [], arc: [] };
+const OFFICIAL_QUOTES: Record<ChainKey, Quote[]> = { base: [GITLAWB], robinhood: [], arc: [] };
 /** Known quotes: priced and named, with no badge, and never offered in the launch form (the mainstream tokens above). */
 const KNOWN_QUOTES: Record<ChainKey, Quote[]> = { base: [USDC_BASE, WETH_BASE], robinhood: [], arc: [] };
 
@@ -236,9 +233,9 @@ export const FEE_PRESETS = [
 ] as const;
 
 /** Starting market cap presets per quote (fully diluted, in quote units). */
-export const MCAP_PRESETS: Record<Quote["key"], number[]> = { eth: [1, 5, 10, 25], usdg: [5_000, 10_000, 25_000, 100_000], usdc: [5_000, 10_000, 25_000, 100_000], gitlawb: [] /* derived from the live price */, twig: [] /* derived from the live price */, museworld: [] /* not offered in the form */, stock: [] /* derived from the live price */, other: [] /* never offered */ };
+export const MCAP_PRESETS: Record<Quote["key"], number[]> = { eth: [1, 5, 10, 25], usdg: [5_000, 10_000, 25_000, 100_000], usdc: [5_000, 10_000, 25_000, 100_000], gitlawb: [] /* derived from the live price */, twig: [] /* derived from the live price */, pair: [] /* derived from the live price */, stock: [] /* derived from the live price */, other: [] /* never offered */ };
 /** Buy amount presets per quote. */
-export const BUY_PRESETS: Record<Quote["key"], string[]> = { eth: ["0.01", "0.05", "0.1", "0.5"], usdg: ["5", "25", "100", "500"], usdc: ["5", "25", "100", "500"], gitlawb: ["100000", "500000", "1000000", "5000000"], twig: ["100000", "500000", "1000000", "5000000"] /* one TWIG = one GITLAWB */, museworld: ["50000", "100000", "500000", "1000000"], stock: ["0.1", "0.5", "1", "5"], other: [] /* unknown token, unknown scale */ };
+export const BUY_PRESETS: Record<Quote["key"], string[]> = { eth: ["0.01", "0.05", "0.1", "0.5"], usdg: ["5", "25", "100", "500"], usdc: ["5", "25", "100", "500"], gitlawb: ["100000", "500000", "1000000", "5000000"], twig: ["100000", "500000", "1000000", "5000000"] /* one TWIG = one GITLAWB */, pair: [] /* derived from the live price: pairBuyPresets */, stock: ["0.1", "0.5", "1", "5"], other: [] /* unknown token, unknown scale */ };
 
 // NEXT_PUBLIC_* must be read as literal `process.env.X` expressions: Next inlines them at build time.
 const DEV_RPC: Record<ChainKey, string | undefined> = {

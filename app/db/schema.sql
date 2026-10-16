@@ -476,3 +476,64 @@ CREATE TABLE IF NOT EXISTS bb_boost_views (
   PRIMARY KEY (chain_id, token, hour_at)
 );
 CREATE INDEX IF NOT EXISTS bb_boost_views_time_idx ON bb_boost_views (chain_id, hour_at DESC);
+
+-- ── community pairs (2026-10-16; lib/launchpad/pairs.ts, reports/Community pairs plan.md) ──────────────────────────
+-- An app-level list of ERC-20s that launches may be paired with and that the site prices and badges. The contracts are
+-- untouched and still accept any ERC-20: a token missing here simply shows as an unlisted pair. A listing names the
+-- pool its USD price is read from (`price_kind`: 'launch' = an openlaunch pool indexed here, 'univ3' = a Uniswap v3 /
+-- Aerodrome Slipstream pool with an on-chain oracle, 'univ4' = a hookless Uniswap v4 pool, averaged from our own
+-- samples) and the core quote on its other side. Status: listed → suspended (by the hourly monitor after 24 h of
+-- failing checks, at once when the contract's code changes, or by an admin) → delisted (14 days suspended, or an admin).
+CREATE TABLE IF NOT EXISTS bb_pairs (
+  chain_id      integer NOT NULL,
+  address       text NOT NULL,                              -- lowercase
+  symbol        text NOT NULL,                              -- as shown (cleaned); unique among listed pairs per chain
+  name          text NOT NULL,
+  decimals      integer NOT NULL CHECK (decimals BETWEEN 6 AND 18),
+  logo_url      text,                                       -- our own image host, or a path on this site
+  website       text,
+  x_handle      text,
+  description   text,
+  status        text NOT NULL DEFAULT 'listed' CHECK (status IN ('listed', 'suspended', 'delisted')),
+  status_by     text NOT NULL DEFAULT 'admin' CHECK (status_by IN ('admin', 'monitor')),
+  status_reason text,
+  status_at     timestamptz NOT NULL DEFAULT now(),
+  in_form       boolean NOT NULL DEFAULT true,
+  price_kind    text NOT NULL CHECK (price_kind IN ('launch', 'univ3', 'univ4')),
+  price_pool    text NOT NULL,                              -- launch: the launched token; univ3: the pool; univ4: the pool id
+  price_quote   text NOT NULL,                              -- the core quote on the pool's other side (lowercase)
+  price_hook    text,                                       -- univ4: the pool's hook as read from its key, when it has one (named by the admin)
+  code_hash     text,                                       -- keccak256 of the runtime code when listed; a change suspends
+  failing_since timestamptz,                                -- first failing monitor run since the last healthy one
+  checked_at    timestamptz,
+  listed_at     timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (chain_id, address)
+);
+-- The public record of every status change, shown on the pair page.
+CREATE TABLE IF NOT EXISTS bb_pair_events (
+  id         bigserial PRIMARY KEY,
+  chain_id   integer NOT NULL,
+  address    text NOT NULL,
+  status     text NOT NULL,
+  reason     text,
+  actor      text NOT NULL,                                 -- an admin wallet, or 'monitor'
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS bb_pair_events_pair_idx ON bb_pair_events (chain_id, address, created_at DESC);
+-- Minute samples of a v4 price pool (quote units per pair token), for its 30-minute average: v4 keeps no oracle.
+CREATE TABLE IF NOT EXISTS bb_pair_prices (
+  chain_id integer NOT NULL,
+  address  text NOT NULL,
+  t        timestamptz NOT NULL,                            -- truncated to the minute: two machines write one row
+  price    double precision NOT NULL,
+  PRIMARY KEY (chain_id, address, t)
+);
+-- MUSEWORLD was an "official" quote in code until this list existed; it is the first community pair, under the same rules.
+INSERT INTO bb_pairs (chain_id, address, symbol, name, decimals, logo_url, website, x_handle, description, status, in_form, price_kind, price_pool, price_quote)
+VALUES (8453, '0x882c8e35504d58979b1280fe76d6553f717029f8', 'MUSEWORLD', 'Museworld', 18, '/museworld-mark.png', 'https://museworld.lol', 'museworldhq',
+        'Museworld''s token. Museworld''s AI agents launch their tokens paired with it.', 'listed', true, 'launch',
+        '0x882c8e35504d58979b1280fe76d6553f717029f8', '0x5f980dcfc4c0fa3911554cf5ab288ed0eb13dba3')
+ON CONFLICT (chain_id, address) DO NOTHING;
+INSERT INTO bb_pair_events (chain_id, address, status, reason, actor)
+SELECT 8453, '0x882c8e35504d58979b1280fe76d6553f717029f8', 'listed', 'Moved from an official quote to the community pairs list.', 'migration'
+ WHERE NOT EXISTS (SELECT 1 FROM bb_pair_events WHERE chain_id = 8453 AND address = '0x882c8e35504d58979b1280fe76d6553f717029f8');

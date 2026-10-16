@@ -53,7 +53,7 @@ test("TWIG's USD is exactly GITLAWB's, and unknown while GITLAWB's is", () => {
   assert.equal(gitlawbLinkedUsd("gitlawb", 0.0000227), 0.0000227);
   assert.equal(gitlawbLinkedUsd("twig", 0.0000227), 0.0000227);
   assert.equal(gitlawbLinkedUsd("twig", null), null);
-  for (const k of ["eth", "usdg", "usdc", "museworld", "stock", "other"]) assert.equal(gitlawbLinkedUsd(k, 0.0000227), undefined, k);
+  for (const k of ["eth", "usdg", "usdc", "pair", "stock", "other"]) assert.equal(gitlawbLinkedUsd(k, 0.0000227), undefined, k);
 });
 
 test("server: TWIG takes GITLAWB's price in rows, sorts and the quotes API; never its own thin pool", () => {
@@ -97,7 +97,7 @@ test("presets: dollar caps from the live price, TWIG-unit buys like GITLAWB's", 
 
 test("badge: Twigpine tile in every list, the form, the token page and the share card", () => {
   assert.ok(existsSync(path.join(import.meta.dirname, "../../../public", TWIG_LOGO_PATH)));
-  const brand = src("../../components/launchpad/MuseworldBadge.tsx");
+  const brand = src("../../components/launchpad/QuoteBadge.tsx");
   assert.match(brand, /if \(isTwigQuote\(quoteKey\)\) return "twig";/);
   assert.match(brand, /twig: <TwigBadge size=\{size\} className=\{className\}(?: collapse=\{collapse\})? \/>/);
   assert.match(brand, /return brandOf\(quoteKey\) !== null;/, "hasQuoteBrandBadge reads the same list QuoteBrandBadge renders from");
@@ -106,7 +106,7 @@ test("badge: Twigpine tile in every list, the form, the token page and the share
   const form = src("../../components/launchpad/LaunchForm.tsx");
   assert.match(form, /const brandQuote = cfg\.quotes\.find\(\(q\) => q\.key === "twig"\) \?\? cfg\.quotes\.find\(\(q\) => q\.key === "gitlawb"\) \?\? null;/, "TWIG is the nudge wherever the form offers it");
   assert.match(form, /Pair with \{brandQuote\.symbol\}, get the <QuoteBrandBadge quoteKey=\{brandQuote\.key\} \/> badge/);
-  assert.match(form, /<QuoteBrandBadge quoteKey=\{quote\.key\} size="md" \/>/);
+  assert.match(form, /<QuoteBrandBadge quoteKey=\{quote\.key\} symbol=\{quote\.symbol\} logo=\{quote\.logo \?\? null\} size="md" \/>/);
   assert.match(src("../../app/t/[chain]/[token]/page.tsx"), /<TwigBadge label="Paired with TWIG" \/>/);
   assert.deepEqual(quotePillOf("twig", "TWIG"), { symbol: "TWIG", ticker: "TW", kind: "twig" });
   assert.match(src("../../app/t/[chain]/[token]/opengraph-image.tsx"), /card\.quote\.kind === "twig"/);

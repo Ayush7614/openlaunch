@@ -88,6 +88,13 @@ Recommended: buy a little right after launch (a Universal Router swap on the new
 holder and no price move reads as dead on screeners and sits under "quiet launches" on the home page until an outside wallet trades it.
 
 ${boostSection()}
+## Community pairs (Base)
+Besides ETH and TWIG, a launch may be paired with a listed community token: the site badges it, prices it in USD from one named pool
+(checked against that pool's 30-minute average) and offers it in the launch form. The contracts accept any ERC-20 either way; an
+unlisted one shows as "Unlisted pair", unpriced. Each listing is checked hourly and suspended when its checks fail.
+- GET  ${SITE_URL}/api/pairs                                        (every pair: address, symbol, decimals, status, usd, price source)
+Pages: /pairs, /pair/base/<address>. Launch with one exactly as with any ERC-20 quote (findSalt with the pair's address).
+
 ## API
 - GET  ${SITE_URL}/api/launch/list?chain=base|robinhood|arc&sort=live|new|mcap|volume|gainers|holders&window=1h|24h|all&limit=50
   sort=live (the home page default; "trending" is an alias): tokens an outside wallet traded in the last 24h first, ranked by outside

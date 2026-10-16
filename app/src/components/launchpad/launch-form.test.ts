@@ -116,7 +116,7 @@ test("stock quote: one blocking message, a chip that names the issuer, a way out
   assert.match(source, /const STOCK_PICK_MESSAGE = "Pick a stock to price the token in, or switch the quote\."/);
   assert.equal(source.match(/STOCK_PICK_MESSAGE/g)?.length, 3);
   assert.match(source, /if \(quoteKey === "stock" && !stock\) errors.push\(STOCK_PICK_MESSAGE\)/);
-  assert.match(source, /\{quoteKey === "stock" && !stock \? \(\s*<div className="[^"]*" role="status">\s*\{STOCK_PICK_MESSAGE\}/);
+  assert.match(source, /\{\(quoteKey === "stock" && !stock\) \|\| \(quoteKey === "pair" && !pair\) \? \(\s*<div className="[^"]*" role="status">\s*\{quoteKey === "stock" \? STOCK_PICK_MESSAGE : PAIR_COPY\.formPick\}/);
   // the only live region is that status box: the search results must not be re-announced on every keystroke
   assert.doesNotMatch(source, /aria-live/);
   assert.doesNotMatch(source, /data-testid|\(registry\)|Quote = \{/);
