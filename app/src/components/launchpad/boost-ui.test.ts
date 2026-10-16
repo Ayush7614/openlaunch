@@ -242,7 +242,10 @@ test("a click counts only while the token is in the lane, at the server's place,
   assert.equal((server.match(/boostTimeLeft\(/g) ?? []).length, 1, "one expiry filter on the server");
   // no address, wallet or raw presence hash is stored: the visitor is the daily hash mixed with the token
   assert.match(server, /createHash\("sha256"\)\.update\(`\$\{visitorHash\}\|\$\{token\}`\)\.digest\("hex"\)\.slice\(0, 32\)/);
-  assert.match(seenRoute, /await recordBoostSeen\(seen, visitorHash\(ip, ua\), await ethUsd\(\)\);/);
+  // the address alone: no user agent (the caller's to choose) goes into a click's visitor, and the bucket is the same key
+  assert.match(seenRoute, /const ip = boostClickAddress\(clientIp\(req\)\);/);
+  assert.match(seenRoute, /await recordBoostSeen\(seen, visitorHash\(ip, ""\), await ethUsd\(\)\);/);
+  assert.doesNotMatch(seenRoute, /visitorHash\(ip, ua\)/);
   assert.match(seenRoute, /return new NextResponse\(null, \{ status: 204 \}\);\n\}/);
 });
 
@@ -255,7 +258,10 @@ test("views and clicks are read in boostServer.ts alone; the full table only for
 });
 
 test("each card shows its clicks of the last 24 hours, never a 0, and a failed read never fails the lane", () => {
-  assert.match(lane, /\{b\.clicks > 0 \? \(\n\s*<span className="[^"]*\[grid-area:clicks\]">\n\s*<MousePointerClick size=\{11\} aria-hidden="true"[^>]*\/>\n\s*<LiveNumber value=\{b\.clicks\} format=\{CLICKS_FORMAT\} \/>\n\s*<span className="sr-only">\{b\.clicks === 1 \? " click" : " clicks"\} in the last 24 hours<\/span>/);
+  assert.match(lane, /\{clicks > 0 \? \(\n\s*<span className="[^"]*\[grid-area:clicks\]">\n\s*<MousePointerClick size=\{11\} aria-hidden="true"[^>]*\/>\n\s*<LiveNumber value=\{clicks\} format=\{CLICKS_FORMAT\} \/>\n\s*<span className="sr-only">\{clicks === 1 \? " click" : " clicks"\} in the last 24 hours<\/span>/);
+  // a poll from a machine still on the older build (mid-deploy) has no clicks: none shown, never "undefined"
+  assert.match(lane, /const clicks = b\.clicks \?\? 0;/);
+  assert.doesNotMatch(lane.replace("b.clicks ?? 0", ""), /b\.clicks/);
   // the count is the lane's own window, read with the lane; a read that fails is no counts, not no lane
   const body = server.slice(server.indexOf("async function laneClicks("), server.indexOf("export async function getBoostLane("));
   assert.match(body, /AND clicked_at > now\(\) - make_interval\(hours => \$\{BOOST_WINDOW_H\}\)/);

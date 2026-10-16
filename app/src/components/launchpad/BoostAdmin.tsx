@@ -94,8 +94,8 @@ const num = (n: number) => n.toLocaleString("en-US");
 
 /**
  * Views and clicks per token over a period, with the TWIG burned for each: whether a place in the lane brings visitors.
- * A view is a page load that brought the lane on screen; a click counts once per visitor and 30 minutes, and only
- * while the token was in the lane. Visitors: one per person per day.
+ * A view is a page load that brought the lane on screen; a click counts once per address and 30 minutes, and only
+ * while the token was in the lane. Visitors: one per address per day.
  */
 function LaneStats({ wallet }: { wallet: string }) {
   const [days, setDays] = useState<BoostStatsDays>(7);
@@ -137,7 +137,7 @@ function LaneStats({ wallet }: { wallet: string }) {
           ))}
         </div>
       </div>
-      <p className="text-[11px] leading-relaxed text-muted">A view is a page that brought the lane on screen. A click counts once per visitor every 30 minutes, only while the token is in the lane. Visitors: one per person per day, per token. The top {num(100)} tokens are listed; the totals cover all.</p>
+      <p className="text-[11px] leading-relaxed text-muted">A view is a page that brought the lane on screen. A click counts once per address every 30 minutes, only while the token is in the lane. Visitors: one per address per day, per token. The top {num(100)} tokens are listed; the totals cover all.</p>
       {err ? <p role="status" className="text-xs text-down-ink">{err}</p> : null}
       {rows === null ? (
         err ? null : <p className="text-xs text-muted">Loading…</p>

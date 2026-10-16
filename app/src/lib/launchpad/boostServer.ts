@@ -36,8 +36,11 @@ export { boostEnabled };
  * page shows the lane, the token page line or the dialog. The indexer records boosts either way: they are TWIG burns
  * on-chain whatever the switch says, and turning it on then shows the last 24 hours as they were.
  */
-/** `clicks`: the card's clicks from the lane in the last 24 hours (bb_boost_clicks), the window its TWIG is counted in. */
-export type BoostLaneItem = LaneTotals & { expires_at: string; launch: LaunchRow; clicks: number };
+/**
+ * `clicks`: the card's clicks from the lane in the last 24 hours (bb_boost_clicks), the window its TWIG is counted in.
+ * Optional for readers: a machine still on the older build answers polls without it while a deploy rolls.
+ */
+export type BoostLaneItem = LaneTotals & { expires_at: string; launch: LaunchRow; clicks?: number };
 export type BoostLane = { enabled: false } | { enabled: true; window_h: number; floor_twig: string; items: BoostLaneItem[] };
 export type TokenBoost =
   | { enabled: false }
@@ -235,7 +238,10 @@ async function flushViews(): Promise<void> {
   }
 }
 
-/** A click's visitor: the presence hash (daily salt) mixed with the token, cut short, so two tokens' clicks never link. */
+/**
+ * A click's visitor: the hash of the address with the daily salt (the route passes visitorHash(address, ""), no user
+ * agent), mixed with the token and cut short, so two tokens' clicks never link.
+ */
 function clickVisitor(visitorHash: string, token: string): string {
   return createHash("sha256").update(`${visitorHash}|${token}`).digest("hex").slice(0, 32);
 }

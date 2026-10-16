@@ -151,6 +151,8 @@ export default function BoostedLane({ initial, serverNow, source }: { initial: B
             const left = boostTimeLeft(b.last_at, now);
             const fuse = boostFuse(b.last_at, now);
             const lit = ignited[l.token];
+            // absent from a machine on the older build while a deploy rolls: no count shown, never "undefined"
+            const clicks = b.clicks ?? 0;
             // two columns from 640px: an odd last card takes the whole row instead of leaving a hole
             const lastOdd = i === items.length - 1 && items.length % 2 === 1;
             // the whole card opens the token (the link's ::after covers it); only "Latest burn" sits above as its own link
@@ -169,7 +171,7 @@ export default function BoostedLane({ initial, serverNow, source }: { initial: B
                 <ArrowUpRight size={14} aria-hidden="true" className="pointer-events-none absolute right-3 top-3 text-warm-ink max-sm:hidden opacity-0 transition duration-150 group-hover/card:opacity-100 motion-safe:-translate-x-0.5 motion-safe:translate-y-0.5 motion-safe:group-hover/card:translate-x-0 motion-safe:group-hover/card:translate-y-0 motion-reduce:transition-none" />
                 <Link
                   href={`/t/${l.chain}/${l.token}`}
-                  title={`${b.boosts} ${b.boosts === 1 ? "boost" : "boosts"} from ${b.boosters} ${b.boosters === 1 ? "wallet" : "wallets"} · ${b.clicks} ${b.clicks === 1 ? "click" : "clicks"} from this lane, in the last 24 hours`}
+                  title={`${b.boosts} ${b.boosts === 1 ? "boost" : "boosts"} from ${b.boosters} ${b.boosters === 1 ? "wallet" : "wallets"} · ${clicks} ${clicks === 1 ? "click" : "clicks"} from this lane, in the last 24 hours`}
                   onClick={() => {
                     setPendingToken({ chain: l.chain, token: l.token, name: l.name, symbol: l.symbol, image: l.image_url });
                     sendSeen({ kind: "click", token: l.token }, source);
@@ -201,11 +203,11 @@ export default function BoostedLane({ initial, serverNow, source }: { initial: B
                   ) : null}
                 </span>
                 {/* clicks from this lane in the last 24 hours; nothing until the first, so a fresh boost never reads "0" */}
-                {b.clicks > 0 ? (
+                {clicks > 0 ? (
                   <span className="inline-flex shrink-0 items-center gap-1 justify-self-end font-mono text-[11px] text-body tnum [grid-area:clicks]">
                     <MousePointerClick size={11} aria-hidden="true" className="shrink-0 text-muted" />
-                    <LiveNumber value={b.clicks} format={CLICKS_FORMAT} />
-                    <span className="sr-only">{b.clicks === 1 ? " click" : " clicks"} in the last 24 hours</span>
+                    <LiveNumber value={clicks} format={CLICKS_FORMAT} />
+                    <span className="sr-only">{clicks === 1 ? " click" : " clicks"} in the last 24 hours</span>
                   </span>
                 ) : null}
                 <span className="shrink-0 justify-self-end text-[11px] text-muted [grid-area:left]" suppressHydrationWarning>{left}</span>
