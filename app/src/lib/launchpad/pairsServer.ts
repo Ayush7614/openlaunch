@@ -2,13 +2,13 @@ import "server-only";
 import { isAddress, type Address } from "viem";
 import { publicClient } from "@/lib/chain";
 import { chainIdOf, chainKeyOf, type ChainKey } from "@/lib/chainPublic";
-import { maybeDb } from "@/lib/db";
+import { maybeDb, uniqueViolation } from "@/lib/db";
 import { ERC20_MIN_ABI } from "./abi";
 import { isOwnImageUrl } from "./images";
 import { imagePublicBase } from "./imageStore";
 import { adminWallets, consumeNonce, isNonce, verify } from "./postsServer";
 import { tsFresh } from "./posts";
-import { PAIR_CHAINS, PAIR_DESCRIPTION_MAX, PAIR_MONITOR_EVERY_MS, PAIR_MONITOR_LIQUIDITY_USD, PAIR_SAMPLE_EVERY_MS, buildPairAdminMessage, isPairAdminAction, isPairPriceKind, isPairWebsite, isSiteLogoPath, isXHandle, nextPairStatus, pairSymbolProblem, type PairHealth, type PairListing, type PairPriceKind, type PairPublic, type PairStatus } from "./pairs";
+import { PAIR_CHAINS, PAIR_DESCRIPTION_MAX, guardedPairPrice, PAIR_MONITOR_EVERY_MS, PAIR_MONITOR_LIQUIDITY_USD, PAIR_SAMPLE_EVERY_MS, buildPairAdminMessage, isPairAdminAction, isPairPriceKind, isPairWebsite, isSiteLogoPath, isXHandle, nextPairStatus, pairSymbolProblem, type PairHealth, type PairListing, type PairPriceKind, type PairPublic, type PairStatus } from "./pairs";
 import { codeHashOf, isCoreQuote, poolLiquidityUsd, readPairLeg, readPairUsd, samplePairSpot, univ3Tokens, univ4Key } from "./pairPrice";
 
 /**
@@ -57,20 +57,30 @@ let pairsNow: PairPublic[] = [];
 let goodAt = 0;
 let refreshedAt = 0;
 let inflight: Promise<void> | null = null;
+// every read is numbered when it starts: a read that started before a write never replaces one that started after it
+let started = 0;
+let applied = 0;
 const FRESH_MS = 15_000;
 const COLD_WAIT_MS = 4_000;
 
-function refresh(): Promise<void> {
-  return (inflight ??= readAll()
+function read(): Promise<void> {
+  const gen = ++started;
+  return readAll()
     .then((list) => {
+      if (gen < applied) return;
+      applied = gen;
       pairsNow = list;
       goodAt = Date.now();
     })
     .catch((err) => console.warn("[pairs] list read failed:", err instanceof Error ? err.message : err))
     .finally(() => {
       refreshedAt = Date.now();
-      inflight = null;
-    }));
+    });
+}
+function refresh(): Promise<void> {
+  return (inflight ??= read().finally(() => {
+    inflight = null;
+  }));
 }
 
 export async function loadPairs(): Promise<PairPublic[]> {
@@ -80,10 +90,9 @@ export async function loadPairs(): Promise<PairPublic[]> {
   }
   return pairsNow;
 }
-/** After a write: the next read loads the list again (this machine; another one within 15 s). */
+/** After a write: a read that starts now, so it sees the write (a refresh already running may have read before it). Other machines catch up within 15 s. */
 export async function reloadPairs(): Promise<PairPublic[]> {
-  refreshedAt = 0;
-  await (inflight ?? refresh());
+  await read();
   return pairsNow;
 }
 
@@ -117,17 +126,20 @@ export async function pairEvents(chain: ChainKey, address: string): Promise<Pair
 
 type Fail = { ok: false; error: string; status: number };
 const fail = (error: string, status: number): Fail => ({ ok: false, error, status });
-const text = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+/** A trimmed string field. Never cut short here: the signed message carries the whole text, so an over-long one is refused instead. */
+const text = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+const MAX = { logo: 300, website: 200, x: 16, pool: 66, quote: 42, hook: 42, reason: 200 } as const;
 
 /** The listing fields from a request, cleaned; an error names the first bad one. */
 export function readListing(b: Record<string, unknown>): { ok: true; listing: PairListing } | Fail {
-  const logo = text(b.logo, 300);
-  const website = text(b.website, 200);
-  const x = text(b.x_handle, 40).replace(/^@/, "");
-  const description = text(b.description, PAIR_DESCRIPTION_MAX + 1);
-  const pool = text(b.price_pool, 80).toLowerCase();
-  const quote = text(b.price_quote, 60).toLowerCase();
-  const hook = b.price_kind === "univ4" ? text(b.price_hook, 60).toLowerCase() : "";
+  const logo = text(b.logo);
+  const website = text(b.website);
+  const x = text(b.x_handle).replace(/^@/, "");
+  const description = text(b.description);
+  const pool = text(b.price_pool).toLowerCase();
+  const quote = text(b.price_quote).toLowerCase();
+  const hook = b.price_kind === "univ4" ? text(b.price_hook).toLowerCase() : "";
+  if (logo.length > MAX.logo || website.length > MAX.website || x.length > MAX.x || pool.length > MAX.pool || quote.length > MAX.quote || hook.length > MAX.hook) return fail("a field is too long", 400);
   if (!isPairPriceKind(b.price_kind)) return fail("bad price kind", 400);
   if (logo && !isSiteLogoPath(logo) && !isOwnImageUrl(logo, imagePublicBase())) return fail("the logo must be uploaded here (our image host)", 400);
   if (website && !isPairWebsite(website)) return fail("the website must be an https link", 400);
@@ -180,7 +192,22 @@ async function inspect(chain: ChainKey, address: string, l: PairListing, others:
   if (leg instanceof Error) return fail(`the price pool could not be read: ${leg.message}`, 400);
   if (leg.spot === null) return fail("the price pool gives no price", 400);
   if (l.price_kind === "univ3" && leg.twap === null) return fail("that pool has no 30-minute oracle history: pick another pool, or a v4 pool", 400);
+  // the monitor suspends a pair whose pool holds less than its line: never list one that would start failing at once
+  const poolId = l.price_kind === "launch" ? (await maybeDb()!<{ pool_id: string }[]>`SELECT pool_id FROM bb_launches WHERE chain_id = ${chainIdOf(chain)} AND token = ${l.price_pool}`)[0]?.pool_id : l.price_pool;
+  const liq = poolId ? await poolLiquidityUsd(chain, poolId) : null;
+  if (liq !== null && liq < PAIR_MONITOR_LIQUIDITY_USD) return fail(`that pool holds about $${Math.round(liq).toLocaleString("en-US")}, under the $${PAIR_MONITOR_LIQUIDITY_USD.toLocaleString("en-US")} the monitor requires`, 400);
   return { ok: true, symbol: clean, name: name.slice(0, 64), decimals, code_hash };
+}
+
+class SymbolTaken extends Error {}
+/** A write that may meet the one-listed-symbol-per-chain index: that conflict becomes a clear refusal. */
+async function dbWrite(run: () => PromiseLike<unknown>): Promise<void> {
+  try {
+    await run();
+  } catch (e) {
+    if (uniqueViolation(e)) throw new SymbolTaken("another listed pair already has this symbol");
+    throw e;
+  }
 }
 
 /**
@@ -188,6 +215,14 @@ async function inspect(chain: ChainKey, address: string, l: PairListing, others:
  * single-use nonce, a fresh timestamp. Every change is written to the pair's public record.
  */
 export async function moderatePair(b: Record<string, unknown>): Promise<{ ok: true; pair: PairPublic | null } | Fail> {
+  try {
+    return await moderate(b);
+  } catch (e) {
+    if (e instanceof SymbolTaken) return fail(e.message, 409);
+    throw e;
+  }
+}
+async function moderate(b: Record<string, unknown>): Promise<{ ok: true; pair: PairPublic | null } | Fail> {
   const db = maybeDb();
   if (!db) return fail("db unconfigured", 503);
   if (typeof b.wallet !== "string" || !isAddress(b.wallet)) return fail("bad wallet", 400);
@@ -204,8 +239,9 @@ export async function moderatePair(b: Record<string, unknown>): Promise<{ ok: tr
   const parsed = withListing ? readListing(b) : null;
   if (parsed && !parsed.ok) return parsed;
   const listing = parsed?.ok ? parsed.listing : undefined;
-  const reason = withListing ? undefined : text(b.reason, 200);
+  const reason = withListing ? undefined : text(b.reason);
   if ((action === "suspend" || action === "delist") && !reason) return fail("say why", 400);
+  if (reason && reason.length > MAX.reason) return fail(`the reason is over ${MAX.reason} characters`, 400);
   const message = buildPairAdminMessage({ action, chain, address, wallet, nonce: b.nonce, ts: Number(b.ts), listing, reason });
   if (!(await verify(chain, wallet, message, b.signature))) return fail("signature does not match", 401);
   if (!(await consumeNonce(b.nonce, wallet))) return fail("nonce already used", 401);
@@ -224,18 +260,18 @@ export async function moderatePair(b: Record<string, unknown>): Promise<{ ok: tr
     const got = await inspect(chain, address, l, others);
     if (!got.ok) return got;
     if (action === "list") {
-      await db`
+      await dbWrite(() => db`
         INSERT INTO bb_pairs (chain_id, address, symbol, name, decimals, logo_url, website, x_handle, description, status, status_by, status_reason, status_at, in_form, price_kind, price_pool, price_quote, price_hook, code_hash, failing_since, checked_at, listed_at)
         VALUES (${cid}, ${address}, ${got.symbol}, ${got.name}, ${got.decimals}, ${l.logo || null}, ${l.website || null}, ${l.x_handle || null}, ${l.description || null}, 'listed', 'admin', NULL, now(), ${l.in_form}, ${l.price_kind}, ${l.price_pool}, ${l.price_quote}, ${l.price_hook || null}, ${got.code_hash}, NULL, NULL, now())
         ON CONFLICT (chain_id, address) DO UPDATE SET symbol = EXCLUDED.symbol, name = EXCLUDED.name, decimals = EXCLUDED.decimals, logo_url = EXCLUDED.logo_url, website = EXCLUDED.website, x_handle = EXCLUDED.x_handle,
           description = EXCLUDED.description, status = 'listed', status_by = 'admin', status_reason = NULL, status_at = now(), in_form = EXCLUDED.in_form, price_kind = EXCLUDED.price_kind, price_pool = EXCLUDED.price_pool,
-          price_quote = EXCLUDED.price_quote, price_hook = EXCLUDED.price_hook, code_hash = EXCLUDED.code_hash, failing_since = NULL, checked_at = NULL, listed_at = now()`;
+          price_quote = EXCLUDED.price_quote, price_hook = EXCLUDED.price_hook, code_hash = EXCLUDED.code_hash, failing_since = NULL, checked_at = NULL, listed_at = now()`);
       await event("listed", null);
     } else {
-      await db`
+      await dbWrite(() => db`
         UPDATE bb_pairs SET symbol = ${got.symbol}, name = ${got.name}, decimals = ${got.decimals}, logo_url = ${l.logo || null}, website = ${l.website || null}, x_handle = ${l.x_handle || null}, description = ${l.description || null},
           in_form = ${l.in_form}, price_kind = ${l.price_kind}, price_pool = ${l.price_pool}, price_quote = ${l.price_quote}, price_hook = ${l.price_hook || null}
-         WHERE chain_id = ${cid} AND address = ${address}`;
+         WHERE chain_id = ${cid} AND address = ${address}`);
     }
   } else {
     if (!cur) return fail("not listed", 404);
@@ -246,7 +282,7 @@ export async function moderatePair(b: Record<string, unknown>): Promise<{ ok: tr
     // reinstating vouches for the code as it is now: the monitor compares against this from here on
     const code = action === "reinstate" ? await codeHashOf(chain, address).catch(() => null) : cur.code_hash;
     if (action === "reinstate" && !code) return fail("no contract code at that address (or the chain could not be read)", 400);
-    await db`UPDATE bb_pairs SET status = ${next}, status_by = 'admin', status_reason = ${reason || null}, status_at = now(), failing_since = NULL, code_hash = ${code} WHERE chain_id = ${cid} AND address = ${address}`;
+    await dbWrite(() => db`UPDATE bb_pairs SET status = ${next}, status_by = 'admin', status_reason = ${reason || null}, status_at = now(), failing_since = NULL, code_hash = ${code} WHERE chain_id = ${cid} AND address = ${address}`);
     await event(next, reason || null);
   }
   const list = await reloadPairs();
@@ -255,14 +291,23 @@ export async function moderatePair(b: Record<string, unknown>): Promise<{ ok: tr
 
 /* ─────────────────────────────── monitor ─────────────────────────────── */
 
-/** One reading of a pair's health: its code, its price, its pool's liquidity. Unknown (null) when the chain cannot be read. */
-export async function checkPair(r: PairDbRow, chain: ChainKey): Promise<PairHealth> {
+/**
+ * One reading of a pair's health: its code, its pool's own price (spot and 30-minute average), its pool's liquidity.
+ * Unknown (null) when the chain cannot be read. The core quote's USD price is not the pair's to answer for: an ETH or
+ * GITLAWB price outage hides USD everywhere, and must never suspend every pair priced against it. `code` is the hash
+ * read now, so a pair listed without one (the seeded MUSEWORLD) is pinned on its first check.
+ */
+export async function checkPair(r: PairDbRow, chain: ChainKey): Promise<{ health: PairHealth; code: string | null }> {
   const hash = await codeHashOf(chain, r.address).catch(() => undefined);
-  if (hash === undefined) return null;
-  if (hash === null) return { ok: false, hard: true, reason: "No contract code at its address any more." };
-  if (r.code_hash && hash !== r.code_hash) return { ok: false, hard: true, reason: "Its contract code changed." };
-  const price = await readPairUsd({ chain, address: r.address, decimals: r.decimals, price_kind: r.price_kind, price_pool: r.price_pool, price_quote: r.price_quote });
-  if (price.usd === null) return { ok: false, hard: false, reason: `No USD price: ${price.error ?? "its pool gave none"}.` };
+  if (hash === undefined) return { health: null, code: null };
+  if (hash === null) return { health: { ok: false, hard: true, reason: "No contract code at its address any more." }, code: null };
+  if (r.code_hash && hash !== r.code_hash) return { health: { ok: false, hard: true, reason: "Its contract code changed." }, code: hash };
+  return { health: await poolHealth(r, chain), code: hash };
+}
+async function poolHealth(r: PairDbRow, chain: ChainKey): Promise<PairHealth> {
+  const leg = await readPairLeg({ chain, address: r.address, decimals: r.decimals, price_kind: r.price_kind, price_pool: r.price_pool, price_quote: r.price_quote }).catch((e: unknown) => e as Error);
+  if (leg instanceof Error) return { ok: false, hard: false, reason: `Its price pool cannot be read: ${leg.message}.` };
+  if (guardedPairPrice(leg.spot, leg.twap).price === null) return { ok: false, hard: false, reason: leg.twap === null ? "No 30-minute average from its price pool." : "Its price pool gives no price." };
   const poolId = r.price_kind === "launch" ? (await maybeDb()!<{ pool_id: string }[]>`SELECT pool_id FROM bb_launches WHERE chain_id = ${r.chain_id} AND token = ${r.price_pool}`)[0]?.pool_id : r.price_pool;
   const liq = poolId ? await poolLiquidityUsd(chain, poolId) : null;
   if (liq !== null && liq < PAIR_MONITOR_LIQUIDITY_USD) return { ok: false, hard: false, reason: `Its price pool holds about $${Math.round(liq).toLocaleString("en-US")}, under $${PAIR_MONITOR_LIQUIDITY_USD.toLocaleString("en-US")}.` };
@@ -307,10 +352,15 @@ export async function pairsTick(now = Date.now()): Promise<void> {
     for (const r of claimed) {
       const chain = chainKeyOf(r.chain_id);
       if (!chain) continue;
-      const health = await checkPair(r, chain).catch(() => null);
+      const { health, code } = await checkPair(r, chain).catch(() => ({ health: null, code: null }));
       const step = nextPairStatus({ status: r.status, status_by: r.status_by, status_at: new Date(r.status_at).getTime(), failing_since: r.failing_since ? new Date(r.failing_since).getTime() : null }, health, Date.now());
-      await db`UPDATE bb_pairs SET status = ${step.status}, status_by = ${step.status_by}, status_at = to_timestamp(${step.status_at / 1000}), failing_since = ${step.failing_since === null ? null : new Date(step.failing_since)},
-                 status_reason = ${step.changed ? step.reason : r.status_reason} WHERE chain_id = ${r.chain_id} AND address = ${r.address}`;
+      // only if nothing changed the row while it was checked (an admin's suspension must never be written over); a JS Date holds
+      // milliseconds and Postgres microseconds, so the timestamps are compared at milliseconds
+      const done = await db`UPDATE bb_pairs SET status = ${step.status}, status_by = ${step.status_by}, status_at = to_timestamp(${step.status_at / 1000}), failing_since = ${step.failing_since === null ? null : new Date(step.failing_since)},
+                 status_reason = ${step.changed ? step.reason : r.status_reason}, code_hash = COALESCE(code_hash, ${code})
+                 WHERE chain_id = ${r.chain_id} AND address = ${r.address} AND status = ${r.status} AND status_by = ${r.status_by} AND date_trunc('milliseconds', status_at) = date_trunc('milliseconds', ${new Date(r.status_at)}::timestamptz)
+                 RETURNING address`;
+      if (done.length === 0) continue;
       if (step.changed) {
         changed = true;
         await db`INSERT INTO bb_pair_events (chain_id, address, status, reason, actor) VALUES (${r.chain_id}, ${r.address}, ${step.status}, ${step.reason}, 'monitor')`;

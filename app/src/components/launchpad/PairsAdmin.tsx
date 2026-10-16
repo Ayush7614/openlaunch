@@ -12,18 +12,13 @@ import { nowMs } from "@/lib/launchpad/time";
 import { friendlyError } from "@/lib/errors";
 import { nonce } from "@/lib/nonce";
 import { fmtUsd } from "@/lib/launchpad/math";
+import { NATIVE, coreQuotes } from "@/lib/launchpad/config";
 import { PAIR_PRICE_KINDS, PAIR_PRICE_KIND_LABEL, buildPairAdminMessage, pairPath, type PairAdminAction, type PairListing, type PairPriceKind, type PairPublic } from "@/lib/launchpad/pairs";
 
 const CHAIN = "base" as const;
-/** The core quotes a Base price pool may trade against (the server checks the same list). */
-const CORE_QUOTES: { label: string; address: string }[] = [
-  { label: "ETH (native)", address: "0x0000000000000000000000000000000000000000" },
-  { label: "WETH", address: "0x4200000000000000000000000000000000000006" },
-  { label: "USDC", address: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" },
-  { label: "GITLAWB", address: "0x5f980dcfc4c0fa3911554cf5ab288ed0eb13dba3" },
-  { label: "TWIG", address: "0x6ac18bcf4ede02591d4917452700ea5eaaea13c1" },
-];
-const EMPTY = { address: "", logo: "", website: "", x_handle: "", description: "", in_form: true, price_kind: "univ3" as PairPriceKind, price_pool: "", price_quote: CORE_QUOTES[1].address, price_hook: "" };
+/** The core quotes a Base price pool may trade against: the same list the server checks (config.ts coreQuotes). */
+const CORE_QUOTES = coreQuotes(CHAIN).map((q) => ({ label: q.address === NATIVE ? `${q.symbol} (native)` : q.symbol, address: q.address.toLowerCase() }));
+const EMPTY = { address: "", logo: "", website: "", x_handle: "", description: "", in_form: true, price_kind: "univ3" as PairPriceKind, price_pool: "", price_quote: CORE_QUOTES.find((q) => q.label === "WETH")?.address ?? CORE_QUOTES[0].address, price_hook: "" };
 type Draft = typeof EMPTY;
 
 /**
@@ -91,7 +86,7 @@ export default function PairsAdmin() {
           </div>
           {p.status_reason ? <p className="text-xs text-muted">{p.status_reason}</p> : null}
           <div className="flex flex-wrap gap-2">
-            <input aria-label={`Reason for ${p.symbol}`} value={reasons[p.address] ?? ""} onChange={(e) => setReasons((r) => ({ ...r, [p.address]: e.target.value }))} placeholder="Reason (shown on its record)" className={`${field} min-w-0 flex-1`} />
+            <input aria-label={`Reason for ${p.symbol}`} value={reasons[p.address] ?? ""} onChange={(e) => setReasons((r) => ({ ...r, [p.address]: e.target.value }))} placeholder="Reason (shown on its record)" maxLength={200} className={`${field} min-w-0 flex-1`} />
             {p.status === "listed" ? <button type="button" disabled={!address || busy || !reasons[p.address]?.trim()} onClick={() => void act("suspend", p.address, { reason: reasons[p.address].trim() })} className={`${btn.secondarySm} text-down-ink`}>Suspend</button> : null}
             {p.status !== "delisted" ? <button type="button" disabled={!address || busy || !reasons[p.address]?.trim()} onClick={() => void act("delist", p.address, { reason: reasons[p.address].trim() })} className={`${btn.secondarySm} text-down-ink`}>Delist</button> : null}
             {p.status !== "listed" ? <button type="button" disabled={!address || busy} onClick={() => void act("reinstate", p.address, { reason: reasons[p.address]?.trim() ?? "" })} className={btn.secondarySm}>Reinstate</button> : null}
@@ -110,8 +105,8 @@ export default function PairsAdmin() {
         </select>
         <input aria-label="Price pool" value={draft.price_pool} onChange={(e) => setDraft({ ...draft, price_pool: e.target.value.trim() })} placeholder={draft.price_kind === "univ4" ? "v4 pool id 0x… (64 hex)" : draft.price_kind === "launch" ? "the launched token (its own address)" : "v3 pool address 0x…"} className={`${field} font-mono sm:col-span-2`} />
         {draft.price_kind === "univ4" ? <input aria-label="Pool hook" value={draft.price_hook} onChange={(e) => setDraft({ ...draft, price_hook: e.target.value.trim() })} placeholder="The pool's hook 0x… (empty = hookless; the server checks it against the pool's key)" className={`${field} font-mono sm:col-span-2`} /> : null}
-        <input aria-label="Logo URL" value={draft.logo} onChange={(e) => setDraft({ ...draft, logo: e.target.value })} placeholder="Logo: uploaded image URL, or /file.png" className={field} />
-        <input aria-label="Website" value={draft.website} onChange={(e) => setDraft({ ...draft, website: e.target.value })} placeholder="https://…" className={field} />
+        <input aria-label="Logo URL" value={draft.logo} onChange={(e) => setDraft({ ...draft, logo: e.target.value })} placeholder="Logo: uploaded image URL, or /file.png" maxLength={300} className={field} />
+        <input aria-label="Website" value={draft.website} onChange={(e) => setDraft({ ...draft, website: e.target.value })} placeholder="https://…" maxLength={200} className={field} />
         <input aria-label="X handle" value={draft.x_handle} onChange={(e) => setDraft({ ...draft, x_handle: e.target.value })} placeholder="X handle" className={field} />
         <label className="flex items-center gap-2 text-xs text-body"><input type="checkbox" checked={draft.in_form} onChange={(e) => setDraft({ ...draft, in_form: e.target.checked })} /> Offer it in the launch form</label>
         <textarea aria-label="About" value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} placeholder="About (one or two sentences, 280 max)" maxLength={280} className={`${field} min-h-16 py-2 sm:col-span-2`} />

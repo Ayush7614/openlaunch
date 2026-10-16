@@ -116,6 +116,12 @@ function allQuotes(chain: ChainKey): Quote[] {
   return [...(offered.some((q) => q.address === NATIVE) ? offered : [...offered, NATIVE_QUOTES[chain]]), ...OFFICIAL_QUOTES[chain], ...KNOWN_QUOTES[chain]];
 }
 
+/** The core quotes a community pair's price pool may trade against (pairs.ts): the chain's native asset, WETH, the stables, GITLAWB and TWIG. */
+export const CORE_QUOTE_KEYS: readonly Quote["key"][] = ["eth", "usdc", "usdg", "gitlawb", "twig"];
+export function coreQuotes(chain: ChainKey): Quote[] {
+  return allQuotes(chain).filter((q) => CORE_QUOTE_KEYS.includes(q.key));
+}
+
 /**
  * Native amount (18-dec wei) kept back from a first buy: the launch transaction pays its own gas first, then the buy
  * and, for an ERC-20 quote, its approvals. Generous for each chain's gas prices.

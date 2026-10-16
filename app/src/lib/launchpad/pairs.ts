@@ -19,6 +19,7 @@
 import { CHAIN_IDS, type ChainKey } from "../chainKeys.ts";
 import { amountForUsd } from "./first-buy.ts";
 import { fmtCompact } from "./math.ts";
+import { CORE_QUOTE_PREFIXES, CORE_QUOTE_SYMBOLS } from "./unlisted-quote.ts";
 
 /** Pairs are listed on Base only for now (where TWIG pays for an application, and where the communities are). */
 export const PAIR_CHAINS: readonly ChainKey[] = ["base"];
@@ -82,16 +83,13 @@ export type PairPublic = {
 
 /* ─────────────────────────────── names ─────────────────────────────── */
 
-/** Symbols no pair may take: the core quotes and the stables people expect at one address only. */
-const CORE_SYMBOLS = ["ETH", "WETH", "CBETH", "USDC", "USDG", "USDT", "USDBC", "DAI", "EURC", "BTC", "WBTC", "CBBTC", "GITLAWB", "TWIG"];
-const CORE_PREFIXES = ["USD", "GITLAWB", "TWIG"];
 export const PAIR_SYMBOL_MAX = 12;
 
 /** Why a symbol cannot be listed, or null. `taken` = the symbols of the other listed pairs on the chain. */
 export function pairSymbolProblem(symbol: string, taken: readonly string[]): string | null {
   if (!new RegExp(`^[A-Za-z0-9._-]{1,${PAIR_SYMBOL_MAX}}$`).test(symbol)) return `a symbol is 1 to ${PAIR_SYMBOL_MAX} letters, digits, dots, dashes or underscores`;
   const up = symbol.toUpperCase();
-  if (CORE_SYMBOLS.includes(up) || CORE_PREFIXES.some((p) => up.startsWith(p))) return `${symbol} is a core quote's name`;
+  if (CORE_QUOTE_SYMBOLS.includes(up) || CORE_QUOTE_PREFIXES.some((p) => up.startsWith(p))) return `${symbol} is a core quote's name`;
   if (taken.some((t) => t.toUpperCase() === up)) return `another listed pair is already ${symbol}`;
   return null;
 }

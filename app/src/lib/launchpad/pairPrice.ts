@@ -4,7 +4,7 @@ import { publicClient } from "@/lib/chain";
 import { chainIdOf, type ChainKey } from "@/lib/chainPublic";
 import { maybeDb } from "@/lib/db";
 import { STATE_VIEW_ABI } from "./abi";
-import { launchpad, quoteInfo as staticQuoteInfo } from "./config";
+import { coreQuotes, launchpad, quoteInfo as staticQuoteInfo } from "./config";
 import { ethUsd } from "./ethPrice";
 import { gitlawbUsd } from "./gitlawbServer";
 import { twapTick } from "./gitlawb";
@@ -33,7 +33,7 @@ export async function coreQuoteUsd(chain: ChainKey, quote: string): Promise<{ us
   return null;
 }
 export function isCoreQuote(chain: ChainKey, quote: string): boolean {
-  return ["eth", "usdc", "usdg", "gitlawb", "twig"].includes(staticQuoteInfo(chain, quote).key);
+  return coreQuotes(chain).some((q) => q.address.toLowerCase() === quote.toLowerCase());
 }
 
 const V3_ABI = [

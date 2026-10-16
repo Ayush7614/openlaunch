@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { CHAIN_KEYS } from "../chainKeys.ts";
-import { MCAP_PRESETS, launchpad, listedQuoteAddresses, quoteInfo } from "./config.ts";
+import { MCAP_PRESETS, coreQuotes, launchpad, listedQuoteAddresses, quoteInfo } from "./config.ts";
 import { cleanQuoteSymbol } from "./unlisted-quote.ts";
 import { quotePillOf } from "./ogcard.ts";
 import {
@@ -223,4 +223,35 @@ test("words: no seal, no 'official', no value talk, in the badge, the copy, the 
   assert.doesNotMatch(src("../../app/t/[chain]/[token]/page.tsx"), /official token/);
   assert.deepEqual(quotePillOf("pair", "NOICE", "/x.png"), { symbol: "NOICE", ticker: "NOIC", kind: "pair", logo: "/x.png" });
   for (const f of ["LaunchRow.tsx", "LaunchCard.tsx", "LaunchTape.tsx", "MeDashboard.tsx", "TrendingStrip.tsx", "LaunchPreview.tsx"]) assert.match(src(`../../components/launchpad/${f}`), /<QuoteBrandBadge quoteKey=\{[^}]+\} symbol=\{[^}]+\} logo=\{[^}]+\}/, f);
+});
+
+/* ── review fixes (2026-10-16) ── */
+
+test("one list of core quotes and core names, shared by the admin picker, the server and the symbol rule", () => {
+  assert.deepEqual(coreQuotes("base").map((q) => q.symbol).sort(), ["ETH", "GITLAWB", "TWIG", "USDC", "WETH"]);
+  assert.match(src("pairPrice.ts"), /return coreQuotes\(chain\)\.some\(/);
+  assert.match(src("../../components/launchpad/PairsAdmin.tsx"), /const CORE_QUOTES = coreQuotes\(CHAIN\)/);
+  assert.match(src("pairs.ts"), /import \{ CORE_QUOTE_PREFIXES, CORE_QUOTE_SYMBOLS \} from "\.\/unlisted-quote\.ts";/);
+  assert.equal(pairSymbolProblem("MUSEWORLD", []), null, "a pair may be named MUSEWORLD (it is one); only core names are barred");
+});
+
+test("monitor: never writes over an admin's change, pins the code it first sees, and ignores core-quote price outages", () => {
+  const s = src("pairsServer.ts");
+  assert.match(s, /AND status = \$\{r\.status\} AND status_by = \$\{r\.status_by\} AND date_trunc\('milliseconds', status_at\) = date_trunc\('milliseconds', \$\{new Date\(r\.status_at\)\}::timestamptz\)\s*RETURNING address/);
+  assert.match(s, /if \(done\.length === 0\) continue;/);
+  assert.match(s, /code_hash = COALESCE\(code_hash, \$\{code\}\)/);
+  const health = s.slice(s.indexOf("async function poolHealth"), s.indexOf("let lastMonitor"));
+  assert.doesNotMatch(health, /readPairUsd/, "pool health reads the pool, not the core quote's USD price");
+  assert.match(health, /guardedPairPrice\(leg\.spot, leg\.twap\)/);
+});
+
+test("admin writes: a reload after a write sees it, symbols are unique in the database, fields are refused, never cut", () => {
+  const s = src("pairsServer.ts");
+  assert.match(s, /export async function reloadPairs\(\): Promise<PairPublic\[\]> \{\n  await read\(\);/);
+  assert.match(s, /if \(gen < applied\) return;/);
+  assert.match(src("../../../db/schema.sql"), /CREATE UNIQUE INDEX IF NOT EXISTS bb_pairs_listed_symbol_idx ON bb_pairs \(chain_id, upper\(symbol\)\) WHERE status = 'listed';/);
+  assert.match(s, /if \(uniqueViolation\(e\)\) throw new SymbolTaken/);
+  assert.doesNotMatch(s, /\.slice\(0, max\)/);
+  assert.match(s, /return fail\("a field is too long", 400\)/);
+  assert.match(s, /under the \$\$\{PAIR_MONITOR_LIQUIDITY_USD\.toLocaleString\("en-US"\)\} the monitor requires/);
 });

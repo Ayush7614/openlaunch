@@ -509,6 +509,8 @@ CREATE TABLE IF NOT EXISTS bb_pairs (
   listed_at     timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (chain_id, address)
 );
+-- One listed pair per symbol per chain (the badge is the symbol): a second one is refused, whatever path writes it.
+CREATE UNIQUE INDEX IF NOT EXISTS bb_pairs_listed_symbol_idx ON bb_pairs (chain_id, upper(symbol)) WHERE status = 'listed';
 -- The public record of every status change, shown on the pair page.
 CREATE TABLE IF NOT EXISTS bb_pair_events (
   id         bigserial PRIMARY KEY,
