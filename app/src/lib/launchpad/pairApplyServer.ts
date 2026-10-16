@@ -325,8 +325,14 @@ export async function reviewApplication(b: Record<string, unknown>): Promise<{ o
   if (approving) {
     // already listed (an admin listed the token directly): the application is simply marked approved
     const [listed] = await db`SELECT 1 FROM bb_pairs WHERE chain_id = ${app.chain_id} AND address = ${app.address} AND status = 'listed'`;
-    // not listed, whether refused or thrown: the application goes back to where it was, its review not used
-    const restore = () => db`UPDATE bb_pair_applications SET status = ${app.status}, reviews_used = ${app.reviews_used}, reason = ${app.reason}, decided_by = ${app.decided_by}, decided_at = ${app.decided_at} WHERE id = ${id} AND status = 'approved'`;
+    // not listed, whether refused or thrown: the application goes back to where it was, its review not used. An unpaid one
+    // whose fee was paid by a burn that settled while the listing ran goes back as paid (settlement will not look again)
+    const restore = () => db`
+      UPDATE bb_pair_applications SET
+        status = CASE WHEN ${app.status} = 'open' AND paid_usd >= fee_usd * ${1 - PAIR_FEE_TOLERANCE} THEN 'paid' ELSE ${app.status} END,
+        paid_at = CASE WHEN ${app.status} = 'open' AND paid_usd >= fee_usd * ${1 - PAIR_FEE_TOLERANCE} AND paid_at IS NULL THEN now() ELSE paid_at END,
+        reviews_used = ${app.reviews_used}, reason = ${app.reason}, decided_by = ${app.decided_by}, decided_at = ${app.decided_at}
+       WHERE id = ${id} AND status = 'approved'`;
     let w: { ok: true } | { ok: false; error: string; status: number };
     try {
       w = listed ? { ok: true } : await writeListing(chain, app.address, { logo: app.logo_url ?? "", website: app.website ?? "", x_handle: app.x_handle ?? "", description: app.description ?? "", price_kind: app.price_kind, price_pool: app.price_pool, price_quote: app.price_quote, price_hook: app.price_hook ?? "" }, wallet, "list");

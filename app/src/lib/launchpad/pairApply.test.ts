@@ -220,7 +220,7 @@ test("an admin can approve an unpaid application with the fee waived, and an alr
   assert.match(decide, /decision === "waive" \? \["open", "changes"\]/, "only an application that has not paid");
   assert.match(decide, /const why = decision === "waive" \? reason \|\| PAIR_FEE_WAIVED : reason;/);
   assert.match(decide, /SELECT 1 FROM bb_pairs WHERE chain_id = \$\{app\.chain_id\} AND address = \$\{app\.address\} AND status = 'listed'/);
-  assert.match(decide, /const restore = \(\) => db`UPDATE bb_pair_applications SET status = \$\{app\.status\}, reviews_used = \$\{app\.reviews_used\}[^`]*AND status = 'approved'`/, "a failed listing puts the application back where it was");
+  assert.match(decide, /const restore = \(\) => db`\s*UPDATE bb_pair_applications SET\s*status = CASE WHEN \$\{app\.status\} = 'open' AND paid_usd >= fee_usd \* \$\{1 - PAIR_FEE_TOLERANCE\} THEN 'paid' ELSE \$\{app\.status\} END,[^`]*reviews_used = \$\{app\.reviews_used\}[^`]*AND status = 'approved'`/, "a failed listing puts the application back where it was (as paid when a burn settled meanwhile)");
   assert.match(decide, /\(decision === "changes" \|\| decision === "reject"\) && !reason/, "approving and waiving need no reason");
   assert.match(src("../../components/launchpad/PairReviewAdmin.tsx"), /decide\(a\.id, "waive"\)\} className=\{btn\.primarySm\}[^>]*>Approve without fee</);
   assert.match(src("../../components/launchpad/PairApplication.tsx"), /app\.status === "approved" && app\.paid_usd < app\.fee_usd \* 0\.98 \? <p className="text-sm text-up">\{app\.paid_usd > 0 \? PAIR_APPLY_COPY\.waivedRest\(app\.paid_usd\) : PAIR_APPLY_COPY\.waived\}/, "a partial payment is shown, and only the rest is waived");
@@ -245,7 +245,7 @@ test("server: verified identity, a passing check, signatures before writes, a lo
   const decide = s.slice(s.indexOf("export async function reviewApplication"));
   assert.ok(decide.indexOf("AND status = ${app.status} RETURNING id") < decide.indexOf("await writeListing(chain, app.address,"), "the decision is claimed before anything is listed");
   assert.match(decide, /if \(claimed\.length === 0\) return fail\("this application changed meanwhile: reload", 409\);/);
-  assert.match(decide, /SET status = \$\{app\.status\}, reviews_used = \$\{app\.reviews_used\}[^`]*WHERE id = \$\{id\} AND status = 'approved'/, "a failed listing gives the review back");
+  assert.match(decide, /ELSE \$\{app\.status\} END,[^`]*reviews_used = \$\{app\.reviews_used\}[^`]*WHERE id = \$\{id\} AND status = 'approved'/, "a failed listing gives the review back");
   assert.match(decide, /decision === "reject" \? \["paid", "open", "changes"\]/, "an admin can close an application nobody pays for");
   assert.match(src("../../../db/schema.sql"), /CREATE UNIQUE INDEX IF NOT EXISTS bb_pair_applications_open_idx ON bb_pair_applications \(chain_id, address\) WHERE status IN \('open', 'paid', 'changes'\);/);
   const idx = src("indexer.ts");
