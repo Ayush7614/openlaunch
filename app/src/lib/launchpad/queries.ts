@@ -2,7 +2,7 @@ import "server-only";
 import { cache } from "react";
 import { maybeDb } from "@/lib/db";
 import { CHAIN_KEYS, DEFAULT_CHAIN, chainIdOf, chainKeyOf, type ChainKey } from "@/lib/chainPublic";
-import { quoteInfo as staticQuoteInfo, quoteUsdOf, hasPriceSource, type Quote, NATIVE_QUOTES, fixedUsdQuotes, quotesWithKey } from "./config";
+import { quoteInfo as staticQuoteInfo, quoteUsdOf, hasPriceSource, type Quote, fixedUsdQuotes, quotesWithKey } from "./config";
 import { ensureRegistry, stockByAddress, stockList, stockUsdInUse } from "./stocksServer";
 import { unlistedQuote, type QuoteTokenMeta } from "./unlisted-quote";
 import { memo } from "./memo";
@@ -291,7 +291,6 @@ export const VOLUME_WINDOWS: VolumeWindow[] = ["1h", "24h", "all"];
 export const VOLUME_COLUMN_SQL: Record<VolumeWindow, string> = { "1h": "w.v1::numeric", "24h": "w.v24::numeric", all: "l.volume_quote" };
 
 export type ListOpts = { sort?: LaunchSort; window?: VolumeWindow; chain?: ChainKey | null; filter?: LaunchFilter | null; limit?: number; offset?: number; launcher?: string; ethUsd?: number | null };
-const NATIVE_ADDR = "0x0000000000000000000000000000000000000000";
 const DEAD_ADDR = "0x000000000000000000000000000000000000dead";
 
 export type ListPage = { items: LaunchRow[]; hasMore: boolean };
@@ -348,10 +347,11 @@ export async function listLaunchesPage(opts: ListOpts = {}): Promise<ListPage> {
   const museworldFactor = museworldUsdNow !== null && museworldUsdNow > 0 ? museworldUsdNow : 0;
   const stables = fixedUsdQuotes();
   const stableCase = stables.length ? stables.map((s) => db`WHEN (l.chain_id = ${chainIdOf(s.chain)} AND l.quote = ${s.address}) THEN ${s.usd}::double precision`).reduce((acc, c) => db`${acc} ${c}`) : db``;
-  // address(0) is ETH only where the chain's native asset is ETH; a native stable (Arc: USDC) is already in stableCase above
-  const ethNativeArms = CHAIN_KEYS.filter((k) => NATIVE_QUOTES[k].key === "eth").map((k) => db`WHEN (l.chain_id = ${chainIdOf(k)} AND l.quote = ${NATIVE_ADDR}) THEN ${ethFactor}::double precision`);
-  const ethNativeCase = ethNativeArms.length ? ethNativeArms.reduce((acc, c) => db`${acc} ${c}`) : db``;
-  const usdPerUnit = db`(CASE ${stableCase} ${stockCase} WHEN ${isGitlawbPriced()} THEN ${gitlawbFactor}::double precision WHEN ${quoteArms("museworld")} THEN ${museworldFactor}::double precision ${ethNativeCase} ELSE 0.0 END)`;
+  // ETH's price for every quote keyed "eth": address(0) where the chain's native asset is ETH (a native stable, Arc's USDC, is
+  // keyed "usdc" and already in stableCase above) and WETH on Base
+  const ethArms = quotesWithKey("eth").map(({ chain, address }) => db`WHEN (l.chain_id = ${chainIdOf(chain)} AND l.quote = ${address}) THEN ${ethFactor}::double precision`);
+  const ethCase = ethArms.length ? ethArms.reduce((acc, c) => db`${acc} ${c}`) : db``;
+  const usdPerUnit = db`(CASE ${stableCase} ${stockCase} WHEN ${isGitlawbPriced()} THEN ${gitlawbFactor}::double precision WHEN ${quoteArms("museworld")} THEN ${museworldFactor}::double precision ${ethCase} ELSE 0.0 END)`;
   const stockDecArms = stockEntries.flatMap(([a]) => stockChains(a).flatMap((k) => { const d = stockByAddress(k, a)!.decimals; return d !== 18 ? [db`WHEN (l.chain_id = ${chainIdOf(k)} AND l.quote = ${a}) THEN ${d}`] : []; }));
   const decCase = stockDecArms.length ? stockDecArms.reduce((acc, c) => db`${acc} ${c}`) : db``;
   const stableDec = stables.filter((s) => s.decimals !== 18);

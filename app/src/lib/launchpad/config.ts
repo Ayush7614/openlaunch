@@ -37,6 +37,14 @@ const GITLAWB: Quote = { key: "gitlawb", address: GITLAWB_ADDRESS as Address, sy
 const GITLAWB_RH: Quote = { ...GITLAWB, address: GITLAWB_ADDRESS_ROBINHOOD as Address };
 /** TWIG: usd is null here (client-safe static); the server fills GITLAWB's live price, since one TWIG unwraps to one GITLAWB (twig.ts). Base only. */
 const TWIG: Quote = { key: "twig", address: TWIG_ADDRESS as Address, symbol: TWIG_SYMBOL, decimals: TWIG_DECIMALS, usd: null, name: TWIG_NAME, logo: TWIG_LOGO_PATH };
+/**
+ * Circle's USDC on Base and WETH (the OP Stack predeploy). The Base form offers neither, but the factory takes any ERC-20,
+ * so scripts and agents pair with them; known here, they show as USDC / WETH and price (USDC at a dollar, WETH at ETH's live
+ * price through key "eth" in quoteUsdOf) instead of as an unlisted address. WETH trades as an ERC-20: TradePanel treats a
+ * quote as native by its address (address(0)), never by its key. The form's own "eth" quote is always native ETH.
+ */
+const USDC_BASE: Quote = { key: "usdc", address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", symbol: "USDC", decimals: 6, usd: 1 };
+const WETH_BASE: Quote = { key: "eth", address: "0x4200000000000000000000000000000000000006", symbol: "WETH", decimals: 18, usd: null, name: "Wrapped Ether" };
 /** MUSEWORLD: usd is null here (client-safe static); the server fills the price from its own GITLAWB pool (queries.ts). */
 const MUSEWORLD: Quote = { key: "museworld", address: MUSEWORLD_ADDRESS, symbol: MUSEWORLD_SYMBOL, decimals: MUSEWORLD_DECIMALS, usd: null, name: MUSEWORLD_NAME, logo: MUSEWORLD_LOGO_PATH };
 
@@ -80,6 +88,8 @@ const QUOTES_BY_CHAIN: Record<ChainKey, Quote[]> = { base: [ETH, TWIG], robinhoo
  * price. MUSEWORLD: its launches are made inside Museworld by its agents.
  */
 const OFFICIAL_QUOTES: Record<ChainKey, Quote[]> = { base: [GITLAWB, MUSEWORLD], robinhood: [], arc: [] };
+/** Known quotes: priced and named, with no badge, and never offered in the launch form (the mainstream tokens above). */
+const KNOWN_QUOTES: Record<ChainKey, Quote[]> = { base: [USDC_BASE, WETH_BASE], robinhood: [], arc: [] };
 
 /**
  * What address(0) means on each chain. The factory is permissionless and documents address(0) as the native asset,
@@ -99,14 +109,14 @@ export function fixedUsdQuotes(): { chain: ChainKey; key: Quote["key"]; address:
 export function quotesWithKey(key: Quote["key"]): { chain: ChainKey; address: string }[] {
   return CHAIN_KEYS.flatMap((chain) => allQuotes(chain).flatMap((q) => (q.key === key ? [{ chain, address: q.address.toLowerCase() }] : [])));
 }
-/** Lowercase addresses of every quote a chain lists (offered + native); anything else is unlisted, or a registry stock. */
+/** Lowercase addresses of every quote a chain lists (offered, native, official, known); anything else is unlisted, or a registry stock. */
 export function listedQuoteAddresses(chain: ChainKey): string[] {
   return allQuotes(chain).map((q) => q.address.toLowerCase());
 }
-/** The chain's offered quotes plus its native asset (already among them where the form offers it), plus its official quotes. */
+/** The chain's offered quotes plus its native asset (already among them where the form offers it), plus its official and known quotes. */
 function allQuotes(chain: ChainKey): Quote[] {
   const offered = QUOTES_BY_CHAIN[chain];
-  return [...(offered.some((q) => q.address === NATIVE) ? offered : [...offered, NATIVE_QUOTES[chain]]), ...OFFICIAL_QUOTES[chain]];
+  return [...(offered.some((q) => q.address === NATIVE) ? offered : [...offered, NATIVE_QUOTES[chain]]), ...OFFICIAL_QUOTES[chain], ...KNOWN_QUOTES[chain]];
 }
 
 /**
