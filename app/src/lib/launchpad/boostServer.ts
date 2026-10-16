@@ -49,7 +49,7 @@ export type BoostLaneItem = LaneTotals & { expires_at: string; launch: LaunchRow
 export type BoostLane = { enabled: false } | { enabled: true; window_h: number; floor_twig: string; items: BoostLaneItem[]; names?: Record<string, NameEntry | null> };
 export type TokenBoost =
   | { enabled: false }
-  | { enabled: true; hidden: boolean; twig: string; boosts: number; boosters: number; last_at: string | null; last_tx: string | null; expires_at: string | null; place: number | null; entry: LaneEntry };
+  | { enabled: true; hidden: boolean; twig: string; boosts: number; boosters: number; last_at: string | null; last_tx: string | null; expires_at: string | null; place: number | null; entry: LaneEntry; clicks?: number };
 
 const RAW_FLOOR = (BOOST_FLOOR_TWIG * 10n ** 18n).toString();
 const LANE_TTL_MS = 5_000;
@@ -153,11 +153,16 @@ async function creditNames(wallets: readonly string[]): Promise<Record<string, N
   return known ? Object.fromEntries(wallets.map((w) => [w, known[w] ?? null])) : {};
 }
 
-/** The Boosted lane: the top BOOST_LANE_SIZE tokens with their market rows. `{ enabled: false }` while the switch is off. */
-export async function getBoostLane(ethUsd: number | null): Promise<BoostLane> {
+/**
+ * The Boosted lane: the top BOOST_LANE_SIZE tokens with their market rows. `{ enabled: false }` while the switch is off.
+ * `fresh` skips the few-second ranking memo too (the admin panel after a hide: the other machine's memos may still hold
+ * the token); pages and polls read it through boostLaneOrNull instead.
+ */
+export async function getBoostLane(ethUsd: number | null, opts: { fresh?: boolean } = {}): Promise<BoostLane> {
   if (!boostEnabled()) return { enabled: false };
+  const ranked = opts.fresh ? rankLane(await laneTotals(BOOST_LANE_SIZE * 4), BOOST_LANE_SIZE * 4) : await rankedLane();
   // a few spare candidates, so a token whose market row cannot be read leaves its place to the next one, not a hole
-  const top = (await rankedLane()).slice(0, BOOST_LANE_SIZE + 3);
+  const top = ranked.slice(0, BOOST_LANE_SIZE + 3);
   const rows = top.length > 0 ? await getLaunchesByRefs(top.map((t) => ({ chain: BOOST_CHAIN, token: t.token })), ethUsd) : [];
   const byToken = new Map(rows.map((r) => [r.launch.token, r.launch]));
   const shown = top
@@ -188,12 +193,16 @@ export async function boostLaneOrNull(ethUsd: number | null): Promise<BoostLane 
   return { ...lane, items: lane.items.filter((b) => boostTimeLeft(b.last_at, now) !== null) };
 }
 
-/** One token's boost state for its page: TWIG inside the window, its place in the lane (1-based) and whether an admin hid it. */
+/**
+ * One token's boost state for its page: TWIG inside the window, its place in the lane (1-based), whether an admin hid
+ * it, and its clicks from the lane in the same 24 hours (the panel shows them from BOOST_PANEL_CLICKS_MIN up). `clicks`
+ * is optional for readers: a machine on an older build answers without it while a deploy rolls.
+ */
 export async function getTokenBoost(token: string): Promise<TokenBoost> {
   if (!boostEnabled()) return { enabled: false };
   const db = maybeDb();
   const t = token.toLowerCase();
-  const none = { enabled: true as const, hidden: false, twig: "0", boosts: 0, boosters: 0, last_at: null, last_tx: null, expires_at: null, place: null, entry: { full: false, cutoff: null } };
+  const none = { enabled: true as const, hidden: false, twig: "0", boosts: 0, boosters: 0, last_at: null, last_tx: null, expires_at: null, place: null, entry: { full: false, cutoff: null }, clicks: 0 };
   if (!db) return none;
   const [[row], [setting], ranked] = await Promise.all([
     db<{ twig: string; boosts: number; boosters: number; last_at: string | null; last_tx: string | null }[]>`
@@ -208,6 +217,9 @@ export async function getTokenBoost(token: string): Promise<TokenBoost> {
     db<{ boost_hidden: boolean }[]>`SELECT boost_hidden FROM bb_token_settings WHERE chain_id = ${BOOST_CHAIN_ID} AND token = ${t}`,
     rankedLane(),
   ]);
+  // the lane's own count (same window, same rows as the card); only for a token boosted in the window, since the panel
+  // shows nothing otherwise. laneClicks never throws: a failed read is no clicks line.
+  const clicks = row?.last_at ? ((await laneClicks([t])).get(t) ?? 0) : 0;
   const i = ranked.findIndex((r) => r.token === t);
   return {
     enabled: true,
@@ -220,6 +232,7 @@ export async function getTokenBoost(token: string): Promise<TokenBoost> {
     expires_at: row?.last_at ? new Date(boostExpiresAt(row.last_at)).toISOString() : null,
     place: i >= 0 && i < BOOST_LANE_SIZE ? i + 1 : null,
     entry: laneEntry(ranked),
+    clicks,
   };
 }
 

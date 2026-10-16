@@ -27,7 +27,8 @@ export async function GET(req: Request) {
       if (!isAddress(token)) return NextResponse.json({ error: "bad token" }, { status: 400 });
       return NextResponse.json(await getTokenBoost(token), { headers: NO_STORE });
     }
-    // the same few-second cache pages and polls read: a caller polling this cannot add a database pass per request
+    // the same few-second cache pages and polls read: a caller polling this cannot add a database pass per request.
+    // The only fresh read is the signed moderation answer (api/boost/mod), right after a hide or unhide.
     const lane = await boostLaneOrNull(await ethUsd());
     if (!lane) return NextResponse.json({ error: "could not load boosts" }, { status: 502 });
     return NextResponse.json(lane, { headers: NO_STORE });

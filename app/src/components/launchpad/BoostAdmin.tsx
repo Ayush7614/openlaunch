@@ -48,12 +48,17 @@ export default function BoostAdmin() {
       const signature = await wallet.signMessage({ message: buildBoostModMessage({ action, token, wallet: address, nonce: n, ts }) });
       const res = await fetch("/api/boost/mod", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, token, wallet: address, nonce: n, ts, signature }) });
       // an error page that is not JSON (a 502 from the proxy) still reports the HTTP failure, not a parse error
-      const d = (await res.json().catch(() => ({}))) as { error?: string };
+      const d = (await res.json().catch(() => ({}))) as { error?: string; lane?: BoostLane | null };
       if (!res.ok) throw new Error(d.error ?? `request failed (HTTP ${res.status})`);
       setMsg({ ok: true, text: `${action === "hide" ? "Hidden" : "Shown again"}: ${token}` });
-      // a hidden card leaves the list at once; the next read (fresh on the machine that took the write) confirms it
-      if (action === "hide") setLane((l) => (l?.enabled ? { ...l, items: l.items.filter((b) => b.token !== token.toLowerCase()) } : l));
-      await load();
+      // the signed answer carries the lane read fresh, so the list is right at once, whichever machine answers next;
+      // without it (that read failed) the card still leaves at once and a cached read follows
+      if (d.lane) {
+        setLane(d.lane);
+      } else {
+        if (action === "hide") setLane((l) => (l?.enabled ? { ...l, items: l.items.filter((b) => b.token !== token.toLowerCase()) } : l));
+        await load();
+      }
     } catch (e) {
       setMsg({ ok: false, text: friendlyError(e) });
     }

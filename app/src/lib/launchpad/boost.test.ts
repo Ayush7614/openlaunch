@@ -34,6 +34,9 @@ import {
   BOOST_CLICK_SLOT_MS,
   BOOST_CLICKS_KEEP_DAYS,
   BOOST_FROM_FLOOR,
+  BOOST_PANEL_CLICKS_MIN,
+  boostShareText,
+  boostShareUrl,
   boostEntryLine,
   topBoosters,
   BOOST_SOURCES,
@@ -344,4 +347,21 @@ test("a card credits the wallet that sent the most TWIG in the window; a tie goe
   assert.equal(picked.get("0xt2"), "0xeee");
   assert.equal(picked.get("0xt3"), "0x999");
   assert.equal(topBoosters([]).size, 0);
+});
+
+test("a booster's post says what was sent and where it went, links the token's page, and tags the official account", () => {
+  const raw = 1_000_000n * E18 + ID;
+  assert.equal(boostShareText("MUSEWORLD", raw), "Boosted $MUSEWORLD with 1M TWIG on openlaunch.lol. The TWIG went to 0x…dEaD.");
+  assert.equal(boostShareText("BSTR", (426_248n * E18).toString()), "Boosted $BSTR with 426.25K TWIG on openlaunch.lol. The TWIG went to 0x…dEaD.");
+  const url = new URL(boostShareUrl("A&B #1", raw, "https://openlaunch.lol/t/base/0xabc"));
+  assert.equal(url.origin + url.pathname, "https://x.com/intent/post", "the same intent the token page's Share uses");
+  assert.equal(url.searchParams.get("text"), "Boosted $A&B #1 with 1M TWIG on openlaunch.lol. The TWIG went to 0x…dEaD.", "a symbol never breaks out of its parameter");
+  assert.equal(url.searchParams.get("url"), "https://openlaunch.lol/t/base/0xabc");
+  assert.equal(url.searchParams.get("via"), "openlaunch_lol");
+  const banned = /\b(moon|rally|buyback|guarantee[ds]?|pump|gem|100x|profit|invest(ment)?|returns?|yield|airdrop|reward)\b/i;
+  assert.doesNotMatch(boostShareText("X", raw), banned);
+});
+
+test("the token page shows its clicks from the lane only once they read like a result", () => {
+  assert.equal(BOOST_PANEL_CLICKS_MIN, 10);
 });

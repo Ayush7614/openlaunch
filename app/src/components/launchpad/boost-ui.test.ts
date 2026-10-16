@@ -189,7 +189,7 @@ test("CodeRabbit round 1: the done screen, admin errors and the agent formula", 
   assert.doesNotMatch(dialog, /settle\([^)]*, true\)/);
   assert.match(dialog, /const showsAfter = \(w: bigint\): boolean => !tagOk \|\| boostShowsNow\(entry, current, boostAmount\(w, tag\), inLane\);/);
   // an error page that is not JSON still reports the HTTP failure; a bad lane read never throws from the effect
-  assert.match(admin, /const d = \(await res\.json\(\)\.catch\(\(\) => \(\{\}\)\)\) as \{ error\?: string \};/);
+  assert.match(admin, /const d = \(await res\.json\(\)\.catch\(\(\) => \(\{\}\)\)\) as \{ error\?: string; lane\?: BoostLane \| null \};/);
   assert.match(admin, /throw new Error\(d\.error \?\? `request failed \(HTTP \$\{res\.status\}\)`\);/);
   assert.match(admin, /const load = useCallback\(async \(\) => \{\n\s*try \{/);
   // agents get the bounds the decoder enforces (isLaunchTag: 0 < tag < 10^11; whole TWIG >= the floor)
@@ -345,9 +345,19 @@ test("the lane invites a boost: a header button, every open place a button, and 
   assert.match(server, /items, names: await creditNames\(\[\.\.\.boosters\.values\(\)\]\) \};/);
   assert.match(server, /const known = await namesFor\(wallets\)\.catch\(\(\) => null\);\n\s*return known \? Object\.fromEntries\(wallets\.map\(\(w\) => \[w, known\[w\] \?\? null\]\)\) : \{\};/);
   assert.match(lane, /<NamesProvider names=\{lane\.names \?\? NO_NAMES\}>/);
-  // a public read of the lane comes from the same few-second cache: polling it adds no database pass
+  // a public read of the lane comes from the same few-second cache: polling it adds no database pass, and no query
+  // parameter skips it (CodeRabbit #102: a wallet in the URL is not proof of an admin)
   assert.match(boostRoute, /const lane = await boostLaneOrNull\(await ethUsd\(\)\);/);
-  assert.doesNotMatch(boostRoute, /getBoostLane/);
+  assert.doesNotMatch(boostRoute, /getBoostLane|searchParams\.get\("fresh"\)|adminWallets/);
+  // the only fresh read is the answer to a signed, single-use moderation request, after the write
+  const modRoute = read("../../app/api/boost/mod/route.ts");
+  assert.ok(modRoute.indexOf("if (!r.ok) return") < modRoute.indexOf("getBoostLane(await ethUsd(), { fresh: true })"), "fresh only after a verified write");
+  assert.match(modRoute, /return NextResponse\.json\(\{ \.\.\.r, lane \}\);/);
+  assert.match(server, /const ranked = opts\.fresh \? rankLane\(await laneTotals\(BOOST_LANE_SIZE \* 4\), BOOST_LANE_SIZE \* 4\) : await rankedLane\(\);/);
+  // the panel takes that lane; its own reads are the cached ones everyone gets
+  assert.match(admin, /if \(d\.lane\) \{\n\s*setLane\(d\.lane\);\n\s*\} else \{/);
+  assert.match(admin, /fetch\(`\/api\/boost\?chain=\$\{BOOST_CHAIN\}`, \{ cache: "no-store" \}\)/);
+  assert.doesNotMatch(admin, /fresh=1|justHidden|JUST_HIDDEN/);
 });
 
 test("the picker only navigates: the boost happens on the token's page, with every check the dialog has", () => {
@@ -381,4 +391,34 @@ test("a card credits the wallet that sent the most TWIG for it; a failed read sh
   assert.match(body, /AND b\.block_time > now\(\) - make_interval\(hours => \$\{BOOST_WINDOW_H\}\)\n\s*AND b\.amount >= \$\{RAW_FLOOR\}::numeric\n\s*GROUP BY l\.token, b\.booster`;\n\s*return topBoosters\(rows\);/);
   assert.match(body, /\} catch \(err\) \{\n\s*console\.warn\("\[boost\] lane boosters read failed:"[^\n]*\n\s*return new Map\(\);/);
   assert.match(lane, /\{b\.top_booster \? \(/);
+});
+
+
+test("the token page shows what the lane brought: clicks in the same 24 hours, from 10 up, only while boosted", () => {
+  assert.match(panel, /const clicks = state\.clicks \?\? 0;/);
+  assert.match(panel, /\{active && clicks >= BOOST_PANEL_CLICKS_MIN \? \(/);
+  assert.match(panel, /clicks from the lane in the last 24 hours/);
+  // the lane card's own count (laneClicks: same window, never throws), and only for a token boosted in the window
+  const body = server.slice(server.indexOf("export async function getTokenBoost("), server.indexOf("/* ─────────────────────────────── views and clicks"));
+  assert.match(body, /const clicks = row\?\.last_at \? \(\(await laneClicks\(\[t\]\)\)\.get\(t\) \?\? 0\) : 0;/);
+  assert.doesNotMatch(body, /FROM bb_boost_clicks/, "one click count for the card and the page, not two copies");
+});
+
+test("after a confirmed boost the booster can share it on X: its own post, in a new tab", () => {
+  const done = dialog.slice(dialog.indexOf('{phase.k === "done" ? ('), dialog.indexOf(") : ("));
+  assert.match(done, /<a href=\{boostShareUrl\(symbol, boostAmount\(phase\.whole, tag\), `\$\{SITE_URL\}\/t\/\$\{BOOST_CHAIN\}\/\$\{token\}`\)\} target="_blank" rel="noreferrer" className=\{btn\.secondarySm\}>Share on X/);
+  assert.equal((dialog.match(/boostShareUrl\(/g) ?? []).length, 1, "only on the done screen");
+});
+
+test("the agents' notes name the lane's fields as they are", () => {
+  assert.match(llms, /\(the lane: twig, boosts, last_at, expires_at, clicks, top_booster, launch; names\)/);
+  assert.doesNotMatch(llms, /launch; entry\)/);
+});
+
+
+
+test("one X intent builder: the booster's post and the token page's Share both go through intentUrl", () => {
+  assert.match(read("../../lib/launchpad/boost.ts"), /return intentUrl\(boostShareText\(symbol, raw\), \{ url: pageUrl, via: BRAND_X \}\);/);
+  assert.match(tokenPage, /<a href=\{intentUrl\(shareText, \{ url: `\$\{SITE_URL\}\/t\/\$\{chain\}\/\$\{l\.token\}` \}\)\} target="_blank"/);
+  for (const f of ["../../lib/launchpad/boost.ts", "../../app/t/[chain]/[token]/page.tsx"]) assert.doesNotMatch(read(f), /https:\/\/x\.com\/intent/, f);
 });

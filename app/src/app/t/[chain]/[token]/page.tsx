@@ -19,6 +19,7 @@ import TokenTrades from "@/components/launchpad/TokenTrades";
 import LaunchReceipt from "@/components/launchpad/LaunchReceipt";
 import TokenAbout from "@/components/launchpad/TokenAbout";
 import NamesProvider from "@/components/profile/NamesProvider";
+import { intentUrl } from "@/lib/profiles/xpost";
 import { namesFor, type NameEntry } from "@/lib/profiles/server";
 import { getHolderPanel } from "@/lib/launchpad/holdersServer";
 import { memo } from "@/lib/launchpad/memo";
@@ -220,7 +221,7 @@ export default async function TokenPage({ params, searchParams }: { params: Prom
               <WatchButton token={{ chain, token: l.token, name: l.name, symbol: l.symbol }} labelled />
               {/* the token's links as one bar, the Watch button's height: share, copy the address, the explorer */}
               <div className="inline-flex h-10 max-w-full items-stretch overflow-hidden rounded-xl border border-line bg-card text-xs font-medium text-body sm:h-9">
-                <a href={`https://x.com/intent/post?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(`${SITE_URL}/t/${chain}/${l.token}`)}`} target="_blank" rel="noreferrer" className={`inline-flex ${segment}`} aria-label="Share token on X"><Share2 size={13} aria-hidden="true" /><span className="hidden sm:inline">Share</span></a>
+                <a href={intentUrl(shareText, { url: `${SITE_URL}/t/${chain}/${l.token}` })} target="_blank" rel="noreferrer" className={`inline-flex ${segment}`} aria-label="Share token on X"><Share2 size={13} aria-hidden="true" /><span className="hidden sm:inline">Share</span></a>
                 <CopyChip value={l.token} className={`inline-flex ${segment} border-l border-line font-code`} />
                 {/* phones keep one row of actions; the explorer link is also in About & contracts */}
                 <a href={explorerAddress(chain, l.token)} target="_blank" rel="noreferrer" className={`hidden sm:inline-flex ${segment} border-l border-line`}>{explorerName(chain)}<ArrowUpRight size={13} aria-hidden="true" /></a>
