@@ -31,6 +31,15 @@ import {
   maxBoostWhole,
   parseBoostWhole,
   rankLane,
+  BOOST_CLICK_SLOT_MS,
+  BOOST_SOURCES,
+  BOOST_STATS_DAYS,
+  boostClickRate,
+  boostClickSlot,
+  boostClicksPerFloor,
+  boostPlace,
+  isBoostStatsDays,
+  parseBoostSeen,
   type BoostTransfer,
 } from "./boost.ts";
 import { TWIG_ADDRESS, TWIG_ADDRESSES } from "./twig.ts";
@@ -226,4 +235,55 @@ test("the dialog knows whether a boost shows now", () => {
   assert.equal(boostShowsNow(full, 0n, 1_000_000n * E18, false), true, "a tie goes to the newer boost");
   assert.equal(boostShowsNow(full, 900_000n * E18, 100_000n * E18, false), true, "it adds to what the token already has");
   assert.equal(boostShowsNow(full, 0n, 1n, true), true, "already in the lane");
+});
+
+test("the lane's beacon is a view or a click on a token, from the home page or /base", () => {
+  const TOKEN = "0xAbCdEf0123456789aBcDeF0123456789AbCdEf01";
+  assert.deepEqual([...BOOST_SOURCES], ["home", "base"]);
+  assert.deepEqual(parseBoostSeen({ kind: "view", source: "home" }), { kind: "view", source: "home" });
+  assert.deepEqual(parseBoostSeen({ kind: "view", source: "base", token: TOKEN }), { kind: "view", source: "base" }, "a view carries no token");
+  assert.deepEqual(parseBoostSeen({ kind: "click", source: "base", token: TOKEN, place: 1 }), { kind: "click", source: "base", token: TOKEN.toLowerCase() }, "lowercased; a place in the body is ignored");
+  for (const bad of [
+    null,
+    "view",
+    [{ kind: "view", source: "home" }],
+    {},
+    { kind: "view" },
+    { kind: "view", source: "token" },
+    { kind: "hover", source: "home" },
+    { kind: "click", source: "home" },
+    { kind: "click", source: "home", token: "0x123" },
+    { kind: "click", source: "home", token: `${TOKEN}00` },
+    { kind: "click", source: "home", token: 42 },
+  ]) {
+    assert.equal(parseBoostSeen(bad), null, JSON.stringify(bad));
+  }
+});
+
+test("a click counts only for a token in the lane now, at the place the lane gives it", () => {
+  const lane = ["0xaaa", "0xbbb", "0xccc"];
+  assert.equal(boostPlace(lane, "0xaaa"), 1);
+  assert.equal(boostPlace(lane, "0xCCC"), 3, "any case");
+  assert.equal(boostPlace(lane, "0xddd"), null, "out of the lane (expired, hidden, never in it)");
+  assert.equal(boostPlace([], "0xaaa"), null, "an empty lane, or the switch off");
+});
+
+test("clicks fall in 30-minute slots, so a reload counts once", () => {
+  assert.equal(BOOST_CLICK_SLOT_MS, 1_800_000);
+  const t = Date.parse("2026-10-16T09:00:00.000Z");
+  assert.equal(boostClickSlot(t), "2026-10-16T09:00:00.000Z");
+  assert.equal(boostClickSlot(t + 1_799_999), "2026-10-16T09:00:00.000Z");
+  assert.equal(boostClickSlot(t + 1_800_000), "2026-10-16T09:30:00.000Z");
+  assert.equal(boostClickSlot(t - 1), "2026-10-16T08:30:00.000Z");
+});
+
+test("the admin figures: periods, click rate and clicks per 100K TWIG", () => {
+  assert.deepEqual([...BOOST_STATS_DAYS], [1, 7, 30]);
+  for (const d of BOOST_STATS_DAYS) assert.equal(isBoostStatsDays(d), true);
+  for (const d of [0, 2, 365, "7", null, Number.NaN]) assert.equal(isBoostStatsDays(d), false, String(d));
+  assert.equal(boostClickRate(21, 500), "4.2%");
+  assert.equal(boostClickRate(0, 10), "0.0%");
+  assert.equal(boostClickRate(3, 0), "–", "no view yet: no rate, never a confident 0");
+  assert.equal(boostClicksPerFloor(30, (300_000n * E18 + ID).toString()), 10, "30 clicks for 300K TWIG = 10 per 100K (the tag is ignored)");
+  assert.equal(boostClicksPerFloor(5, "0"), null, "nothing burned in the period");
 });

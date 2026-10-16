@@ -1,4 +1,5 @@
 import "server-only";
+import { createHash } from "node:crypto";
 import { isAddress } from "viem";
 import { maybeDb } from "@/lib/db";
 import { getLaunchesByRefs, type LaunchRow } from "./queries";
@@ -12,10 +13,15 @@ import {
   BOOST_FLOOR_TWIG,
   BOOST_LANE_SIZE,
   BOOST_WINDOW_H,
+  boostClickSlot,
   boostExpiresAt,
+  boostPlace,
+  boostTimeLeft,
   buildBoostModMessage,
   isBoostModAction,
   rankLane,
+  type BoostSeen,
+  type BoostStatsDays,
   type LaneEntry,
   type LaneTotals,
 } from "./boost";
@@ -144,6 +150,81 @@ export async function getTokenBoost(token: string): Promise<TokenBoost> {
     place: i >= 0 && i < BOOST_LANE_SIZE ? i + 1 : null,
     entry: laneEntry(ranked),
   };
+}
+
+/* ─────────────────────────────── views and clicks (/admin only) ─────────────────────────────── */
+
+/** The lane's tokens as pages show them now, in order: the same few-second cache, minus a boost that ran out since. */
+async function laneTokensNow(ethUsdNow: number | null): Promise<string[]> {
+  const lane = await boostLaneOrNull(ethUsdNow);
+  if (!lane?.enabled) return [];
+  const now = Date.now();
+  return lane.items.filter((b) => boostTimeLeft(b.last_at, now) !== null).map((b) => b.token);
+}
+
+/** A click's visitor: the presence hash (daily salt) mixed with the token, cut short, so two tokens' clicks never link. */
+function clickVisitor(visitorHash: string, token: string): string {
+  return createHash("sha256").update(`${visitorHash}|${token}`).digest("hex").slice(0, 32);
+}
+
+/**
+ * Record a lane beacon; true when it counted. A view adds 1 to this hour of every token in the lane now. A click counts
+ * once per visitor, token and 30-minute slot, and only while the token is in the lane: its place is read from the
+ * server's lane, never taken from the request, and a tab left open after a boost ran out counts nothing.
+ */
+export async function recordBoostSeen(seen: BoostSeen, visitorHash: string, ethUsdNow: number | null): Promise<boolean> {
+  if (!boostEnabled()) return false;
+  const db = maybeDb();
+  if (!db) return false;
+  const lane = await laneTokensNow(ethUsdNow);
+  if (seen.kind === "view") {
+    if (lane.length === 0) return false;
+    await db`INSERT INTO bb_boost_views (chain_id, token, hour_at, views)
+             SELECT ${BOOST_CHAIN_ID}, t, date_trunc('hour', now()), 1 FROM unnest(${lane}::text[]) AS t
+             ON CONFLICT (chain_id, token, hour_at) DO UPDATE SET views = bb_boost_views.views + 1`;
+    return true;
+  }
+  const place = boostPlace(lane, seen.token);
+  if (place === null) return false;
+  const rows = await db`INSERT INTO bb_boost_clicks (chain_id, token, visitor, slot, place, source)
+                        VALUES (${BOOST_CHAIN_ID}, ${seen.token}, ${clickVisitor(visitorHash, seen.token)}, ${boostClickSlot(Date.now())}, ${place}, ${seen.source})
+                        ON CONFLICT DO NOTHING RETURNING 1`;
+  return rows.length > 0;
+}
+
+/** One token's lane figures over a period: views, clicks, visitors (one per person per day) and the TWIG burned for it. */
+export type BoostStatsRow = { token: string; name: string | null; symbol: string | null; views: number; clicks: number; visitors: number; twig: string; boosts: number };
+
+/** Every token seen, clicked or boosted in the last `days` days, most clicks first. */
+export async function getBoostStats(days: BoostStatsDays): Promise<BoostStatsRow[]> {
+  const db = maybeDb();
+  if (!db) return [];
+  return db<BoostStatsRow[]>`
+    WITH v AS (
+      SELECT token, sum(views)::int AS views FROM bb_boost_views
+       WHERE chain_id = ${BOOST_CHAIN_ID} AND hour_at > now() - make_interval(days => ${days})
+       GROUP BY token
+    ), k AS (
+      SELECT token, count(*)::int AS clicks, count(DISTINCT visitor)::int AS visitors FROM bb_boost_clicks
+       WHERE chain_id = ${BOOST_CHAIN_ID} AND clicked_at > now() - make_interval(days => ${days})
+       GROUP BY token
+    ), b AS (
+      SELECT l.token, sum(x.amount)::text AS twig, count(*)::int AS boosts
+        FROM bb_boosts x
+        JOIN bb_launches l ON l.chain_id = x.chain_id AND l.token_id = x.tag
+       WHERE x.chain_id = ${BOOST_CHAIN_ID} AND x.block_time > now() - make_interval(days => ${days})
+         AND x.amount >= ${RAW_FLOOR}::numeric
+       GROUP BY l.token
+    ), t AS (SELECT token FROM v UNION SELECT token FROM k UNION SELECT token FROM b)
+    SELECT t.token, l.name, l.symbol, COALESCE(v.views, 0) AS views, COALESCE(k.clicks, 0) AS clicks,
+           COALESCE(k.visitors, 0) AS visitors, COALESCE(b.twig, '0') AS twig, COALESCE(b.boosts, 0) AS boosts
+      FROM t
+      LEFT JOIN v ON v.token = t.token
+      LEFT JOIN k ON k.token = t.token
+      LEFT JOIN b ON b.token = t.token
+      LEFT JOIN bb_launches l ON l.chain_id = ${BOOST_CHAIN_ID} AND l.token = t.token
+     ORDER BY clicks DESC, views DESC, t.token
+     LIMIT 100`;
 }
 
 type Fail = { ok: false; error: string; status: number };

@@ -26,10 +26,13 @@ const boostRoute = read("../../app/api/boost/route.ts");
 const llms = read("../../app/llms.txt/route.ts");
 const home = read("../../app/(home)/page.tsx");
 const tokenPage = read("../../app/t/[chain]/[token]/page.tsx");
+const seenRoute = read("../../app/api/boost/seen/route.ts");
+const statsRoute = read("../../app/api/boost/stats/route.ts");
 
 test("the ranking never reads boosts: no paid row can enter the Live sort or the Trending board", () => {
   // boost code, not the English word (the board's own copy says fresh tokens "get a boost" in score)
-  const BOOST_CODE = /from ["'][^"']*[bB]oost[^"']*["']|bb_boosts|BOOST_|[bB]oostLane|useBoostOn|getTokenBoost|live\.boost|snap\.boost/;
+  // bb_boost also covers the lane's views and clicks (bb_boost_views, bb_boost_clicks): attention never ranks either
+  const BOOST_CODE = /from ["'][^"']*[bB]oost[^"']*["']|bb_boost|BOOST_|[bB]oostLane|useBoostOn|getTokenBoost|live\.boost|snap\.boost/;
   for (const f of ["../../lib/launchpad/ranking.ts", "../../lib/launchpad/trending-live.ts", "../../lib/launchpad/trending-board.ts", "./TrendingStrip.tsx", "./LaunchList.tsx"]) {
     assert.doesNotMatch(read(f), BOOST_CODE, f);
   }
@@ -42,6 +45,7 @@ test("the ranking never reads boosts: no paid row can enter the Live sort or the
   for (const imp of IMPORTS) assert.equal(queries.split(imp).length, 2, imp);
   const outside = IMPORTS.reduce((acc, imp) => acc.replace(imp, ""), queries.slice(0, start) + queries.slice(end));
   assert.doesNotMatch(outside, BOOST_CODE);
+  assert.doesNotMatch(queries.slice(start, end), /bb_boost_(clicks|views)/);
   // the totals count only boosts that name a launch, and only while the switch is on
   assert.match(queries.slice(start, end), /boostEnabled\(\)\n\s*\? db<\{ burned: string \}\[\]>`\n\s*SELECT COALESCE\(sum\(b\.amount\), 0\)::text AS burned FROM bb_boosts b\n\s*JOIN bb_launches l ON l\.chain_id = b\.chain_id AND l\.token_id = b\.tag/);
 });
@@ -103,7 +107,7 @@ test("everything stays dark while BOOST is off", () => {
 test("a failed lane read never breaks a page or blanks open tabs", () => {
   assert.match(server, /\.catch\(\(err\) => \{\n\s*console\.warn\("\[boost\] lane read failed:"/);
   assert.match(liveRoute, /boost: boost \?\? undefined/);
-  assert.match(home, /<BoostedLane initial=\{boost \?\? \{ enabled: false \}\} serverNow=\{now\} \/>/);
+  assert.match(home, /<BoostedLane initial=\{boost \?\? \{ enabled: false \}\} serverNow=\{now\} source="home" \/>/);
   // a tick without the lane is no news: the cards stay as they are
   assert.match(lane, /const next = snap\.boost;\n\s*if \(!next\) return;/);
   // the lane sits after the facts-only board, never inside it
@@ -150,7 +154,7 @@ test("only a lane on screen downloads the lane; every page gets the switch as on
   assert.match(layout, /boost_on: boostEnabled\(\)/);
   assert.match(read("./useBoostOn.ts"), /useState\(live\.boost_on === true\)/);
   // /base keeps the lane mounted, so a switch-on reaches an open tab
-  assert.match(landing, /chain === BOOST_CHAIN \? <div className="mt-14 empty:hidden"><BoostedLane initial=\{boost \?\? \{ enabled: false \}\}/);
+  assert.match(landing, /chain === BOOST_CHAIN \? <div className="mt-14 empty:hidden"><BoostedLane initial=\{boost \?\? \{ enabled: false \}\} serverNow=\{now\} source="base" \/>/);
 });
 
 test("a write that changes the lane makes the next read fresh", () => {
@@ -191,4 +195,59 @@ test("CodeRabbit round 1: the done screen, admin errors and the agent formula", 
   // agents get the bounds the decoder enforces (isLaunchTag: 0 < tag < 10^11; whole TWIG >= the floor)
   assert.match(llms, /whole = a count of whole TWIG, at least \$\{BOOST_FLOOR_TWIG\}/);
   assert.match(llms, /greater than 0 and less than 10\^11/);
+});
+
+test("the whole card opens the token; only the burn link sits above it as its own target", () => {
+  // the token link's ::after covers the card (LaunchCard's pattern), and keyboard focus rings the whole card
+  assert.match(lane, /className="flex min-w-0 items-center gap-2\.5 pr-5 outline-none after:absolute after:inset-0 after:z-\[1\] focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand"/);
+  assert.match(lane, /<a href=\{explorerTx\(l\.chain, b\.last_tx\)\} target="_blank" rel="noreferrer" className="relative z-\[2\] /);
+  // one link per card: no link wraps the card, and the stats tooltip moved onto the link that covers it
+  assert.equal((lane.match(/<Link\b/g) ?? []).length, 1);
+  assert.match(lane, /<Link\n\s*href=\{`\/t\/\$\{l\.chain\}\/\$\{l\.token\}`\}\n\s*title=\{`\$\{b\.boosts\}/);
+  // the decorations never take a click
+  for (const m of lane.matchAll(/<span aria-hidden="true" className="([^"]*absolute inset-[^"]*)"/g)) assert.match(m[1], /pointer-events-none/, m[1]);
+});
+
+test("a hover is only ever the visitor's doing, and reduced motion keeps only colour", () => {
+  assert.match(lane, /className=\{`group\/card relative flex min-w-0 flex-col gap-2 bg-card px-4 pb-3\.5 pt-3 transition-colors duration-150 hover:bg-\[/);
+  // movement (the avatar's scale, the arrow's slide) only with motion allowed; colour and the edge stay for everyone
+  assert.match(lane, /motion-safe:group-hover\/card:scale-105/);
+  assert.match(lane, /motion-safe:-translate-x-0\.5 motion-safe:translate-y-0\.5 motion-safe:group-hover\/card:translate-x-0/);
+  assert.doesNotMatch(lane, /(?<!motion-safe:)group-hover\/card:(scale|translate)/);
+  // a hover never starts a looping animation or replays the ignition
+  assert.doesNotMatch(lane, /hover[^"\s]*:(animate|bb-)/);
+});
+
+test("the lane counts one view per page and each card click, sent without holding up the click", () => {
+  assert.match(lane, /navigator\.sendBeacon\?\.\("\/api\/boost\/seen", data\)/);
+  assert.match(lane, /void fetch\("\/api\/boost\/seen", \{ method: "POST", body: data, keepalive: true \}\)\.catch\(\(\) => \{\}\);/);
+  // a click (and a middle click, which fires no click event) reports the card's token
+  assert.match(lane, /setPendingToken\([^\n]*\);\n\s*sendSeen\(\{ kind: "click", token: l\.token \}, source\);/);
+  assert.match(lane, /if \(e\.button === 1\) sendSeen\(\{ kind: "click", token: l\.token \}, source\);/);
+  // the view: once per mount, when the lane with cards in it is on screen
+  assert.match(lane, /if \(viewed\.current \|\| !entries\.some\(\(e\) => e\.isIntersecting\)\) return;\n\s*viewed\.current = true;\n\s*io\.disconnect\(\);\n\s*sendSeen\(\{ kind: "view" \}, source\);/);
+  assert.equal((lane.match(/sendSeen\(/g) ?? []).length, 4, "the helper, the view, the click, the middle click");
+});
+
+test("a click counts only while the token is in the lane, at the server's place, once per visitor and slot", () => {
+  const body = server.slice(server.indexOf("export async function recordBoostSeen("), server.indexOf("export type BoostStatsRow"));
+  assert.match(body, /^export async function recordBoostSeen\(seen: BoostSeen, visitorHash: string, ethUsdNow: number \| null\): Promise<boolean> \{\n\s*if \(!boostEnabled\(\)\) return false;/);
+  assert.match(body, /const place = boostPlace\(lane, seen\.token\);\n\s*if \(place === null\) return false;/);
+  assert.match(body, /ON CONFLICT DO NOTHING RETURNING 1/);
+  assert.doesNotMatch(body, /seen\.place|seen\.source === /, "nothing but the token and the source come from the request");
+  // the lane is the one pages show (same cache), minus a boost that ran out since
+  assert.match(server, /const lane = await boostLaneOrNull\(ethUsdNow\);\n\s*if \(!lane\?\.enabled\) return \[\];/);
+  assert.match(server, /lane\.items\.filter\(\(b\) => boostTimeLeft\(b\.last_at, now\) !== null\)\.map\(\(b\) => b\.token\)/);
+  // no address, wallet or raw presence hash is stored: the visitor is the daily hash mixed with the token
+  assert.match(server, /createHash\("sha256"\)\.update\(`\$\{visitorHash\}\|\$\{token\}`\)\.digest\("hex"\)\.slice\(0, 32\)/);
+  assert.match(seenRoute, /await recordBoostSeen\(seen, visitorHash\(ip, ua\), await ethUsd\(\)\);/);
+  assert.match(seenRoute, /return new NextResponse\(null, \{ status: 204 \}\);\n\}/);
+});
+
+test("views and clicks are read by the admin figures alone, behind an admin wallet", () => {
+  const users = walk(path.resolve(import.meta.dirname, "../..")).filter((f) => !f.endsWith(".test.ts") && /bb_boost_(clicks|views)/.test(readFileSync(f, "utf8")));
+  assert.deepEqual(users.map((f) => path.basename(f)), ["boostServer.ts"]);
+  assert.ok(statsRoute.indexOf('if (!adminWallets().has(wallet)) return NextResponse.json({ error: "admin only" }, { status: 403 });') < statsRoute.indexOf("getBoostStats("));
+  assert.match(statsRoute, /if \(!isBoostStatsDays\(days\)\) return NextResponse\.json\(\{ error: "bad days" \}, \{ status: 400 \}\);/);
+  assert.match(admin, /\{address \? <LaneStats wallet=\{address\} \/> : null\}/);
 });

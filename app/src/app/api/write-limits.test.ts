@@ -19,6 +19,7 @@ for (
     { file: "./launch/sync/route.ts", bucket: "sync:ip", mustPrecede: "pollAll()" },
     { file: "./launch/meta/route.ts", bucket: "meta:ip", mustPrecede: "req.json()" },
     { file: "./presence/route.ts", bucket: "presence:ip", mustPrecede: "recordBeacon(" },
+    { file: "./boost/seen/route.ts", bucket: "boost-seen:ip", mustPrecede: "readJson(" },
   ]
 ) {
   test(`${file} rate-limits by IP before doing work`, () => {
@@ -42,4 +43,11 @@ test("sync still validates tx/chain shapes with 400s", () => {
   const src = source("./launch/sync/route.ts");
   assert.match(src, /\{\s*error:\s*"bad tx"\s*\},\s*\{\s*status:\s*400\s*\}/);
   assert.match(src, /\{\s*error:\s*"bad chain"\s*\},\s*\{\s*status:\s*400\s*\}/);
+});
+
+test("the Boosted lane beacon skips bots before the limiter, and caps its body", () => {
+  const src = source("./boost/seen/route.ts");
+  assert.ok(src.indexOf("looksLikeBot(ua)") < src.indexOf("rateLimited(`boost-seen:ip"), "bot beacons never touch the limiter or the DB");
+  assert.ok(src.indexOf("rateLimited(`boost-seen:ip") < src.indexOf("recordBoostSeen("));
+  assert.match(src, /parseBoostSeen\(await readJson\(req, 512\)\)/);
 });

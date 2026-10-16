@@ -35,6 +35,21 @@ amount = whole TWIG × 10^18 + the launch's position id
 
 Nothing in the lane moves on its own, the same rule as the Trending board above it. Each card has a **fuse**: a thin warm line along its bottom edge whose length is the share of its 24 hours still left, stepped with the card's 30-second clock. When a poll shows a card with more TWIG than before and a boost under 3 minutes old (`boostIgnitions`), the card **lights up** once: a warm inset ring, the amount rolling up to its new total, and a few embers rising from it. A token that only moved up because another expired stays still. Places change with a short slide. With reduced motion only the colour ring plays: no embers, no roll, no slide.
 
+The whole card opens the token (the name link's `::after` covers it; only "Latest burn" sits above as its own link). A hover is the visitor's own doing, so it may move: the card warms, a still warm edge and an arrow show, the avatar grows a little and the fuse brightens. It applies only under a pointer that hovers (no stuck hover on phones, where a tap shows a pressed shade), and with reduced motion only the colours change.
+
+## Views and clicks
+
+The lane counts how often it is seen and how often its cards are opened, to tell whether a place in it brings visitors. The figures are for /admin only (a "Views and clicks" table under the Boosted lane, 24 h / 7 d / 30 d), and nothing in the ranking reads them (`boost-ui.test.ts`).
+
+- **A view** is a page load that brought the lane, with cards in it, a third on screen: one beacon per page, and the server adds 1 to this hour of every token in the lane then (`bb_boost_views`).
+- **A click** is a card opened by a click, a Cmd/Ctrl-click or a middle click. It counts **only while the token is in the lane**: the server checks the token against the same few-second lane the pages read, takes its place from there (never from the request), and a tab left open after the boost ran out counts nothing. One click per visitor, token and 30-minute slot, so a reload or a double click counts once (`bb_boost_clicks`).
+- The beacon is `POST /api/boost/seen` (`navigator.sendBeacon`, so it never holds up the navigation). Bots are skipped, each IP has 60 a minute, the body is capped at 512 bytes, and the answer is a 204 either way.
+- **Nothing names a person.** The visitor is the presence hash (sha256 of IP, user agent and a daily salt, see `presence.ts`) mixed with the token and cut short: it changes every UTC day and cannot link one person's clicks on two tokens. No IP, user agent or wallet is stored. "Visitors" in the table is one per person per day.
+- **Set `PRESENCE_SALT`** (any long random string, `fly secrets set PRESENCE_SALT=$(openssl rand -hex 32)`) so every machine salts the same way. Without it each machine draws its own salt at start, so a repeat click that lands on the other machine counts again, and a restart starts new visitors (the site's visit counter has the same gap).
+- `GET /api/boost/stats?wallet=<admin>&days=1|7|30` serves the table: per token, views, clicks, visitors, the click rate, and the TWIG burned for it in the period with the clicks per 100K TWIG.
+
+A script with rotating user agents behind many IPs can still add clicks; the figures are a guide for decisions, not a payout, and nothing is paid or ranked on them.
+
 ## The dialog
 
 On a Base token page (or from **Boost** on a launch in /me, which opens it there): whole TWIG only, presets 100K / 300K / 1M / 5M, the balance, Max (tag included), an estimate in dollars at today's TWIG price, and the last digits the amount will carry. It states plainly that the TWIG goes to 0x…dEaD, cannot be undone or refunded, and counts toward the token's place in the lane for 24 hours without changing the ranking. When the lane is full and the amount would leave the token under the 5th place, the dialog says so before anything is sent and offers the amount that would show it now. The done screen names the token's place, or says it is not in the lane yet.
@@ -62,4 +77,14 @@ On an anvil fork of Base, a wallet with TWIG can boost any launch the local data
 ```sql
 SELECT date_trunc('week', block_time) AS wk, count(*) AS boosts, count(DISTINCT booster) AS boosters, sum(amount) / 1e18 AS twig
   FROM bb_boosts WHERE chain_id = 8453 GROUP BY 1 ORDER BY 1 DESC;
+```
+
+Lane views and clicks per week:
+
+```sql
+SELECT wk, sum(views) AS views, sum(clicks) AS clicks, round(100.0 * sum(clicks) / NULLIF(sum(views), 0), 1) AS click_pct FROM (
+  SELECT date_trunc('week', hour_at) AS wk, views, 0 AS clicks FROM bb_boost_views WHERE chain_id = 8453
+  UNION ALL
+  SELECT date_trunc('week', clicked_at), 0, 1 FROM bb_boost_clicks WHERE chain_id = 8453
+) x GROUP BY wk ORDER BY wk DESC;
 ```
