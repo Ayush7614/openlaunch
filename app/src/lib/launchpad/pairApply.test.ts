@@ -109,7 +109,7 @@ test("messages: the application's fields are what is signed, and the price line 
   const src0 = { price_kind: "univ4", price_pool: "0xPOOL", price_quote: "0xQUOTE", price_hook: "0xHOOK" };
   assert.equal(sourceLabel(src0), "univ4 0xpool against 0xquote (hook 0xhook)");
   const admin = buildPairAdminMessage({ action: "list", chain: "base", address: "0x1", wallet: "0x2", nonce: "n", ts: 0, listing: { logo: "", website: "", x_handle: "", description: "", price_kind: "univ4", price_pool: "0xPOOL", price_quote: "0xQUOTE", price_hook: "0xHOOK" } });
-  assert.match(admin, new RegExp(`Price: ${sourceLabel(src0).replace(/[()]/g, "\\$&")}`));
+  assert.ok(admin.split("\n").includes(`Price: ${sourceLabel(src0)}`), admin);
   assert.equal(
     buildPairApplyMessage({ action: "apply", chain: "base", address: "0xAA", wallet: "0xBB", nonce: "0123456789abcdef0123456789abcdef", ts: Date.UTC(2026, 9, 16), source: "univ3 0xp against 0xq", website: "https://noice.so", x_handle: "noicedotso", logo: "", description: "Noice." }),
     ["openlaunch.lol community pair application", "", "Action: apply", "Token: base:0xaa", "Price pool: univ3 0xp against 0xq", "Website: https://noice.so", "X: noicedotso", "Logo: -", "About: Noice.", "Wallet: 0xbb", "Nonce: 0123456789abcdef0123456789abcdef", "Issued: 2026-10-16T00:00:00.000Z"].join("\n"),
