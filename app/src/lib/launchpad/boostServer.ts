@@ -49,7 +49,7 @@ export type BoostLaneItem = LaneTotals & { expires_at: string; launch: LaunchRow
 export type BoostLane = { enabled: false } | { enabled: true; window_h: number; floor_twig: string; items: BoostLaneItem[]; names?: Record<string, NameEntry | null> };
 export type TokenBoost =
   | { enabled: false }
-  | { enabled: true; hidden: boolean; twig: string; boosts: number; boosters: number; last_at: string | null; last_tx: string | null; expires_at: string | null; place: number | null; entry: LaneEntry };
+  | { enabled: true; hidden: boolean; twig: string; boosts: number; boosters: number; last_at: string | null; last_tx: string | null; expires_at: string | null; place: number | null; entry: LaneEntry; clicks?: number };
 
 const RAW_FLOOR = (BOOST_FLOOR_TWIG * 10n ** 18n).toString();
 const LANE_TTL_MS = 5_000;
@@ -188,14 +188,18 @@ export async function boostLaneOrNull(ethUsd: number | null): Promise<BoostLane 
   return { ...lane, items: lane.items.filter((b) => boostTimeLeft(b.last_at, now) !== null) };
 }
 
-/** One token's boost state for its page: TWIG inside the window, its place in the lane (1-based) and whether an admin hid it. */
+/**
+ * One token's boost state for its page: TWIG inside the window, its place in the lane (1-based), whether an admin hid
+ * it, and its clicks from the lane in the same 24 hours (the panel shows them from BOOST_PANEL_CLICKS_MIN up). `clicks`
+ * is optional for readers: a machine on an older build answers without it while a deploy rolls.
+ */
 export async function getTokenBoost(token: string): Promise<TokenBoost> {
   if (!boostEnabled()) return { enabled: false };
   const db = maybeDb();
   const t = token.toLowerCase();
-  const none = { enabled: true as const, hidden: false, twig: "0", boosts: 0, boosters: 0, last_at: null, last_tx: null, expires_at: null, place: null, entry: { full: false, cutoff: null } };
+  const none = { enabled: true as const, hidden: false, twig: "0", boosts: 0, boosters: 0, last_at: null, last_tx: null, expires_at: null, place: null, entry: { full: false, cutoff: null }, clicks: 0 };
   if (!db) return none;
-  const [[row], [setting], ranked] = await Promise.all([
+  const [[row], [setting], ranked, [seen]] = await Promise.all([
     db<{ twig: string; boosts: number; boosters: number; last_at: string | null; last_tx: string | null }[]>`
       SELECT COALESCE(sum(b.amount), 0)::text AS twig, count(*)::int AS boosts, count(DISTINCT b.booster)::int AS boosters,
              max(b.block_time) AS last_at,
@@ -207,6 +211,14 @@ export async function getTokenBoost(token: string): Promise<TokenBoost> {
          AND b.amount >= ${RAW_FLOOR}::numeric`,
     db<{ boost_hidden: boolean }[]>`SELECT boost_hidden FROM bb_token_settings WHERE chain_id = ${BOOST_CHAIN_ID} AND token = ${t}`,
     rankedLane(),
+    // the lane's own window; a failed count shows no clicks line, never a panel that fails
+    db<{ clicks: number }[]>`
+      SELECT count(*)::int AS clicks FROM bb_boost_clicks
+       WHERE chain_id = ${BOOST_CHAIN_ID} AND token = ${t}
+         AND clicked_at > now() - make_interval(hours => ${BOOST_WINDOW_H})`.catch((err) => {
+      console.warn("[boost] token clicks read failed:", err instanceof Error ? err.message : err);
+      return [{ clicks: 0 }];
+    }),
   ]);
   const i = ranked.findIndex((r) => r.token === t);
   return {
@@ -220,6 +232,7 @@ export async function getTokenBoost(token: string): Promise<TokenBoost> {
     expires_at: row?.last_at ? new Date(boostExpiresAt(row.last_at)).toISOString() : null,
     place: i >= 0 && i < BOOST_LANE_SIZE ? i + 1 : null,
     entry: laneEntry(ranked),
+    clicks: seen?.clicks ?? 0,
   };
 }
 

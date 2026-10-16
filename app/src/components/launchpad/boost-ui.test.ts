@@ -382,3 +382,37 @@ test("a card credits the wallet that sent the most TWIG for it; a failed read sh
   assert.match(body, /\} catch \(err\) \{\n\s*console\.warn\("\[boost\] lane boosters read failed:"[^\n]*\n\s*return new Map\(\);/);
   assert.match(lane, /\{b\.top_booster \? \(/);
 });
+
+const liveRouteSrc = read("../../app/api/launch/live/route.ts");
+
+test("the token page shows what the lane brought: clicks in the same 24 hours, from 10 up, only while boosted", () => {
+  assert.match(panel, /const clicks = state\.clicks \?\? 0;/);
+  assert.match(panel, /\{active && clicks >= BOOST_PANEL_CLICKS_MIN \? \(/);
+  assert.match(panel, /clicks from the lane in the last 24 hours/);
+  const body = server.slice(server.indexOf("export async function getTokenBoost("), server.indexOf("/* ─────────────────────────────── views and clicks"));
+  assert.match(body, /SELECT count\(\*\)::int AS clicks FROM bb_boost_clicks\n\s*WHERE chain_id = \$\{BOOST_CHAIN_ID\} AND token = \$\{t\}\n\s*AND clicked_at > now\(\) - make_interval\(hours => \$\{BOOST_WINDOW_H\}\)`\.catch\(/);
+  assert.match(body, /return \[\{ clicks: 0 \}\];/, "a failed count is no line, never a panel that fails");
+});
+
+test("after a confirmed boost the booster can share it on X: its own post, in a new tab", () => {
+  const done = dialog.slice(dialog.indexOf('{phase.k === "done" ? ('), dialog.indexOf(") : ("));
+  assert.match(done, /<a href=\{boostShareUrl\(symbol, boostAmount\(phase\.whole, tag\), `\$\{SITE_URL\}\/t\/\$\{BOOST_CHAIN\}\/\$\{token\}`\)\} target="_blank" rel="noreferrer" className=\{btn\.secondarySm\}>Share on X/);
+  assert.equal((dialog.match(/boostShareUrl\(/g) ?? []).length, 1, "only on the done screen");
+});
+
+test("the agents' notes name the lane's fields as they are", () => {
+  assert.match(llms, /\(the lane: twig, boosts, last_at, expires_at, clicks, top_booster, launch; names\)/);
+  assert.doesNotMatch(llms, /launch; entry\)/);
+});
+
+test("a list's first page with no wallet filter shares the live poll's few-second memo; paged and per-wallet reads never do", () => {
+  assert.match(list, /const page = offset === 0 && !launcher \? await memo\(listPageKey\(opts\), 2_000, \(\) => listLaunchesPage\(opts\)\) : await listLaunchesPage\(opts\);/);
+  assert.match(liveRouteSrc, /listOpts \? memo\(listPageKey\(listOpts\), 2_000, \(\) => listLaunchesPage\(listOpts\)\)/);
+  assert.match(queries, /export function listPageKey\(o: Pick<ListOpts, "sort" \| "window" \| "chain" \| "filter" \| "limit">\): string \{\n\s*return `list:\$\{o\.chain \?\? "all"\}:\$\{o\.sort\}:\$\{o\.window\}:\$\{o\.filter \?\? "-"\}:\$\{o\.limit\}`;/);
+});
+
+test("a token hidden from the admin panel stays out of its list past both machines' lane caches", () => {
+  assert.match(admin, /const JUST_HIDDEN_MS = 15_000;/);
+  assert.match(admin, /lane\.items\.filter\(\(b\) => !justHidden\.has\(b\.token\)\)\.map\(/);
+  assert.match(admin, /if \(action === "hide"\) next\.add\(t\);\n\s*else next\.delete\(t\);/);
+});

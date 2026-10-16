@@ -308,6 +308,14 @@ export type ListPage = { items: LaunchRow[]; hasMore: boolean };
  * Outside tier 0 a launcher keeps only its newest row, and that row carries how many of its siblings were folded
  * (`launcher_collapsed`). The tier travels with the row (`live_tier`) so the client never recomputes it.
  */
+/**
+ * The few-second memo key for a list's first page, shared by the live poll (api/launch/live) and api/launch/list, so
+ * the same view asked through either is one query. Callers memoize only a first page with no wallet filter.
+ */
+export function listPageKey(o: Pick<ListOpts, "sort" | "window" | "chain" | "filter" | "limit">): string {
+  return `list:${o.chain ?? "all"}:${o.sort}:${o.window}:${o.filter ?? "-"}:${o.limit}`;
+}
+
 export async function listLaunchesPage(opts: ListOpts = {}): Promise<ListPage> {
   const db = maybeDb();
   if (!db) return { items: [], hasMore: false };

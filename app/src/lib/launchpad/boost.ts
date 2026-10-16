@@ -13,6 +13,7 @@
  */
 import { TWIG_ADDRESS, TWIG_DECIMALS, TWIG_SYMBOL } from "./twig.ts";
 import { CHAIN_IDS } from "../chainKeys.ts";
+import { BRAND_DOMAIN, BRAND_X } from "../brand.ts";
 
 /** Boosts exist on Base only: TWIG has not been bridged anywhere. */
 export const BOOST_CHAIN = "base" as const;
@@ -237,6 +238,24 @@ export function topBoosters(rows: readonly BoosterTotal[]): Map<string, string> 
     if (d > 0n || (d === 0n && (t > 0 || (t === 0 && r.booster < cur.booster)))) best.set(r.token, r);
   }
   return new Map([...best].map(([token, r]) => [token, r.booster]));
+}
+
+/* ─────────────────────────────── results and sharing ─────────────────────────────── */
+
+/** The token page shows its clicks from the lane once there are this many: a fresh boost never reads "3 clicks". */
+export const BOOST_PANEL_CLICKS_MIN = 10;
+
+/**
+ * The post a booster can share once a boost is confirmed: what was sent and where it went, nothing about price. True
+ * whether or not the boost brought the token into the lane yet.
+ */
+export function boostShareText(symbol: string, raw: bigint | string): string {
+  return `Boosted $${symbol} with ${fmtBoostTwig(raw)} on ${BRAND_DOMAIN}. The TWIG went to 0x…dEaD.`;
+}
+
+/** The X intent for that post: the token's page as its link, via the official account (the token page's Share uses the same intent). */
+export function boostShareUrl(symbol: string, raw: bigint | string, pageUrl: string): string {
+  return `https://x.com/intent/post?text=${encodeURIComponent(boostShareText(symbol, raw))}&url=${encodeURIComponent(pageUrl)}&via=${BRAND_X}`;
 }
 
 /* ─────────────────────────────── views and clicks ─────────────────────────────── */
