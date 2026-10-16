@@ -31,7 +31,7 @@ export default async function PairsPage() {
   return (
     <main className={shell.page}>
       <SectionIntro eyebrow="Launchpad" title={PAIR_COPY.indexTitle} description={PAIR_COPY.indexLead}>
-        <Link href="/launch" className={shell.action}>Launch a token <ArrowRight size={15} aria-hidden="true" /></Link>
+        <Link href="/rules" className={shell.textLink}>How launches work <ArrowRight size={14} aria-hidden="true" /></Link>
       </SectionIntro>
       <section className={`${shell.anchorSection} mt-10`} aria-labelledby="pairs-listed">
         <h2 id="pairs-listed" className="font-display text-2xl font-bold tracking-tight text-ink">Listed</h2>
@@ -39,14 +39,15 @@ export default async function PairsPage() {
         <ul className="mt-6 grid gap-3 sm:grid-cols-2">
           {listed.map((p) => <PairCard key={`${p.chain}:${p.address}`} p={p} s={stats.get(`${p.chain}:${p.address}`)} />)}
         </ul>
+        <p className="mt-6 text-sm text-muted">{PAIR_COPY.noForm}</p>
         {applicationsOpen() ? (
-          <p className="mt-6 text-sm text-body">
+          <p className="mt-2 text-sm text-body">
             Your community&apos;s token here?{" "}
             <Link href="/pairs/apply" className="font-semibold text-brand hover:text-ink">Check it for free and apply →</Link>{" "}
             <span className="text-muted">The fee is ${pairListingUsd()} in TWIG, burned, for a review.</span>
           </p>
         ) : (
-          <p className="mt-6 text-sm text-muted">{PAIR_COPY.applySoon}</p>
+          <p className="mt-2 text-sm text-muted">{PAIR_COPY.applySoon}</p>
         )}
       </section>
       {suspended.length ? (
@@ -87,8 +88,7 @@ function PairCard({ p, s }: { p: PairPublic; s: PairStats | undefined }) {
       </dl>
       {p.status === "suspended" && p.status_reason ? <p className="mt-3 text-xs text-warm-ink">{p.status_reason}</p> : null}
       <div className="mt-4 flex flex-wrap gap-3 text-sm">
-        {p.status === "listed" && p.in_form ? <Link href={`/launch?chain=${p.chain}&quote=${p.address}`} className="font-semibold text-brand hover:text-ink">{PAIR_COPY.launchWith(p.symbol)} →</Link> : null}
-        <Link href={pairPath(p.chain, p.address)} className="text-muted hover:text-ink">Checks and record</Link>
+        <Link href={pairPath(p.chain, p.address)} className="font-semibold text-brand hover:text-ink">Launches, checks and record →</Link>
       </div>
     </li>
   );

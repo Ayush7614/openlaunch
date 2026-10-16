@@ -153,7 +153,7 @@ test("admin message: its own wording, and every listing field the server stores 
     wallet: "0xABCDEF0000000000000000000000000000000001",
     nonce: "0123456789abcdef0123456789abcdef",
     ts: Date.UTC(2026, 9, 16, 12),
-    listing: { logo: "", website: "https://noice.so", x_handle: "noicedotso", description: "Noice.", in_form: true, price_kind: "univ3", price_pool: "0xPOOL", price_quote: "0x4200000000000000000000000000000000000006", price_hook: "" },
+    listing: { logo: "", website: "https://noice.so", x_handle: "noicedotso", description: "Noice.", price_kind: "univ3", price_pool: "0xPOOL", price_quote: "0x4200000000000000000000000000000000000006", price_hook: "" },
   });
   assert.equal(
     m,
@@ -163,7 +163,6 @@ test("admin message: its own wording, and every listing field the server stores 
       "Action: list",
       "Pair: base:0x9cb41fd9dc6891bae8187029461bfaadf6cc0c69",
       "Price: univ3 0xpool against 0x4200000000000000000000000000000000000006",
-      "In the launch form: yes",
       "Logo: -",
       "Website: https://noice.so",
       "X: noicedotso",
@@ -201,7 +200,7 @@ test("resolution: only a LISTED pair gets the pair key, a price and a badge; any
 
 test("MUSEWORLD: the first pair, seeded by the schema, with no special case left in code", () => {
   const schema = src("../../../db/schema.sql");
-  assert.match(schema, new RegExp(`VALUES \\(8453, '${MUSEWORLD}', 'MUSEWORLD', 'Museworld', 18, '/museworld-mark\\.png'[\\s\\S]*?'listed', true, 'launch',\\s*'${MUSEWORLD}', '${GITLAWB}'\\)\\s*ON CONFLICT \\(chain_id, address\\) DO NOTHING;`));
+  assert.match(schema, new RegExp(`VALUES \\(8453, '${MUSEWORLD}', 'MUSEWORLD', 'Museworld', 18, '/museworld-mark\\.png'[\\s\\S]*?'listed', 'launch',\\s*'${MUSEWORLD}', '${GITLAWB}'\\)\\s*ON CONFLICT \\(chain_id, address\\) DO NOTHING;`));
   assert.ok(existsSync(path.join(import.meta.dirname, "../../../public/museworld-mark.png")), "its seeded logo is served from public/");
   assert.equal(quoteInfo("base", MUSEWORLD).key, "other", "the static config no longer knows it: the server's pair list does");
   assert.ok(!listedQuoteAddresses("base").includes(MUSEWORLD));
@@ -209,6 +208,15 @@ test("MUSEWORLD: the first pair, seeded by the schema, with no special case left
   assert.deepEqual(MCAP_PRESETS.pair, []);
   for (const fake of ["MUSEWORLD", "$MUSEWORLD", "MUSEWORLD2"]) assert.equal(cleanQuoteSymbol(fake), null, `${fake}: a copy shows by address`);
   assert.equal(existsSync(path.join(import.meta.dirname, "museworld.ts")), false);
+});
+
+test("never in the launch form: the form offers ETH, TWIG and stocks; pairs are listed, priced and badged only", () => {
+  const form = src("../../components/launchpad/LaunchForm.tsx");
+  assert.doesNotMatch(form, /PairPublic|isPairChain|"pair"|Community/, "the form has no community pair option");
+  assert.doesNotMatch(src("../../app/launch/page.tsx"), /loadPairs|quote\?:/, "the launch page neither loads pairs nor takes ?quote=");
+  for (const f of ["../../app/pairs/page.tsx", "../../app/pair/[chain]/[address]/page.tsx"]) assert.doesNotMatch(src(f), /\/launch\?[^"`]*quote=/, f);
+  assert.match(src("pairs.ts"), /noForm: "The launch form offers ETH, TWIG and stocks only\./);
+  assert.doesNotMatch(src("../../../db/schema.sql"), /in_form/);
 });
 
 test("words: no seal, no 'official', no value talk, in the badge, the copy, the token page and the share card", () => {

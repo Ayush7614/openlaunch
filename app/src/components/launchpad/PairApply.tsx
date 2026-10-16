@@ -83,6 +83,7 @@ export default function PairApply({ feeUsd }: { feeUsd: number }) {
   return (
     <div className="space-y-5">
       <div className={`${card} space-y-3 p-5`}>
+        <p className="text-sm text-body">{PAIR_APPLY_COPY.whatYouGet}</p>
         <p className="text-sm text-body">{PAIR_APPLY_COPY.feeRule(feeUsd)}</p>
         <p className={helper}>{PAIR_APPLY_COPY.precheckFirst}</p>
       </div>

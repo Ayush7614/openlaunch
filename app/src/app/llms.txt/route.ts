@@ -89,11 +89,12 @@ holder and no price move reads as dead on screeners and sits under "quiet launch
 
 ${boostSection()}
 ## Community pairs (Base)
-Besides ETH and TWIG, a launch may be paired with a listed community token: the site badges it, prices it in USD from one named pool
-(checked against that pool's 30-minute average) and offers it in the launch form. The contracts accept any ERC-20 either way; an
-unlisted one shows as "Unlisted pair", unpriced. Each listing is checked hourly and suspended when its checks fail.
+A launch may be paired with a listed community token: the site badges it and prices it in USD from one named pool (checked against
+that pool's 30-minute average). The launch form does not offer them (ETH, TWIG and stocks only): such a launch is made against the
+factory directly. The contracts accept any ERC-20 either way; an unlisted one shows as "Unlisted pair", unpriced. Each listing is
+checked hourly and suspended when its checks fail.
 - GET  ${SITE_URL}/api/pairs                                        (every pair: address, symbol, decimals, status, usd, price source)
-Pages: /pairs, /pair/base/<address>. Launch with one exactly as with any ERC-20 quote (findSalt with the pair's address).
+Pages: /pairs, /pair/base/<address>. Launch with one against the factory exactly as with any ERC-20 quote (findSalt with the pair's address).
 Listing is applied for at /pairs/apply (a free check, then a fee in TWIG sent to 0x…dEaD naming the application: amount = whole TWIG × 10^18
 + 3 × 10^11 + application id; it pays for a review, not a listing, and is not refunded). Rules: https://github.com/Twigpine/openlaunch/blob/main/docs/pairs.md
 

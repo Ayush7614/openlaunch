@@ -106,7 +106,7 @@ test("badge: Twigpine tile in every list, the form, the token page and the share
   const form = src("../../components/launchpad/LaunchForm.tsx");
   assert.match(form, /const brandQuote = cfg\.quotes\.find\(\(q\) => q\.key === "twig"\) \?\? cfg\.quotes\.find\(\(q\) => q\.key === "gitlawb"\) \?\? null;/, "TWIG is the nudge wherever the form offers it");
   assert.match(form, /Pair with \{brandQuote\.symbol\}, get the <QuoteBrandBadge quoteKey=\{brandQuote\.key\} \/> badge/);
-  assert.match(form, /<QuoteBrandBadge quoteKey=\{quote\.key\} symbol=\{quote\.symbol\} logo=\{quote\.logo \?\? null\} size="md" \/>/);
+  assert.match(form, /<QuoteBrandBadge quoteKey=\{quote\.key\} size="md" \/>/);
   assert.match(src("../../app/t/[chain]/[token]/page.tsx"), /<TwigBadge label="Paired with TWIG" \/>/);
   assert.deepEqual(quotePillOf("twig", "TWIG"), { symbol: "TWIG", ticker: "TW", kind: "twig" });
   assert.match(src("../../app/t/[chain]/[token]/opengraph-image.tsx"), /card\.quote\.kind === "twig"/);

@@ -1,6 +1,6 @@
 # Community pairs
 
-A launch can be paired with any ERC-20: the factory has no allowlist and never will. **Community pairs** are the site's list of community tokens it badges, prices in USD and offers in the launch form. A token that is not on the list still trades; it shows as an "Unlisted pair", with no USD price, and stays out of Trending.
+A launch can be paired with any ERC-20: the factory has no allowlist and never will. **Community pairs** are the site's list of community tokens it badges and prices in USD. They are never offered in the launch form, which offers ETH, TWIG and stocks only: a launch paired with a community token is made against the factory by the community's own tools or agents (findSalt with the pair's address, then `launch`). A token that is not on the list still trades; it shows as an "Unlisted pair", with no USD price, and stays out of Trending.
 
 Pages: `/pairs` (the list), `/pair/base/<address>` (one pair: its price source, what is checked, its public record, its launches), `/pairs/apply` (the free check and the application), `/pairs/apply/<id>` (one application). API: `GET /api/pairs`.
 
@@ -8,7 +8,7 @@ Pages: `/pairs` (the list), `/pair/base/<address>` (one pair: its price source, 
 
 - The community's badge (its logo and symbol, a neutral pill, never a seal) everywhere a paired launch shows, and on the share card ("community pair · priced in X").
 - A USD price, so paired launches show market caps and volume in dollars and can reach Trending.
-- A place in the Base launch form ("Community"), unless the listing is marked out of the form. `/launch?chain=base&quote=<address>` preselects it.
+- Not a place in the launch form.
 - Points count a pair only when it is priced from an openlaunch pool (its own launch), as MUSEWORLD is.
 - Nothing in the ranking: the Live sort counts outside wallets, as for every launch.
 

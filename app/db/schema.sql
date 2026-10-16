@@ -498,7 +498,6 @@ CREATE TABLE IF NOT EXISTS bb_pairs (
   status_by     text NOT NULL DEFAULT 'admin' CHECK (status_by IN ('admin', 'monitor')),
   status_reason text,
   status_at     timestamptz NOT NULL DEFAULT now(),
-  in_form       boolean NOT NULL DEFAULT true,
   price_kind    text NOT NULL CHECK (price_kind IN ('launch', 'univ3', 'univ4')),
   price_pool    text NOT NULL,                              -- launch: the launched token; univ3: the pool; univ4: the pool id
   price_quote   text NOT NULL,                              -- the core quote on the pool's other side (lowercase)
@@ -531,9 +530,9 @@ CREATE TABLE IF NOT EXISTS bb_pair_prices (
   PRIMARY KEY (chain_id, address, t)
 );
 -- MUSEWORLD was an "official" quote in code until this list existed; it is the first community pair, under the same rules.
-INSERT INTO bb_pairs (chain_id, address, symbol, name, decimals, logo_url, website, x_handle, description, status, in_form, price_kind, price_pool, price_quote)
+INSERT INTO bb_pairs (chain_id, address, symbol, name, decimals, logo_url, website, x_handle, description, status, price_kind, price_pool, price_quote)
 VALUES (8453, '0x882c8e35504d58979b1280fe76d6553f717029f8', 'MUSEWORLD', 'Museworld', 18, '/museworld-mark.png', 'https://museworld.lol', 'museworldhq',
-        'Museworld''s token. Museworld''s AI agents launch their tokens paired with it.', 'listed', true, 'launch',
+        'Museworld''s token. Museworld''s AI agents launch their tokens paired with it.', 'listed', 'launch',
         '0x882c8e35504d58979b1280fe76d6553f717029f8', '0x5f980dcfc4c0fa3911554cf5ab288ed0eb13dba3')
 ON CONFLICT (chain_id, address) DO NOTHING;
 INSERT INTO bb_pair_events (chain_id, address, status, reason, actor)

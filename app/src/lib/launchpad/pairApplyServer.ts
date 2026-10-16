@@ -144,7 +144,7 @@ export async function applicantAction(b: Record<string, unknown>): Promise<{ ok:
   if (!isNonce(b.nonce) || !tsFresh(b.ts, Date.now())) return fail("stale or bad nonce", 400);
   const id = action === "apply" ? undefined : Number(b.id);
   if (id !== undefined && !(Number.isSafeInteger(id) && id > 0)) return fail("bad application", 400);
-  const parsed = action === "apply" ? readListing({ ...b, in_form: true }) : null;
+  const parsed = action === "apply" ? readListing(b) : null;
   if (parsed && !parsed.ok) return parsed;
   const l = parsed?.ok ? parsed.listing : null;
   const proof = action === "proof" ? proofPostUrl(typeof b.proof === "string" ? b.proof : "") : null;
@@ -317,7 +317,7 @@ export async function reviewApplication(b: Record<string, unknown>): Promise<{ o
   const claimed = await db`UPDATE bb_pair_applications SET status = ${status}, reviews_used = ${used}, reason = ${reason || null}, decided_by = ${wallet}, decided_at = now() WHERE id = ${id} AND status = ${app.status} RETURNING id`;
   if (claimed.length === 0) return fail("this application changed meanwhile: reload", 409);
   if (decision === "approve") {
-    const w = await writeListing(chain, app.address, { logo: app.logo_url ?? "", website: app.website ?? "", x_handle: app.x_handle ?? "", description: app.description ?? "", in_form: true, price_kind: app.price_kind, price_pool: app.price_pool, price_quote: app.price_quote, price_hook: app.price_hook ?? "" }, wallet, "list");
+    const w = await writeListing(chain, app.address, { logo: app.logo_url ?? "", website: app.website ?? "", x_handle: app.x_handle ?? "", description: app.description ?? "", price_kind: app.price_kind, price_pool: app.price_pool, price_quote: app.price_quote, price_hook: app.price_hook ?? "" }, wallet, "list");
     if (!w.ok) {
       // not listed: the application goes back to waiting for review, its review not used
       await db`UPDATE bb_pair_applications SET status = 'paid', reviews_used = ${app.reviews_used}, reason = ${app.reason}, decided_by = ${app.decided_by}, decided_at = ${app.decided_at} WHERE id = ${id} AND status = 'approved'`;
