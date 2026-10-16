@@ -160,7 +160,7 @@ test("nothing holds a token's place for good: unpaid applications expire after 4
   const exp = s.slice(s.indexOf("export async function expireStaleApplications"), s.indexOf("/** Whether a wallet has a visible profile"));
   assert.match(exp, /a\.status = 'open' AND a\.paid_usd = 0 AND a\.created_at < now\(\)/);
   assert.match(exp, /a\.quote_until IS NULL OR a\.quote_until < now\(\) - interval '1 hour'/, "never under a live quote");
-  assert.match(exp, /NOT EXISTS \(SELECT 1 FROM bb_pair_burns b WHERE b\.application_id = a\.id\)/, "never once anything was burned for it");
+  assert.match(exp, /NOT EXISTS \(SELECT 1 FROM bb_pair_burns b WHERE b\.application_id = a\.id AND b\.block_time >= a\.created_at\)/, "never once anything was burned for it (a stray burn from before it existed does not count)");
   assert.match(exp, /a\.status = 'changes' AND a\.paid_at < now\(\)/);
   const apply = s.slice(s.indexOf("export async function applicantAction"));
   assert.ok(apply.indexOf("await expireStaleApplications(chain, address);") < apply.indexOf("INSERT INTO bb_pair_applications"));
@@ -195,6 +195,21 @@ test("a late burn on a closed application never marks it paid (status or date)",
   const settle = s.slice(s.indexOf("async function settleApplication"), s.indexOf("let lastRevalue"));
   assert.match(settle, /status = CASE WHEN a\.status = 'open' AND s\.total >=/);
   assert.match(settle, /paid_at = CASE WHEN a\.paid_at IS NULL AND a\.status = 'open' AND s\.total >=/);
+});
+
+/* ── pre-deploy review fixes (2026-10-16) ── */
+
+test("a burn sent before its application existed never counts, and is never retried", () => {
+  const s = src("pairApplyServer.ts");
+  const value = s.slice(s.indexOf("async function valueBurn"), s.indexOf("async function settleApplication"));
+  assert.match(value, /if \(sentAt\.getTime\(\) < new Date\(app\.created_at\)\.getTime\(\)\) return;/);
+  assert.match(s, /WHERE b\.usd IS NULL AND b\.block_time >= a\.created_at LIMIT 20/);
+});
+
+test("llms.txt explains the application fee only while applications are open", () => {
+  const llms = src("../../app/llms.txt/route.ts");
+  assert.match(llms, /function pairApplySection\(\): string \{\n  if \(!applicationsOpen\(\)\) return "";/);
+  assert.equal((llms.match(/3 × 10\^11 \+ application id/g) ?? []).length, 1, "only inside pairApplySection");
 });
 
 /* ── wiring ── */

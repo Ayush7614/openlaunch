@@ -30,11 +30,11 @@ A v4 pool's key is read from the v4 PositionManager (`poolKeys`), so the pool mu
 
 Every listed pair (and every pair the monitor itself suspended) is checked about hourly, by one machine at a time (`pairsTick`, from the sync loop):
 
-- **Code**: the runtime code's hash must match the one recorded at listing. A pair listed without one (the seeded MUSEWORLD) is pinned on its first check. A change, or no code at all, **suspends at once**.
+- **Code**: the runtime code's hash must match the one recorded at listing. A pair listed without one (the seeded MUSEWORLD) is pinned on its first check. A change **suspends at once**; reading no code at all counts as a failing check (one lagging node can answer empty, and a token's code cannot vanish).
 - **Pool**: the price pool must give a spot and an average.
 - **Liquidity**: the pool must hold at least $25,000 (GeckoTerminal's figure; unknown counts as no answer, not a failure).
 
-A pool or liquidity failure that lasts **24 hours suspends** the pair; **14 days** suspended (by the monitor) **delists** it. A pair the monitor suspended comes back by itself when its checks pass. An admin's suspension and every delisting are only lifted by an admin. A core quote's own price outage (no ETH or GITLAWB price) never counts against a pair. Every change is written to `bb_pair_events` and shown on the pair's page; the monitor never writes over an admin's change made while it was checking.
+A pool, liquidity or no-code failure that lasts **24 hours suspends** the pair; **14 days** suspended (by the monitor) **delists** it. A pair the monitor suspended comes back by itself when its checks pass. An admin's suspension and every delisting are only lifted by an admin. A core quote's own price outage (no ETH or GITLAWB price) never counts against a pair. Every change is written to `bb_pair_events` and shown on the pair's page; the monitor never writes over an admin's change made while it was checking.
 
 A suspended or delisted pair's launches still trade: they show as unlisted (no badge, no USD, out of Trending), and their token pages say why.
 

@@ -249,6 +249,9 @@ test("monitor: never writes over an admin's change, pins the code it first sees,
   assert.match(s, /AND status = \$\{r\.status\} AND status_by = \$\{r\.status_by\} AND date_trunc\('milliseconds', status_at\) = date_trunc\('milliseconds', \$\{new Date\(r\.status_at\)\}::timestamptz\)\s*RETURNING address/);
   assert.match(s, /if \(done\.length === 0\) continue;/);
   assert.match(s, /code_hash = COALESCE\(code_hash, \$\{code\}\)/);
+  // missing code is soft (one lagging node can answer 0x); different code is hard
+  assert.match(s, /if \(hash === null\) return \{ health: \{ ok: false, hard: false,/);
+  assert.match(s, /if \(r\.code_hash && hash !== r\.code_hash\) return \{ health: \{ ok: false, hard: true, reason: "Its contract code changed\." \}/);
   const health = s.slice(s.indexOf("async function poolHealth"), s.indexOf("let lastMonitor"));
   assert.doesNotMatch(health, /readPairUsd/, "pool health reads the pool, not the core quote's USD price");
   assert.match(health, /guardedPairPrice\(leg\.spot, leg\.twap\)/);

@@ -323,7 +323,9 @@ async function moderate(b: Record<string, unknown>): Promise<{ ok: true; pair: P
 export async function checkPair(r: PairDbRow, chain: ChainKey): Promise<{ health: PairHealth; code: string | null }> {
   const hash = await codeHashOf(chain, r.address).catch(() => undefined);
   if (hash === undefined) return { health: null, code: null };
-  if (hash === null) return { health: { ok: false, hard: true, reason: "No contract code at its address any more." }, code: null };
+  // "no code" fails softly: one lagging node can answer 0x, and a real token's code cannot vanish (SELFDESTRUCT no longer
+  // deletes it), so it takes 24 hours of failing checks. Different code (a swapped implementation) still suspends at once.
+  if (hash === null) return { health: { ok: false, hard: false, reason: "No contract code read at its address." }, code: null };
   if (r.code_hash && hash !== r.code_hash) return { health: { ok: false, hard: true, reason: "Its contract code changed." }, code: hash };
   return { health: await poolHealth(r, chain), code: hash };
 }
