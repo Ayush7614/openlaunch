@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronRight, Search } from "lucide-react";
 import Sheet from "@/components/Sheet";
@@ -40,6 +40,9 @@ export default function BoostPicker({ onClose }: { onClose: () => void }) {
   // the token being checked before leaving, and the ones an admin keeps out of the lane
   const [checking, setChecking] = useState<string | null>(null);
   const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
+  // the check a pick is waiting on; closing the picker aborts it, and an aborted check never navigates
+  const pickCheck = useRef<AbortController | null>(null);
+  useEffect(() => () => pickCheck.current?.abort(), []);
 
   // the wallet's own Base launches, newest first: only the few shown are asked for
   const wallet = address?.toLowerCase() ?? null;
@@ -95,10 +98,15 @@ export default function BoostPicker({ onClose }: { onClose: () => void }) {
   const pick = async (t: PaletteToken) => {
     if (checking) return;
     setChecking(t.token);
-    const kept = await fetch(`/api/boost?chain=${BOOST_CHAIN}&token=${t.token}`, { cache: "no-store" })
+    const ac = new AbortController();
+    pickCheck.current = ac;
+    const kept = await fetch(`/api/boost?chain=${BOOST_CHAIN}&token=${t.token}`, { cache: "no-store", signal: ac.signal })
       .then((r) => (r.ok ? (r.json() as Promise<{ enabled?: boolean; hidden?: boolean }>) : null))
       .then((d) => d?.enabled === true && d.hidden === true)
       .catch(() => false);
+    // the visitor closed the picker while it checked: they dismissed it, so nothing more happens
+    if (ac.signal.aborted) return;
+    pickCheck.current = null;
     setChecking(null);
     if (kept) {
       setHidden((h) => new Set(h).add(t.token));

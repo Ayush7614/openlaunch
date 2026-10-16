@@ -363,6 +363,13 @@ test("the picker only navigates: the boost happens on the token's page, with eve
   assert.match(picker, /const kept = await fetch\(`\/api\/boost\?chain=\$\{BOOST_CHAIN\}&token=\$\{t\.token\}`/);
   assert.match(picker, /if \(kept\) \{\n\s*setHidden\(\(h\) => new Set\(h\)\.add\(t\.token\)\);\n\s*return;\n\s*\}/);
   assert.ok(picker.indexOf("if (kept)") < picker.indexOf("router.push("));
+  // closing the picker mid-check aborts the check, and an aborted check never navigates (CodeRabbit #101)
+  assert.match(picker, /useEffect\(\(\) => \(\) => pickCheck\.current\?\.abort\(\), \[\]\);/);
+  assert.match(picker, /\{ cache: "no-store", signal: ac\.signal \}\)/);
+  assert.match(picker, /if \(ac\.signal\.aborted\) return;/);
+  const pickBody = picker.slice(picker.indexOf("const pick = async"), picker.indexOf("const row = "));
+  assert.ok(pickBody.indexOf("if (ac.signal.aborted) return;") < pickBody.indexOf("setChecking(null)"));
+  assert.ok(pickBody.indexOf("if (ac.signal.aborted) return;") < pickBody.indexOf("router.push("));
   assert.match(list, /const launcher = l && isAddress\(l\) \? l\.toLowerCase\(\) : undefined;/);
   // the connected wallet's own launches first; an answer for another wallet is never shown
   assert.match(picker, /const own = mine && mine\.wallet === wallet \? mine\.tokens : \[\];/);
