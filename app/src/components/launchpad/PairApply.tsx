@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useConfig } from "wagmi";
-import { getWalletClient } from "wagmi/actions";
+import { walletOnChain } from "@/lib/walletOnChain";
 import { isAddress } from "viem";
 import { useHydratedAccount } from "@/lib/useHydratedAccount";
 import { btn, card, helper, input, label } from "@/components/ui";
@@ -76,7 +76,7 @@ export default function PairApply({ feeUsd }: { feeUsd: number }) {
       const fields = { price_kind: picked.kind, price_pool: picked.pool, price_quote: picked.quote, price_hook: picked.hook, logo: logo.trim(), website: website.trim(), x_handle: x.trim().replace(/^@/, ""), description: about.trim() };
       const n = nonce();
       const ts = nowMs();
-      const wallet = await getWalletClient(config, { chainId: CHAINS[PAIR_FEE_CHAIN].id });
+      const wallet = await walletOnChain(config, CHAINS[PAIR_FEE_CHAIN].id);
       const message = buildPairApplyMessage({ action: "apply", chain: check.chain, address: check.address, wallet: address, nonce: n, ts, source: sourceLabel(fields), website: fields.website, x_handle: fields.x_handle, logo: fields.logo, description: fields.description });
       const signature = await wallet.signMessage({ message });
       const res = await fetch("/api/pairs/apply", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "apply", chain: check.chain, address: check.address, wallet: address, nonce: n, ts, signature, ...fields }) });

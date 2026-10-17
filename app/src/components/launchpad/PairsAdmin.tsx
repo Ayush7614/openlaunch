@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useConfig } from "wagmi";
-import { getWalletClient } from "wagmi/actions";
+import { walletOnChain } from "@/lib/walletOnChain";
 import { isAddress } from "viem";
 import { useAdminAccount } from "@/components/admin/AdminAccount";
 import { btn, card } from "@/components/ui";
@@ -58,7 +58,7 @@ export default function PairsAdmin() {
       const n = nonce();
       const ts = nowMs();
       // signed on Base like every pair signature, whatever chain the pair is on
-      const wallet = await getWalletClient(config, { chainId: CHAINS[PAIR_FEE_CHAIN].id });
+      const wallet = await walletOnChain(config, CHAINS[PAIR_FEE_CHAIN].id);
       const signature = await wallet.signMessage({ message: buildPairAdminMessage({ action, chain, address: pair, wallet: address, nonce: n, ts, ...extra }) });
       const res = await fetch("/api/pairs/mod", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, chain, address: pair, wallet: address, nonce: n, ts, signature, ...(extra.listing ?? {}), ...(extra.reason !== undefined ? { reason: extra.reason } : {}) }) });
       const d = (await res.json().catch(() => ({}))) as { error?: string };

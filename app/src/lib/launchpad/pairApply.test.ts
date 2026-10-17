@@ -27,7 +27,8 @@ import {
   sourceLabel,
 } from "./pairApply.ts";
 import { boostFromTransfer, isLaunchTag } from "./boost.ts";
-import { PAIR_CHAINS, PAIR_CHAINS_TEXT, PAIR_FEE_CHAIN, buildPairAdminMessage } from "./pairs.ts";
+import { PAIR_CHAINS, PAIR_CHAINS_TEXT, PAIR_FEE_CHAIN, buildPairAdminMessage, pairSymbolProblem } from "./pairs.ts";
+import { coreQuoteNames } from "./config.ts";
 import { hasDelegatecall, implementationOf1167 } from "./pairProbe.ts";
 
 const src = (rel: string) => readFileSync(path.join(import.meta.dirname, rel), "utf8");
@@ -321,7 +322,7 @@ test("the forms: the applicant picks the token's chain, signs and pays on Base; 
   const form = src("../../components/launchpad/PairApply.tsx");
   assert.match(form, /\{PAIR_CHAINS\.map\(\(c\) => \(\n\s*<button key=\{c\} type="button" aria-pressed=\{c === chain\} onClick=\{\(\) => pickChain\(c\)\}/);
   assert.match(form, /body: JSON\.stringify\(\{ chain, address: token\.trim\(\) \}\)/, "the check runs on the picked chain");
-  assert.match(form, /getWalletClient\(config, \{ chainId: CHAINS\[PAIR_FEE_CHAIN\]\.id \}\)/);
+  assert.match(form, /const wallet = await walletOnChain\(config, CHAINS\[PAIR_FEE_CHAIN\]\.id\);/, "a wallet on Robinhood is asked to switch to Base first");
   assert.match(form, /buildPairApplyMessage\(\{ action: "apply", chain: check\.chain,/, "the application names the checked token's chain");
   assert.match(form, /function pickChain\(c: ChainKey\) \{[\s\S]*?setCheck\(null\);/, "a check never carries over to another chain");
   const page = src("../../components/launchpad/PairApplication.tsx");
@@ -330,9 +331,31 @@ test("the forms: the applicant picks the token's chain, signs and pays on Base; 
   assert.equal(page.match(/\/api\/launch\/sync\?chain=\$\{FEE_CHAIN\}&tx=/g)?.length, 2, "the fee transfer is indexed on Base");
   assert.doesNotMatch(page, /\bCHAIN\b/);
   const admin = src("../../components/launchpad/PairsAdmin.tsx");
-  assert.match(admin, /getWalletClient\(config, \{ chainId: CHAINS\[PAIR_FEE_CHAIN\]\.id \}\)/);
+  assert.match(admin, /const wallet = await walletOnChain\(config, CHAINS\[PAIR_FEE_CHAIN\]\.id\);/);
   assert.match(admin, /buildPairAdminMessage\(\{ action, chain, address: pair,/);
   for (const a of ["suspend", "delist", "reinstate"]) assert.match(admin, new RegExp(`act\\("${a}", p\\.chain, p\\.address,`), a);
   assert.match(admin, /\{PAIR_CHAINS\.map\(\(c\) => <option key=\{c\} value=\{c\}>\{CHAIN_LABELS\[c\]\}<\/option>\)\}/);
   assert.match(src("../../components/launchpad/PairReviewAdmin.tsx"), /on \{CHAIN_LABELS\[a\.chain\]\}/);
+});
+
+test("review fixes: a wallet on another chain switches first; Base-only burns; no borrowed names", () => {
+  // getWalletClient refuses a chain the wallet is not on: every pair signature and the admin sign-in switch first
+  const helper = src("../walletOnChain.ts");
+  assert.match(helper, /if \(getAccount\(config\)\.chainId !== chainId\) await switchChain\(config, \{ chainId \}\);\n\s*return getWalletClient\(config, \{ chainId \}\);/);
+  assert.match(src("../../components/launchpad/PairApplication.tsx"), /const wallet = await walletOnChain\(config, BASE\.id\);/);
+  assert.match(src("../../components/launchpad/PairReviewAdmin.tsx"), /const wallet = await walletOnChain\(config, CHAINS\.base\.id\);/);
+  assert.match(src("../../components/admin/AdminSignIn.tsx"), /const wallet = await walletOnChain\(config, CHAINS\.base\.id\);/);
+  // a fee is paid on Base only, even if a TWIG-like token turns up elsewhere one day
+  assert.match(src("pairApplyServer.ts"), /export async function recordPairBurn\([^)]*\)[^{]*\{\n\s*const db = maybeDb\(\);\n[^\n]*\n\s*if \(!db \|\| chain !== PAIR_FEE_CHAIN\) return false;/);
+  // a pair never borrows a stock ticker, nor a name listed on another chain
+  assert.equal(pairSymbolProblem("TSLA", [], ["TSLA", "NVDA"]), "TSLA is a stock's ticker");
+  assert.equal(pairSymbolProblem("museworld", ["MUSEWORLD"]), "another listed pair is already museworld");
+  assert.equal(pairSymbolProblem("PORKU", ["MUSEWORLD"], ["TSLA"]), null);
+  for (const f of ["pairCheck.ts", "pairsServer.ts"]) {
+    const s = src(f);
+    assert.match(s, /\.filter\(\(p\) => p\.status === "listed" && !\(p\.chain === chain && p\.address === address\)\)\.map\(\(p\) => p\.symbol\), stockList\(chain\)\.map\(\(s\) => s\.symbol\)\)/, f);
+    assert.match(s, /await ensureRegistry\(\)\.catch\(\(\) => null\); \/\/ Robinhood's stock tickers/, f);
+  }
+  assert.equal(coreQuoteNames("robinhood"), "USDG, ETH or GITLAWB");
+  assert.match(src("pairsServer.ts"), /the price pool must be against a core quote \(\$\{coreQuoteNames\(chain\)\}\)/);
 });

@@ -95,11 +95,15 @@ export type PairPublic = {
 
 export const PAIR_SYMBOL_MAX = 12;
 
-/** Why a symbol cannot be listed, or null. `taken` = the symbols of the other listed pairs on the chain. */
-export function pairSymbolProblem(symbol: string, taken: readonly string[]): string | null {
+/**
+ * Why a symbol cannot be listed, or null. `taken` = the symbols of the other listed pairs, on every chain (a copy of a
+ * community's name on another chain would carry its badge); `stocks` = the chain's stock tickers.
+ */
+export function pairSymbolProblem(symbol: string, taken: readonly string[], stocks: readonly string[] = []): string | null {
   if (!new RegExp(`^[A-Za-z0-9._-]{1,${PAIR_SYMBOL_MAX}}$`).test(symbol)) return `a symbol is 1 to ${PAIR_SYMBOL_MAX} letters, digits, dots, dashes or underscores`;
   const up = symbol.toUpperCase();
   if (CORE_QUOTE_SYMBOLS.includes(up) || CORE_QUOTE_PREFIXES.some((p) => up.startsWith(p))) return `${symbol} is a core quote's name`;
+  if (stocks.some((t) => t.toUpperCase() === up)) return `${symbol} is a stock's ticker`;
   if (taken.some((t) => t.toUpperCase() === up)) return `another listed pair is already ${symbol}`;
   return null;
 }

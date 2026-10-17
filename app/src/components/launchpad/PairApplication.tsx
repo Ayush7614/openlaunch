@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useConfig, useChainId, useReadContract, useSwitchChain } from "wagmi";
 import { getPublicClient, getWalletClient } from "wagmi/actions";
+import { walletOnChain } from "@/lib/walletOnChain";
 import type { Hex } from "viem";
 import { useHydratedAccount } from "@/lib/useHydratedAccount";
 import { btn, card, helper, input } from "@/components/ui";
@@ -105,7 +106,7 @@ export default function PairApplication({ initial, open }: { initial: PairApplic
     try {
       const n = nonce();
       const ts = nowMs();
-      const wallet = await getWalletClient(config, { chainId: BASE.id });
+      const wallet = await walletOnChain(config, BASE.id);
       const signature = await wallet.signMessage({ message: buildPairApplyMessage({ action, chain: app.chain, address: app.address, wallet: address, nonce: n, ts, id: app.id, ...extra }) });
       const res = await fetch("/api/pairs/apply", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, chain: app.chain, address: app.address, id: app.id, wallet: address, nonce: n, ts, signature, ...extra }) });
       const d = (await res.json().catch(() => ({}))) as { error?: string };

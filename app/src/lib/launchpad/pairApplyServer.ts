@@ -242,7 +242,8 @@ export async function quoteFee(id: number): Promise<PairApplicationPublic["quote
  */
 export async function recordPairBurn(chain: ChainKey, row: PairBurnRow, blockTime: Date): Promise<boolean> {
   const db = maybeDb();
-  if (!db) return false;
+  // a fee is TWIG on Base: a transfer on any other chain, whatever token it names itself, never pays one
+  if (!db || chain !== PAIR_FEE_CHAIN) return false;
   const cid = chainIdOf(chain);
   const ins = await db`
     INSERT INTO bb_pair_burns (chain_id, tx_hash, log_index, application_id, sender, twig, usd, priced_by, block_number, block_time)

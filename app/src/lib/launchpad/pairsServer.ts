@@ -10,6 +10,8 @@ import { adminWallets, consumeNonce, isNonce, verify } from "./postsServer";
 import { tsFresh } from "./posts";
 import { PAIR_CHAINS, PAIR_CHAINS_TEXT, PAIR_FEE_CHAIN, PAIR_DESCRIPTION_MAX, guardedPairPrice, pairWarmingUp, PAIR_MONITOR_EVERY_MS, PAIR_MONITOR_LIQUIDITY_USD, PAIR_SAMPLE_EVERY_MS, buildPairAdminMessage, isPairAdminAction, isPairPriceKind, isPairWebsite, isSiteLogoPath, isXHandle, nextPairStatus, pairSymbolProblem, type PairHealth, type PairListing, type PairPriceKind, type PairPublic, type PairStatus } from "./pairs";
 import { codeHashOf, isCoreQuote, poolLiquidityUsd, readPairLeg, readPairUsd, samplePairSpot, univ3Tokens, univ4Key } from "./pairPrice";
+import { coreQuoteNames } from "./config";
+import { ensureRegistry, stockList } from "./stocksServer";
 
 /**
  * Server half of community pairs (pairs.ts): the list as every request sees it (prices included, refreshed in the
@@ -154,7 +156,7 @@ export function readListing(b: Record<string, unknown>): { ok: true; listing: Pa
 /** What can be read about the token and its price pool before it is listed or changed; an error says what is wrong. */
 async function inspect(chain: ChainKey, address: string, l: PairListing, others: PairPublic[]): Promise<{ ok: true; symbol: string; name: string; decimals: number; code_hash: string } | Fail> {
   if (isCoreQuote(chain, address)) return fail("a core quote cannot be a community pair", 400);
-  if (!isCoreQuote(chain, l.price_quote)) return fail("the price pool must be against a core quote (ETH, WETH, USDC, GITLAWB or TWIG)", 400);
+  if (!isCoreQuote(chain, l.price_quote)) return fail(`the price pool must be against a core quote (${coreQuoteNames(chain)})`, 400);
   const client = publicClient(chain);
   const code_hash = await codeHashOf(chain, address).catch(() => null);
   if (!code_hash) return fail("no contract code at that address (or the chain could not be read)", 400);
@@ -166,7 +168,8 @@ async function inspect(chain: ChainKey, address: string, l: PairListing, others:
   if (typeof symbol !== "string" || typeof name !== "string" || typeof decimals !== "number") return fail("it does not read as an ERC-20 (symbol, name, decimals)", 400);
   if (decimals < 6 || decimals > 18) return fail("decimals must be 6 to 18", 400);
   const clean = symbol.normalize("NFKC").replace(/^\$/, "").trim();
-  const problem = pairSymbolProblem(clean, others.filter((p) => p.chain === chain && p.address !== address && p.status === "listed").map((p) => p.symbol));
+  await ensureRegistry().catch(() => null); // Robinhood's stock tickers
+  const problem = pairSymbolProblem(clean, others.filter((p) => p.status === "listed" && !(p.chain === chain && p.address === address)).map((p) => p.symbol), stockList(chain).map((s) => s.symbol));
   if (problem) return fail(problem, 400);
   const src = { chain, address, decimals, price_kind: l.price_kind, price_pool: l.price_pool, price_quote: l.price_quote };
   if (l.price_kind === "launch") {

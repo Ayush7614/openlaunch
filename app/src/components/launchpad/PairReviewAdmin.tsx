@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useConfig } from "wagmi";
-import { getWalletClient } from "wagmi/actions";
+import { walletOnChain } from "@/lib/walletOnChain";
 import { useAdminAccount } from "@/components/admin/AdminAccount";
 import { btn, card } from "@/components/ui";
 import { CHAINS, CHAIN_LABELS, explorerAddress, shortAddr } from "@/lib/chainPublic";
@@ -56,7 +56,7 @@ export default function PairReviewAdmin() {
       const reason = (reasons[id] ?? "").trim();
       const n = nonce();
       const ts = nowMs();
-      const wallet = await getWalletClient(config, { chainId: CHAINS.base.id });
+      const wallet = await walletOnChain(config, CHAINS.base.id);
       const signature = await wallet.signMessage({ message: buildPairReviewMessage({ decision, id, wallet: address, nonce: n, ts, reason }) });
       const res = await fetch("/api/pairs/review", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ decision, id, reason, wallet: address, nonce: n, ts, signature }) });
       const d = (await res.json().catch(() => ({}))) as { error?: string };

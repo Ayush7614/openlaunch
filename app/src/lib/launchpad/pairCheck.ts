@@ -4,7 +4,8 @@ import { publicClient } from "@/lib/chain";
 import { chainIdOf, explorerAddress, type ChainKey } from "@/lib/chainPublic";
 import { maybeDb } from "@/lib/db";
 import { ERC20_MIN_ABI } from "./abi";
-import { DEAD, coreQuotes, launchpad, quoteInfo as staticQuoteInfo } from "./config";
+import { DEAD, coreQuoteNames, launchpad, quoteInfo as staticQuoteInfo } from "./config";
+import { ensureRegistry, stockList } from "./stocksServer";
 import { PAIR_MIN_AGE_DAYS, PAIR_MIN_HOLDERS, PAIR_MIN_LIQUIDITY_USD, pairSymbolProblem, type PairPriceKind, type PairPublic } from "./pairs";
 import { isCoreQuote, readPairLeg, univ4Key } from "./pairPrice";
 import { TRANSFER_PROBE_ABI, TRANSFER_PROBE_RUNTIME, hasDelegatecall, implementationOf1167 } from "./pairProbe";
@@ -55,12 +56,6 @@ type GoPlus = Record<string, string | undefined>;
 async function goplus(chain: ChainKey, address: string): Promise<GoPlus | null> {
   const body = (await fetchJson(`https://api.gopluslabs.io/api/v1/token_security/${chainIdOf(chain)}?contract_addresses=${address}`)) as { result?: Record<string, GoPlus> } | null;
   return body?.result?.[address] ?? null;
-}
-
-/** "ETH, WETH, USDC, GITLAWB or TWIG": the core quotes a price pool may trade against on this chain, in words. */
-function coreQuoteNames(chain: ChainKey): string {
-  const names = [...new Set(coreQuotes(chain).map((q) => q.symbol))];
-  return names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} or ${names[names.length - 1]}`;
 }
 
 /** The token's candidate price pools: its own openlaunch pool, then GeckoTerminal's pools against a core quote. */
@@ -147,7 +142,8 @@ export async function precheckPair(chain: ChainKey, rawAddress: string, listed: 
   const dec = typeof decimals === "number" ? decimals : 0;
   const erc20 = typeof symbol === "string" && typeof name === "string" && typeof decimals === "number";
   add({ id: "erc20", label: "Reads as an ERC-20 with 6 to 18 decimals", pass: hasCode ? erc20 && dec >= 6 && dec <= 18 : null, hard: true, value: erc20 ? `${sym}, ${dec} decimals` : "symbol, name or decimals cannot be read" });
-  const symProblem = erc20 ? pairSymbolProblem(sym, listed.filter((p) => p.chain === chain && p.status === "listed" && p.address !== address).map((p) => p.symbol)) : null;
+  if (erc20) await ensureRegistry().catch(() => null); // Robinhood's stock tickers
+  const symProblem = erc20 ? pairSymbolProblem(sym, listed.filter((p) => p.status === "listed" && !(p.chain === chain && p.address === address)).map((p) => p.symbol), stockList(chain).map((s) => s.symbol)) : null;
   add({ id: "symbol", label: "A symbol of its own", pass: erc20 ? symProblem === null : null, hard: true, value: symProblem ?? sym });
   const already = listed.find((p) => p.chain === chain && p.address === address && p.status !== "delisted");
   add({ id: "new", label: "Not a pair already, and not a core quote", pass: !already && !isCoreQuote(chain, address), hard: true, value: already ? `already ${already.status}` : isCoreQuote(chain, address) ? "a core quote" : "new" });

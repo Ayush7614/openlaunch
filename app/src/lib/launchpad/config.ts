@@ -121,6 +121,11 @@ export const CORE_QUOTE_KEYS: readonly Quote["key"][] = ["eth", "usdc", "usdg", 
 export function coreQuotes(chain: ChainKey): Quote[] {
   return allQuotes(chain).filter((q) => CORE_QUOTE_KEYS.includes(q.key));
 }
+/** "USDG, ETH or GITLAWB": the core quotes a price pool on this chain may trade against, in words. */
+export function coreQuoteNames(chain: ChainKey): string {
+  const names = [...new Set(coreQuotes(chain).map((q) => q.symbol))];
+  return names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} or ${names[names.length - 1]}`;
+}
 
 /**
  * Native amount (18-dec wei) kept back from a first buy: the launch transaction pays its own gas first, then the buy
