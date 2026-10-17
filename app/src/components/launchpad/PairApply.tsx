@@ -7,26 +7,27 @@ import { getWalletClient } from "wagmi/actions";
 import { isAddress } from "viem";
 import { useHydratedAccount } from "@/lib/useHydratedAccount";
 import { btn, card, helper, input, label } from "@/components/ui";
-import { CHAINS } from "@/lib/chainPublic";
+import { CHAINS, CHAIN_LABELS, type ChainKey } from "@/lib/chainPublic";
 import { nowMs } from "@/lib/launchpad/time";
 import { nonce } from "@/lib/nonce";
 import { friendlyError } from "@/lib/errors";
-import { PAIR_DESCRIPTION_MAX } from "@/lib/launchpad/pairs";
+import { PAIR_CHAINS, PAIR_DESCRIPTION_MAX, PAIR_FEE_CHAIN } from "@/lib/launchpad/pairs";
 import { PAIR_APPLY_COPY, buildPairApplyMessage, sourceLabel } from "@/lib/launchpad/pairApply";
 import type { PairPrecheck } from "@/lib/launchpad/pairCheck";
+import { ChainLogo } from "./ChainLogo";
 import ImageUpload from "./ImageUpload";
 import PrecheckReport from "./PrecheckReport";
 
-const CHAIN = "base" as const;
-
 /**
- * Apply to list a community pair: the free check first (anyone, no wallet), then, once it passes, the application
- * signed by a wallet with a verified X profile. Nothing is paid here: the fee is the next page's step.
+ * Apply to list a community pair: the token's chain, the free check first (anyone, no wallet), then, once it passes,
+ * the application signed by a wallet with a verified X profile. Nothing is paid here: the fee is the next page's step,
+ * in TWIG on Base whatever chain the token is on, and the signature is made on Base too (PAIR_FEE_CHAIN).
  */
 export default function PairApply({ feeUsd }: { feeUsd: number }) {
   const router = useRouter();
   const config = useConfig();
   const { address } = useHydratedAccount();
+  const [chain, setChain] = useState<ChainKey>(PAIR_CHAINS[0]);
   const [token, setToken] = useState("");
   const [check, setCheck] = useState<PairPrecheck | null>(null);
   const [checking, setChecking] = useState(false);
@@ -38,13 +39,21 @@ export default function PairApply({ feeUsd }: { feeUsd: number }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  function pickChain(c: ChainKey) {
+    if (c === chain) return;
+    setChain(c);
+    setCheck(null);
+    setSource(0);
+    setErr(null);
+  }
+
   async function runCheck() {
     if (!isAddress(token.trim()) || checking) return;
     setChecking(true);
     setErr(null);
     setCheck(null);
     try {
-      const res = await fetch("/api/pairs/precheck", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ chain: CHAIN, address: token.trim() }) });
+      const res = await fetch("/api/pairs/precheck", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ chain, address: token.trim() }) });
       const d = (await res.json().catch(() => ({}))) as PairPrecheck & { error?: string };
       if (!res.ok) throw new Error(d.error ?? `request failed (HTTP ${res.status})`);
       setCheck(d);
@@ -67,10 +76,10 @@ export default function PairApply({ feeUsd }: { feeUsd: number }) {
       const fields = { price_kind: picked.kind, price_pool: picked.pool, price_quote: picked.quote, price_hook: picked.hook, logo: logo.trim(), website: website.trim(), x_handle: x.trim().replace(/^@/, ""), description: about.trim() };
       const n = nonce();
       const ts = nowMs();
-      const wallet = await getWalletClient(config, { chainId: CHAINS[CHAIN].id });
-      const message = buildPairApplyMessage({ action: "apply", chain: CHAIN, address: check.address, wallet: address, nonce: n, ts, source: sourceLabel(fields), website: fields.website, x_handle: fields.x_handle, logo: fields.logo, description: fields.description });
+      const wallet = await getWalletClient(config, { chainId: CHAINS[PAIR_FEE_CHAIN].id });
+      const message = buildPairApplyMessage({ action: "apply", chain: check.chain, address: check.address, wallet: address, nonce: n, ts, source: sourceLabel(fields), website: fields.website, x_handle: fields.x_handle, logo: fields.logo, description: fields.description });
       const signature = await wallet.signMessage({ message });
-      const res = await fetch("/api/pairs/apply", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "apply", chain: CHAIN, address: check.address, wallet: address, nonce: n, ts, signature, ...fields }) });
+      const res = await fetch("/api/pairs/apply", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "apply", chain: check.chain, address: check.address, wallet: address, nonce: n, ts, signature, ...fields }) });
       const d = (await res.json().catch(() => ({}))) as { id?: number; error?: string };
       if (!res.ok || !d.id) throw new Error(d.error ?? `request failed (HTTP ${res.status})`);
       router.push(`/pairs/apply/${d.id}`);
@@ -88,7 +97,18 @@ export default function PairApply({ feeUsd }: { feeUsd: number }) {
         <p className={helper}>{PAIR_APPLY_COPY.precheckFirst}</p>
       </div>
       <div className={`${card} space-y-3 p-5`}>
-        <label htmlFor="pair-token" className={label}>Your token on Base</label>
+        <div>
+          <p id="pair-chain" className={label}>Your token&apos;s chain</p>
+          <div className="flex flex-wrap gap-2" role="group" aria-labelledby="pair-chain">
+            {PAIR_CHAINS.map((c) => (
+              <button key={c} type="button" aria-pressed={c === chain} onClick={() => pickChain(c)} disabled={checking} className={`${c === chain ? btn.primarySm : btn.secondarySm} gap-2`}>
+                <ChainLogo chain={c} size={16} />
+                {CHAIN_LABELS[c]}
+              </button>
+            ))}
+          </div>
+        </div>
+        <label htmlFor="pair-token" className={label}>Your token on {CHAIN_LABELS[chain]}</label>
         <div className="flex flex-wrap gap-2">
           <input id="pair-token" value={token} onChange={(e) => setToken(e.target.value)} placeholder="0x…" className={`${input} h-11 min-w-0 flex-1 font-mono text-sm`} autoComplete="off" />
           <button type="button" onClick={() => void runCheck()} disabled={!isAddress(token.trim()) || checking} className={btn.primarySm}>{checking ? "Checking…" : "Check it, free"}</button>

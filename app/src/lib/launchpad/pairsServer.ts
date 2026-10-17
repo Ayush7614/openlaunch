@@ -8,7 +8,7 @@ import { isOwnImageUrl } from "./images";
 import { imagePublicBase } from "./imageStore";
 import { adminWallets, consumeNonce, isNonce, verify } from "./postsServer";
 import { tsFresh } from "./posts";
-import { PAIR_CHAINS, PAIR_DESCRIPTION_MAX, guardedPairPrice, pairWarmingUp, PAIR_MONITOR_EVERY_MS, PAIR_MONITOR_LIQUIDITY_USD, PAIR_SAMPLE_EVERY_MS, buildPairAdminMessage, isPairAdminAction, isPairPriceKind, isPairWebsite, isSiteLogoPath, isXHandle, nextPairStatus, pairSymbolProblem, type PairHealth, type PairListing, type PairPriceKind, type PairPublic, type PairStatus } from "./pairs";
+import { PAIR_CHAINS, PAIR_CHAINS_TEXT, PAIR_FEE_CHAIN, PAIR_DESCRIPTION_MAX, guardedPairPrice, pairWarmingUp, PAIR_MONITOR_EVERY_MS, PAIR_MONITOR_LIQUIDITY_USD, PAIR_SAMPLE_EVERY_MS, buildPairAdminMessage, isPairAdminAction, isPairPriceKind, isPairWebsite, isSiteLogoPath, isXHandle, nextPairStatus, pairSymbolProblem, type PairHealth, type PairListing, type PairPriceKind, type PairPublic, type PairStatus } from "./pairs";
 import { codeHashOf, isCoreQuote, poolLiquidityUsd, readPairLeg, readPairUsd, samplePairSpot, univ3Tokens, univ4Key } from "./pairPrice";
 
 /**
@@ -270,7 +270,7 @@ async function moderate(b: Record<string, unknown>): Promise<{ ok: true; pair: P
   const action: unknown = b.action;
   if (!isPairAdminAction(action)) return fail("bad action", 400);
   const chain = PAIR_CHAINS.find((c) => c === b.chain);
-  if (!chain) return fail("pairs are listed on Base only", 400);
+  if (!chain) return fail(`pairs are listed on ${PAIR_CHAINS_TEXT} only`, 400);
   if (typeof b.address !== "string" || !isAddress(b.address)) return fail("bad pair address", 400);
   const address = b.address.toLowerCase();
   if (!isNonce(b.nonce) || !tsFresh(b.ts, Date.now())) return fail("stale or bad nonce", 400);
@@ -283,7 +283,8 @@ async function moderate(b: Record<string, unknown>): Promise<{ ok: true; pair: P
   if ((action === "suspend" || action === "delist") && !reason) return fail("say why", 400);
   if (reason && reason.length > MAX.reason) return fail(`the reason is over ${MAX.reason} characters`, 400);
   const message = buildPairAdminMessage({ action, chain, address, wallet, nonce: b.nonce, ts: Number(b.ts), listing, reason });
-  if (!(await verify(chain, wallet, message, b.signature))) return fail("signature does not match", 401);
+  // signed on Base like every pair signature (PAIR_FEE_CHAIN), whatever chain the pair is on
+  if (!(await verify(PAIR_FEE_CHAIN, wallet, message, b.signature))) return fail("signature does not match", 401);
   if (!(await consumeNonce(b.nonce, wallet))) return fail("nonce already used", 401);
 
   const cid = chainIdOf(chain);

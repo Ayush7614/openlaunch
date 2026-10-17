@@ -17,14 +17,24 @@
  * price, so one swap that pushes the pool for a block cannot rewrite every paired launch's market cap and ranking. A pair
  * with no average (a v3 pool without enough oracle history, a v4 pool without 20 minutes of samples) shows no USD.
  */
-import { CHAIN_IDS, type ChainKey } from "../chainKeys.ts";
+import { CHAIN_IDS, CHAIN_LABELS, type ChainKey } from "../chainKeys.ts";
 import { amountForUsd } from "./first-buy.ts";
 import { fmtCompact } from "./math.ts";
 import { CORE_QUOTE_PREFIXES, CORE_QUOTE_SYMBOLS } from "./unlisted-quote.ts";
 
-/** Pairs are listed on Base only for now (where TWIG pays for an application, and where the communities are). */
-export const PAIR_CHAINS: readonly ChainKey[] = ["base"];
+/** Pairs are listed on Base and Robinhood Chain, where the communities launching on openlaunch are. */
+export const PAIR_CHAINS: readonly ChainKey[] = ["base", "robinhood"];
 export const isPairChain = (c: ChainKey): boolean => PAIR_CHAINS.includes(c);
+/**
+ * TWIG's chain. Every application pays its fee here and every pair signature (the applicant's, the admin's) is checked
+ * here, whatever chain the pair is on: TWIG lives on Base only, and one chain for the whole flow is one wallet network.
+ */
+export const PAIR_FEE_CHAIN: ChainKey = "base";
+/** "Base and Robinhood Chain": the chains pairs are listed on, in words. */
+export const PAIR_CHAINS_TEXT = andList(PAIR_CHAINS.map((c) => CHAIN_LABELS[c]));
+function andList(names: string[]): string {
+  return names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
 
 export type PairStatus = "listed" | "suspended" | "delisted";
 export type PairPriceKind = "launch" | "univ3" | "univ4";

@@ -2,7 +2,9 @@
 
 A launch can be paired with any ERC-20: the factory has no allowlist and never will. **Community pairs** are the site's list of community tokens it badges and prices in USD. They are never offered in the launch form, which offers ETH, TWIG and stocks only: a launch paired with a community token is made against the factory by the community's own tools or agents (findSalt with the pair's address, then `launch`). A token that is not on the list still trades; it shows as an "Unlisted pair", with no USD price, and stays out of Trending.
 
-Pages: `/pairs` (the list), `/pair/base/<address>` (one pair: its price source, what is checked, its public record, its launches), `/pairs/apply` (the free check and the application), `/pairs/apply/<id>` (one application). API: `GET /api/pairs`.
+Chains: **Base and Robinhood Chain**. The fee is TWIG on Base for a token on either chain, and every pair signature (the applicant's and the admin's) is made on Base.
+
+Pages: `/pairs` (the list), `/pair/<chain>/<address>` (`base` or `robinhood`; one pair: its price source, what is checked, its public record, its launches), `/pairs/apply` (the free check and the application), `/pairs/apply/<id>` (one application). API: `GET /api/pairs`.
 
 ## What a listing gets, and what it does not
 
@@ -42,7 +44,7 @@ A suspended or delisted pair's launches still trade: they show as unlisted (no b
 
 `/admin` → Community pairs, signed in as an admin ([admin.md](admin.md)). Every action is also a signature from the signed-in `ADMIN_WALLETS` wallet over a message that includes every field written (`buildPairAdminMessage`), with a single-use nonce:
 
-- **list / update**: the server reads the token (ERC-20, 6 to 18 decimals, a symbol no core quote and no other listed pair has) and the price pool (it trades this token against that quote, reads a price, holds at least $25,000) before writing.
+- **list / update**: the server reads the token (ERC-20, 6 to 18 decimals, a symbol no core quote and no other listed pair has) and the price pool (it trades this token against that quote, reads a price, holds at least $25,000) before writing. On Robinhood Chain the market data includes spoof pools that report large reserves with a handful of holders: the holder floor and the review are what keep those out, so check the pool's real trading there.
 - **suspend / delist** (a reason is required and shown on the record), **reinstate** (pins the current code).
 
 One listed symbol per chain is enforced by a unique index.

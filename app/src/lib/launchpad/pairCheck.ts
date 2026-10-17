@@ -4,7 +4,7 @@ import { publicClient } from "@/lib/chain";
 import { chainIdOf, explorerAddress, type ChainKey } from "@/lib/chainPublic";
 import { maybeDb } from "@/lib/db";
 import { ERC20_MIN_ABI } from "./abi";
-import { DEAD, launchpad, quoteInfo as staticQuoteInfo } from "./config";
+import { DEAD, coreQuotes, launchpad, quoteInfo as staticQuoteInfo } from "./config";
 import { PAIR_MIN_AGE_DAYS, PAIR_MIN_HOLDERS, PAIR_MIN_LIQUIDITY_USD, pairSymbolProblem, type PairPriceKind, type PairPublic } from "./pairs";
 import { isCoreQuote, readPairLeg, univ4Key } from "./pairPrice";
 import { TRANSFER_PROBE_ABI, TRANSFER_PROBE_RUNTIME, hasDelegatecall, implementationOf1167 } from "./pairProbe";
@@ -55,6 +55,12 @@ type GoPlus = Record<string, string | undefined>;
 async function goplus(chain: ChainKey, address: string): Promise<GoPlus | null> {
   const body = (await fetchJson(`https://api.gopluslabs.io/api/v1/token_security/${chainIdOf(chain)}?contract_addresses=${address}`)) as { result?: Record<string, GoPlus> } | null;
   return body?.result?.[address] ?? null;
+}
+
+/** "ETH, WETH, USDC, GITLAWB or TWIG": the core quotes a price pool may trade against on this chain, in words. */
+function coreQuoteNames(chain: ChainKey): string {
+  const names = [...new Set(coreQuotes(chain).map((q) => q.symbol))];
+  return names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} or ${names[names.length - 1]}`;
 }
 
 /** The token's candidate price pools: its own openlaunch pool, then GeckoTerminal's pools against a core quote. */
@@ -164,7 +170,7 @@ export async function precheckPair(chain: ChainKey, rawAddress: string, listed: 
   const [gt, gp] = await Promise.all([gecko(chain, address), goplus(chain, address)]);
   const sources = erc20 && hasCode ? await sourcesFor(chain, address, dec, gt.pools) : [];
   const best = sources.find((s) => s.usable) ?? null;
-  add({ id: "pool", label: "A price pool against ETH, WETH, USDC, GITLAWB or TWIG that reads a price", pass: sources.length ? best !== null : gt.pools === null ? null : false, hard: true, value: best ? best.label : "none found" });
+  add({ id: "pool", label: `A price pool against ${coreQuoteNames(chain)} that reads a price`, pass: sources.length ? best !== null : gt.pools === null ? null : false, hard: true, value: best ? best.label : "none found" });
   const liq = best?.reserve_usd ?? null;
   add({ id: "liquidity", label: `At least $${PAIR_MIN_LIQUIDITY_USD.toLocaleString("en-US")} in that pool`, pass: liq === null ? null : liq >= PAIR_MIN_LIQUIDITY_USD, hard: true, value: liq === null ? "unknown" : `$${Math.round(liq).toLocaleString("en-US")}` });
   const oldest = (gt.pools ?? []).map((p) => (p.attributes.pool_created_at ? Date.parse(p.attributes.pool_created_at) : NaN)).filter(Number.isFinite).sort((a, b) => a - b)[0];

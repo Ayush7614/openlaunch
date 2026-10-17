@@ -27,7 +27,7 @@ import {
   sourceLabel,
 } from "./pairApply.ts";
 import { boostFromTransfer, isLaunchTag } from "./boost.ts";
-import { buildPairAdminMessage } from "./pairs.ts";
+import { PAIR_CHAINS, PAIR_CHAINS_TEXT, PAIR_FEE_CHAIN, buildPairAdminMessage } from "./pairs.ts";
 import { hasDelegatecall, implementationOf1167 } from "./pairProbe.ts";
 
 const src = (rel: string) => readFileSync(path.join(import.meta.dirname, rel), "utf8");
@@ -277,7 +277,7 @@ test("a fee is never waived while the applicant may be paying it: under a live q
 test("server: verified identity, a passing check, signatures before writes, a lock never replaced, approval through the listing's own checks", () => {
   const s = src("pairApplyServer.ts");
   const body = s.slice(s.indexOf("export async function applicantAction"));
-  const order = ["await verify(chain, wallet, message, b.signature)", "await consumeNonce(b.nonce, wallet)", "await verifiedProfile(wallet)", "if (!pre.ok)", "INSERT INTO bb_pair_applications"];
+  const order = ["await verify(PAIR_FEE_CHAIN, wallet, message, b.signature)", "await consumeNonce(b.nonce, wallet)", "await verifiedProfile(wallet)", "if (!pre.ok)", "INSERT INTO bb_pair_applications"];
   const at = order.map((o) => body.indexOf(o));
   assert.ok(at.every((i) => i > 0), JSON.stringify(at));
   assert.deepEqual([...at].sort((a, b) => a - b), at);
@@ -294,4 +294,45 @@ test("server: verified identity, a passing check, signatures before writes, a lo
   const idx = src("indexer.ts");
   assert.equal(idx.match(/else await applyPairBurn\(chain, l as/g)?.length, 2, "both the range scan and the receipt path record pair fees");
   assert.match(src("../../app/api/pairs/precheck/route.ts"), /if \(!applicationsOpen\(\)\)/);
+});
+
+/* ── Robinhood Chain (2026-10-17) ── */
+
+test("pairs are listed on Base and Robinhood Chain; the fee and every signature stay on Base", () => {
+  assert.deepEqual([...PAIR_CHAINS], ["base", "robinhood"]);
+  assert.equal(PAIR_FEE_CHAIN, "base");
+  assert.equal(PAIR_CHAINS_TEXT, "Base and Robinhood Chain");
+  assert.match(PAIR_APPLY_COPY.feeRule(200), /in TWIG on Base, sent to 0x…dEaD, whichever chain the token is on/);
+  const s = src("pairApplyServer.ts");
+  // TWIG lives on Base only: a burn is matched to its application by id, never by the burn's own chain
+  const value = s.slice(s.indexOf("async function valueBurn("), s.indexOf("/** An application's total"));
+  assert.match(value, /SELECT \* FROM bb_pair_applications WHERE id = \$\{appId\}`;/);
+  assert.doesNotMatch(value, /WHERE id = \$\{appId\} AND chain_id/);
+  // applicant, review and admin signatures are all checked on Base, whatever chain the pair is on
+  assert.equal(s.match(/await verify\(PAIR_FEE_CHAIN, wallet, message, b\.signature\)/g)?.length, 2, "applicant + review");
+  assert.doesNotMatch(s, /await verify\("base"|await verify\(chain,/);
+  assert.match(src("pairsServer.ts"), /await verify\(PAIR_FEE_CHAIN, wallet, message, b\.signature\)/);
+  assert.match(src("pairsServer.ts"), /return fail\(`pairs are listed on \$\{PAIR_CHAINS_TEXT\} only`, 400\);/);
+  assert.match(src("../../app/llms.txt/route.ts"), /## Community pairs \(\$\{PAIR_CHAINS_TEXT\}\)/);
+  assert.match(src("pairCheck.ts"), /label: `A price pool against \$\{coreQuoteNames\(chain\)\} that reads a price`/);
+});
+
+test("the forms: the applicant picks the token's chain, signs and pays on Base; the admin lists on either chain", () => {
+  const form = src("../../components/launchpad/PairApply.tsx");
+  assert.match(form, /\{PAIR_CHAINS\.map\(\(c\) => \(\n\s*<button key=\{c\} type="button" aria-pressed=\{c === chain\} onClick=\{\(\) => pickChain\(c\)\}/);
+  assert.match(form, /body: JSON\.stringify\(\{ chain, address: token\.trim\(\) \}\)/, "the check runs on the picked chain");
+  assert.match(form, /getWalletClient\(config, \{ chainId: CHAINS\[PAIR_FEE_CHAIN\]\.id \}\)/);
+  assert.match(form, /buildPairApplyMessage\(\{ action: "apply", chain: check\.chain,/, "the application names the checked token's chain");
+  assert.match(form, /function pickChain\(c: ChainKey\) \{[\s\S]*?setCheck\(null\);/, "a check never carries over to another chain");
+  const page = src("../../components/launchpad/PairApplication.tsx");
+  assert.match(page, /buildPairApplyMessage\(\{ action, chain: app\.chain,/);
+  assert.match(page, /body: JSON\.stringify\(\{ action, chain: app\.chain,/);
+  assert.equal(page.match(/\/api\/launch\/sync\?chain=\$\{FEE_CHAIN\}&tx=/g)?.length, 2, "the fee transfer is indexed on Base");
+  assert.doesNotMatch(page, /\bCHAIN\b/);
+  const admin = src("../../components/launchpad/PairsAdmin.tsx");
+  assert.match(admin, /getWalletClient\(config, \{ chainId: CHAINS\[PAIR_FEE_CHAIN\]\.id \}\)/);
+  assert.match(admin, /buildPairAdminMessage\(\{ action, chain, address: pair,/);
+  for (const a of ["suspend", "delist", "reinstate"]) assert.match(admin, new RegExp(`act\\("${a}", p\\.chain, p\\.address,`), a);
+  assert.match(admin, /\{PAIR_CHAINS\.map\(\(c\) => <option key=\{c\} value=\{c\}>\{CHAIN_LABELS\[c\]\}<\/option>\)\}/);
+  assert.match(src("../../components/launchpad/PairReviewAdmin.tsx"), /on \{CHAIN_LABELS\[a\.chain\]\}/);
 });
