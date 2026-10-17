@@ -224,6 +224,8 @@ test("an admin can approve an unpaid application with the fee waived, and an alr
   assert.ok(decide.indexOf("try {") < decide.indexOf("SELECT 1 FROM bb_pairs WHERE chain_id"), "the listed-pair query runs inside the restore guard");
   // a paid fee is never recorded as waived
   assert.match(decide, /if \(decision === "waive" && isPaid\(app\.paid_usd, app\.fee_usd\)\) return fail\(/);
+  // and the claim itself re-checks it, so a burn settling between the check and the claim cannot be waived away
+  assert.match(decide, /WHERE id = \$\{id\} AND status = \$\{app\.status\} AND \(\$\{decision\} <> 'waive' OR paid_usd < fee_usd \* \$\{1 - PAIR_FEE_TOLERANCE\}\) RETURNING id/);
   assert.match(decide, /const restore = \(\) => db`\s*UPDATE bb_pair_applications SET\s*status = CASE WHEN \$\{app\.status\} = 'open' AND paid_usd >= fee_usd \* \$\{1 - PAIR_FEE_TOLERANCE\} THEN 'paid' ELSE \$\{app\.status\} END,[^`]*reviews_used = \$\{app\.reviews_used\}[^`]*AND status = 'approved'`/, "a failed listing puts the application back where it was (as paid when a burn settled meanwhile)");
   assert.match(decide, /\(decision === "changes" \|\| decision === "reject"\) && !reason/, "approving and waiving need no reason");
   assert.match(src("../../components/launchpad/PairReviewAdmin.tsx"), /decide\(a\.id, "waive"\)\} className=\{btn\.primarySm\}[^>]*>Approve without fee</);
@@ -247,7 +249,9 @@ test("server: verified identity, a passing check, signatures before writes, a lo
   assert.match(s, /x_status = 'verified' AND NOT hidden AND deleted_at IS NULL/);
   assert.match(s, /WHERE id = \$\{id\} AND status = 'open' AND \(quote_until IS NULL OR quote_until <= now\(\)\) RETURNING \*/);
   const decide = s.slice(s.indexOf("export async function reviewApplication"));
-  assert.ok(decide.indexOf("AND status = ${app.status} RETURNING id") < decide.indexOf("await writeListing(chain, app.address,"), "the decision is claimed before anything is listed");
+  const claimAt = decide.indexOf("AND status = ${app.status} AND (${decision} <> 'waive'");
+  const listAt = decide.indexOf("await writeListing(chain, app.address,");
+  assert.ok(claimAt >= 0 && listAt >= 0 && claimAt < listAt, "the decision is claimed before anything is listed");
   assert.match(decide, /if \(claimed\.length === 0\) return fail\("this application changed meanwhile: reload", 409\);/);
   assert.match(decide, /ELSE \$\{app\.status\} END,[^`]*reviews_used = \$\{app\.reviews_used\}[^`]*WHERE id = \$\{id\} AND status = 'approved'/, "a failed listing gives the review back");
   assert.match(decide, /decision === "reject" \? \["paid", "open", "changes"\]/, "an admin can close an application nobody pays for");

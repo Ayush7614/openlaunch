@@ -323,7 +323,10 @@ export async function reviewApplication(b: Record<string, unknown>): Promise<{ o
   const status: PairApplicationStatus = approving ? "approved" : decision === "reject" || used >= PAIR_REVIEWS_MAX ? "rejected" : "changes";
   const why = decision === "waive" ? reason || PAIR_FEE_WAIVED : reason;
   // claim the decision first: two admins deciding at once cannot both win, and a listing never runs for a lost claim
-  const claimed = await db`UPDATE bb_pair_applications SET status = ${status}, reviews_used = ${used}, reason = ${why || null}, decided_by = ${wallet}, decided_at = now() WHERE id = ${id} AND status = ${app.status} RETURNING id`;
+  // a waiver is claimed only while the row still records the fee as unpaid: a burn that settles after the check above loses no money
+  const claimed = await db`
+    UPDATE bb_pair_applications SET status = ${status}, reviews_used = ${used}, reason = ${why || null}, decided_by = ${wallet}, decided_at = now()
+     WHERE id = ${id} AND status = ${app.status} AND (${decision} <> 'waive' OR paid_usd < fee_usd * ${1 - PAIR_FEE_TOLERANCE}) RETURNING id`;
   if (claimed.length === 0) return fail("this application changed meanwhile: reload", 409);
   if (approving) {
     // not listed, whether refused or thrown: the application goes back to where it was, its review not used. An unpaid one
