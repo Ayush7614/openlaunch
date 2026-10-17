@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useConfig } from "wagmi";
 import { getWalletClient } from "wagmi/actions";
 import { isAddress } from "viem";
-import { useHydratedAccount } from "@/lib/useHydratedAccount";
+import { useAdminAccount } from "@/components/admin/AdminAccount";
 import { btn, card } from "@/components/ui";
 import type { BoostLane, BoostStats } from "@/lib/launchpad/boostServer";
 import { BOOST_CHAIN, BOOST_STATS_DAYS, boostClickRate, boostClicksPerFloor, buildBoostModMessage, fmtBoostTwig, type BoostModAction, type BoostStatsDays } from "@/lib/launchpad/boost";
@@ -20,7 +20,7 @@ import { nonce } from "@/lib/nonce";
  * never refunds: the TWIG was burned on-chain. Below them, the lane's views and clicks per token.
  */
 export default function BoostAdmin() {
-  const { address } = useHydratedAccount();
+  const { address } = useAdminAccount();
   const config = useConfig();
   const [lane, setLane] = useState<BoostLane | null>(null);
   const [target, setTarget] = useState("");
@@ -110,7 +110,7 @@ function LaneStats({ wallet }: { wallet: string }) {
   const key = `${wallet.toLowerCase()}:${days}`;
   useEffect(() => {
     const ac = new AbortController();
-    fetch(`/api/boost/stats?wallet=${wallet}&days=${days}`, { cache: "no-store", signal: ac.signal })
+    fetch(`/api/boost/stats?days=${days}`, { cache: "no-store", signal: ac.signal })
       .then(async (res) => {
         const d = (await res.json().catch(() => ({}))) as Partial<BoostStats> & { error?: string };
         if (!res.ok || !d.rows || !d.total) throw new Error(d.error ?? `request failed (HTTP ${res.status})`);

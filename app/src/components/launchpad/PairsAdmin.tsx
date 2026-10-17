@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useConfig } from "wagmi";
 import { getWalletClient } from "wagmi/actions";
 import { isAddress } from "viem";
-import { useHydratedAccount } from "@/lib/useHydratedAccount";
+import { useAdminAccount } from "@/components/admin/AdminAccount";
 import { btn, card } from "@/components/ui";
 import { CHAINS } from "@/lib/chainPublic";
 import { nowMs } from "@/lib/launchpad/time";
@@ -27,7 +27,7 @@ type Draft = typeof EMPTY;
  * reads the token and its price pool before it writes, and every change lands on the pair's public record.
  */
 export default function PairsAdmin() {
-  const { address } = useHydratedAccount();
+  const { address } = useAdminAccount();
   const config = useConfig();
   const [pairs, setPairs] = useState<PairPublic[] | null>(null);
   const [draft, setDraft] = useState<Draft>(EMPTY);

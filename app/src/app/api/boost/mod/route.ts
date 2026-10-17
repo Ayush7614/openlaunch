@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { rateLimited } from "@/lib/launchpad/editServer";
 import { clientIp, readJson } from "@/lib/profiles/http";
+import { requireAdmin } from "@/lib/admin/session";
 import { getBoostLane, moderateBoost } from "@/lib/launchpad/boostServer";
 import { ethUsd } from "@/lib/launchpad/ethPrice";
 
@@ -16,6 +17,8 @@ export async function POST(req: Request) {
   if (rateLimited(`boost-mod:ip:${clientIp(req)}`, 30)) return NextResponse.json({ error: "slow down" }, { status: 429 });
   const b = await readJson(req);
   if (!b) return NextResponse.json({ error: "bad json" }, { status: 400 });
+  const a = await requireAdmin(req, b.wallet);
+  if (!a.ok) return NextResponse.json({ error: a.error }, { status: a.status });
   const r = await moderateBoost({ action: b.action, token: b.token, wallet: b.wallet, nonce: b.nonce, ts: b.ts, signature: b.signature });
   if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
   const lane = await getBoostLane(await ethUsd(), { fresh: true }).catch((err) => {

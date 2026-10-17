@@ -594,3 +594,24 @@ CREATE TABLE IF NOT EXISTS bb_pair_burns (
   PRIMARY KEY (chain_id, tx_hash, log_index)
 );
 CREATE INDEX IF NOT EXISTS bb_pair_burns_app_idx ON bb_pair_burns (application_id);
+
+-- ── admin sign-in (lib/admin) ───────────────────────────────────────────────
+-- Server-issued nonces for Sign-In with Ethereum messages: 5 minutes, single use.
+CREATE TABLE IF NOT EXISTS bb_admin_nonces (
+  nonce      text PRIMARY KEY,
+  expires_at timestamptz NOT NULL,
+  used_at    timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+-- Admin sessions: 8 hours from sign-in. Only the SHA-256 of the cookie's token is kept, never the token.
+CREATE TABLE IF NOT EXISTS bb_admin_sessions (
+  id           bigserial PRIMARY KEY,
+  token_hash   text NOT NULL UNIQUE,
+  wallet       text NOT NULL,
+  device       text NOT NULL DEFAULT '',                    -- "Chrome · macOS": no user agent, no IP
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  expires_at   timestamptz NOT NULL,
+  last_seen_at timestamptz NOT NULL DEFAULT now(),
+  revoked_at   timestamptz
+);
+CREATE INDEX IF NOT EXISTS bb_admin_sessions_wallet_idx ON bb_admin_sessions (wallet, created_at DESC);

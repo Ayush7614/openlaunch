@@ -40,7 +40,7 @@ A suspended or delisted pair's launches still trade: they show as unlisted (no b
 
 ## Listing by an admin
 
-`/admin` → Community pairs. Every action is a signature from an `ADMIN_WALLETS` wallet over a message that includes every field written (`buildPairAdminMessage`), with a single-use nonce:
+`/admin` → Community pairs, signed in as an admin ([admin.md](admin.md)). Every action is also a signature from the signed-in `ADMIN_WALLETS` wallet over a message that includes every field written (`buildPairAdminMessage`), with a single-use nonce:
 
 - **list / update**: the server reads the token (ERC-20, 6 to 18 decimals, a symbol no core quote and no other listed pair has) and the price pool (it trades this token against that quote, reads a price, holds at least $25,000) before writing.
 - **suspend / delist** (a reason is required and shown on the record), **reinstate** (pins the current code).
