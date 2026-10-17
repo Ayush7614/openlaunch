@@ -61,7 +61,7 @@ Off unless the runtime secret **`PAIRS_APPLY=on`** is set (`fly secrets set PAIR
    ```
 
    This is kind 3 of the Boost tag space (tags below 10^11 name launches). The indexer records it in `bb_pair_burns` (range scan and receipt path both). A burn sent inside the lock counts at the locked price; a later one at the price when it is indexed. Burns add up; the application is paid within 2% of the fee. **The fee pays for a review, not a listing, and is never refunded: it is burned.**
-5. **Review** (`/admin` → Pair applications; `POST /api/pairs/review`, signed): **approve** lists the pair through the same checks as an admin listing; **changes** and **reject** need a reason the applicant sees. The fee covers up to 3 reviews within 60 days of paying: after changes, the applicant asks again (action `again`).
+5. **Review** (`/admin` → Pair applications; `POST /api/pairs/review`, signed): **approve** lists the pair through the same checks as an admin listing; **changes** and **reject** need a reason the applicant sees. The fee covers up to 3 reviews within 60 days of paying: after changes, the applicant asks again (action `again`). **Approve without fee** (`waive`, for a partner) lists an application that has not paid the same way and marks it approved with the fee waived. Never one that has paid, and never while the applicant may be paying: under a live fee quote, or in the hour after it while a transfer may still be indexing, even once a first transfer has landed (the panel says when it can be waived).
 
 ## Tables
 

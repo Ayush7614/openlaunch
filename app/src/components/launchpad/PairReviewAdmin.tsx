@@ -39,6 +39,14 @@ export default function PairReviewAdmin() {
     const id = setTimeout(() => void load(), 0);
     return () => clearTimeout(id);
   }, [load]);
+  // a waiver held back while the applicant may be paying opens at its settling_until: reload the queue then, so the
+  // button shows without a manual reload (at least 15 s apart, should this device's clock run ahead of the server's)
+  useEffect(() => {
+    const next = Math.min(...(apps ?? []).map((a) => (a.settling_until ? Date.parse(a.settling_until) : Infinity)));
+    if (!Number.isFinite(next)) return;
+    const id = setTimeout(() => void load(), Math.max(15_000, next - nowMs() + 1_000));
+    return () => clearTimeout(id);
+  }, [apps, load]);
 
   async function decide(id: number, decision: PairReviewDecision) {
     if (!address || busy) return;
@@ -86,8 +94,9 @@ export default function PairReviewAdmin() {
           {a.status === "open" || a.status === "changes" ? (
             <div className="flex flex-wrap gap-2">
               <input aria-label={`Reason for closing ${a.symbol}`} value={reasons[a.id] ?? ""} onChange={(e) => setReasons((r) => ({ ...r, [a.id]: e.target.value }))} placeholder="Reason (the applicant sees it; optional to waive the fee)" maxLength={300} className="min-h-9 min-w-0 flex-1 rounded-lg border border-line bg-paper px-3 text-xs text-ink" />
-              {/* a paid fee is never waived (the server refuses it too, for a burn that lands meanwhile) */}
-              {!isPaid(a.paid_usd, a.fee_usd) ? <button type="button" disabled={!address || busy} onClick={() => void decide(a.id, "waive")} className={btn.primarySm} title="List it now; the application is marked approved with the fee waived">Approve without fee</button> : null}
+              {/* a paid fee is never waived, nor one the applicant may be paying now (the server refuses both too, for a burn or a quote that lands meanwhile) */}
+              {!isPaid(a.paid_usd, a.fee_usd) && a.settling_until ? <span className="self-center text-xs text-muted">The applicant may be paying the fee now: waive it after {new Date(a.settling_until).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span> : null}
+              {!isPaid(a.paid_usd, a.fee_usd) && !a.settling_until ? <button type="button" disabled={!address || busy} onClick={() => void decide(a.id, "waive")} className={btn.primarySm} title="List it now; the application is marked approved with the fee waived">Approve without fee</button> : null}
               <button type="button" disabled={!address || busy || !(reasons[a.id] ?? "").trim()} onClick={() => void decide(a.id, "reject")} className={`${btn.secondarySm} text-down-ink`}>Close</button>
             </div>
           ) : null}

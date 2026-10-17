@@ -5,7 +5,7 @@ import path from "node:path";
 import { createSiweMessage } from "viem/siwe";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { ADMIN_MESSAGE_TTL_MS, ADMIN_SESSION_MS, ADMIN_SESSIONS_MAX, ADMIN_SIGN_IN_STATEMENT, buildAdminSignInMessage, checkAdminSignIn, deviceLabel } from "./signIn.ts";
-import { ADMIN_COOKIE, adminCookieOptions, hashToken, isToken, requireAdmin, tokenFromCookieHeader } from "./session.ts";
+import { ADMIN_COOKIE, adminCookieOptions, hashToken, isToken, requireAdmin, requireAdminAction, tokenFromCookieHeader } from "./session.ts";
 import { verifySig } from "../profiles/server.ts";
 
 const SRC = path.resolve(import.meta.dirname, "../..");
@@ -101,8 +101,12 @@ test("the token: 32 random bytes; only its SHA-256 is ever stored or looked up",
 
 test("a session counts only while its wallet is still an admin, a removed wallet's sessions end for good, and past the cap the oldest end", () => {
   const s = src("lib/admin/session.ts");
-  assert.match(s, /if \(!adminWallets\(\)\.has\(row\.wallet\)\) \{\n[^\n]*\n\s*void db`UPDATE bb_admin_sessions SET revoked_at = now\(\) WHERE wallet = \$\{row\.wallet\} AND revoked_at IS NULL`\.catch\(\(\) => \{\}\);\n\s*return null;/);
+  const fromToken = s.slice(s.indexOf("export async function adminSessionFromToken("), s.indexOf("export async function adminFromRequest("));
+  assert.match(fromToken, /if \(!adminWallets\(\)\.has\(row\.wallet\)\) return null;/);
+  // a machine still on the old ADMIN_WALLETS while a secret change rolls out must not end a newly added admin's sessions
+  assert.doesNotMatch(fromToken, /revoked_at = now\(\)/, "a request never ends sessions");
   assert.match(s, /UPDATE bb_admin_sessions SET revoked_at = now\(\) WHERE revoked_at IS NULL AND wallet <> ALL\(\$\{\[\.\.\.adminWallets\(\)\]\}::text\[\]\)/, "the boot sweep");
+  assert.match(s, /export async function revokeNonAdminSessions\(tries = 3, waitMs = 10_000\)[\s\S]*?if \(i >= tries\) throw err;\n\s*await new Promise\(\(r\) => setTimeout\(r, waitMs\)\);/, "a database blip at boot does not skip the sweep");
   assert.match(src("instrumentation.ts"), /const \{ revokeNonAdminSessions \} = await import\("\.\/lib\/admin\/session"\);\n\s*void revokeNonAdminSessions\(\)/, "runs at boot, which a secret change triggers");
   assert.match(s, /ORDER BY created_at DESC, id DESC LIMIT \$\{ADMIN_SESSIONS_MAX\}\)/);
 });
@@ -121,11 +125,16 @@ test("an unknown token, a missing cookie or a wallet in the URL is no session; n
   assert.deepEqual(await requireAdmin(req({ cookie: `${ADMIN_COOKIE}=${"A".repeat(43)}` })), none);
   assert.deepEqual(await requireAdmin(req({})), none);
   assert.deepEqual(await requireAdmin(req({}, "https://openlaunch.lol/api/posts/reported?wallet=0x0000000000000000000000000000000000000001")), none);
-  // an action (a signing wallet given) must also come from the site's own pages
+  // an action must also come from the site's own pages and name the wallet that signed it
   const w = "0x0000000000000000000000000000000000000001";
-  assert.deepEqual(await requireAdmin(req({}), w), { ok: false, error: "bad origin", status: 403 });
-  assert.deepEqual(await requireAdmin(req({ origin: "https://evil.example" }), w), { ok: false, error: "bad origin", status: 403 });
-  assert.deepEqual(await requireAdmin(req({ origin: "http://localhost:3000" }), w), none, "the right origin still needs a session");
+  const site = { origin: "http://localhost:3000" };
+  assert.deepEqual(await requireAdminAction(req({}), w), { ok: false, error: "bad origin", status: 403 });
+  assert.deepEqual(await requireAdminAction(req({ origin: "https://evil.example" }), w), { ok: false, error: "bad origin", status: 403 });
+  assert.deepEqual(await requireAdminAction(req(site), w), none, "the right origin still needs a session");
+  // a missing or malformed wallet is refused, never let through as a read would be
+  for (const bad of [undefined, null, 1, "", "0x01", `${w}0`, { wallet: w }]) {
+    assert.deepEqual(await requireAdminAction(req({ ...site, cookie: `${ADMIN_COOKIE}=${"A".repeat(43)}` }), bad), { ok: false, error: "bad wallet", status: 400 }, String(bad));
+  }
   const s = src("lib/admin/session.ts");
   assert.match(s, /if \(!maybeDb\(\)\) return fail\("db unconfigured", 503\);/);
   assert.match(s, /\} catch \(err\) \{\n\s*console\.error\("\[admin\] session check failed:"[^\n]*\n\s*return fail\("admin check unavailable, try again", 503\);/);
@@ -167,7 +176,7 @@ test("every handler of every admin route requires the admin session", () => {
       const body = s.slice(h.index, handlers[i + 1]?.index ?? s.length);
       if (SIGN_IN.has(`${rel}:${h[1]}`)) continue;
       // posts/mod: a creator mutes their own token with the signature alone; moderate() wants the session for anything admin
-      const gated = /requireAdmin\(req\b/.test(body) || (rel === "posts/mod" && /adminFromRequest\(req\)/.test(body) && /, session\);/.test(body));
+      const gated = /requireAdmin(Action)?\(req\b/.test(body) || (rel === "posts/mod" && /adminFromRequest\(req\)/.test(body) && /, session\);/.test(body));
       assert.ok(gated, `${rel} ${h[1]} does not check the admin session`);
     }
   }
@@ -178,17 +187,20 @@ test("admin actions: the session is checked before the action, against the walle
   for (const [rel, call] of [["boost/mod", "moderateBoost("], ["pairs/mod", "moderatePair("], ["pairs/review", "reviewApplication("], ["profile/admin", "moderateProfile("], ["points/admin", "admitAdmin("]] as const) {
     const s = src(`app/api/${rel}/route.ts`);
     const post = s.slice(s.indexOf("export async function POST("));
-    const gate = post.search(/requireAdmin\(req, b\.wallet\)/);
-    assert.ok(gate > 0 && gate < post.indexOf(call), `${rel}: requireAdmin(req, b.wallet) comes before ${call}`);
+    const gate = post.search(/requireAdminAction\(req, b\.wallet\)/);
+    assert.ok(gate > 0 && gate < post.indexOf(call), `${rel}: requireAdminAction(req, b.wallet) comes before ${call}`);
+    assert.doesNotMatch(post, /requireAdmin\(req/, `${rel}: an action uses the action gate`);
   }
   const s = src("lib/admin/session.ts");
-  assert.match(s, /signedWallet !== undefined && \(typeof signedWallet !== "string" \|\| signedWallet\.toLowerCase\(\) !== session\.wallet\)/);
+  const action = s.slice(s.indexOf("export async function requireAdminAction("));
+  assert.match(action, /if \(typeof signedWallet !== "string" \|\| !\/\^0x\[0-9a-fA-F\]\{40\}\$\/\.test\(signedWallet\)\) return fail\("bad wallet", 400\);/);
+  assert.match(action, /if \(signedWallet\.toLowerCase\(\) !== a\.session\.wallet\) return fail\(/);
   const mod = src("lib/launchpad/postsServer.ts");
   const fn = mod.slice(mod.indexOf("export async function moderate("), mod.indexOf("const message = buildModMessage", mod.indexOf("export async function moderate(")));
   assert.match(fn, /if \(l\.launcher !== wallet && session !== wallet\) return fail\(ADMIN_SESSION_NEEDED, 401\);/, "an admin muting a token they did not launch");
   assert.match(fn, /if \(!admins\.has\(wallet\)\) return fail\("admin only", 403\);\n\s*if \(session !== wallet\) return fail\(ADMIN_SESSION_NEEDED, 401\);/, "hiding a post");
   assert.match(src("app/api/posts/mod/route.ts"), /session = fromAdminOrigin\(req\) \? \(\(await adminFromRequest\(req\)\)\?\.wallet \?\? null\) : null;/, "the session counts only from the site's own pages");
-  assert.match(s, /if \(signedWallet !== undefined && !fromAdminOrigin\(req\)\) return fail\("bad origin", 403\);/);
+  assert.match(action, /if \(!fromAdminOrigin\(req\)\) return fail\("bad origin", 403\);/);
 });
 
 test("sign-in: same-origin, rate-limited, nonce spent only after the signature checks out", () => {

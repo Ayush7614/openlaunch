@@ -9,9 +9,8 @@ import { ADMIN_NONCE_TTL_MS, ADMIN_SESSION_MS, ADMIN_SESSIONS_MAX } from "./sign
  * Admin sessions. Signing in (signIn.ts) creates one: a random 32-byte token goes to the browser in an HttpOnly,
  * Secure, SameSite=Strict cookie, and the database keeps only its SHA-256, so a leaked database row cannot be used as a
  * cookie. A session counts only while it exists, is not ended, has not passed its 8 hours, and its wallet is still in
- * ADMIN_WALLETS. Removing a wallet from the secret ends its sessions for good (at boot, which a secret change triggers,
- * and whenever one of them turns up), so adding the wallet back revives none. Signing out ends it on the server, not
- * only in the browser.
+ * ADMIN_WALLETS. Removing a wallet from the secret ends its sessions for good at boot (a secret change restarts every
+ * machine), so adding the wallet back revives none. Signing out ends it on the server, not only in the browser.
  *
  * The session gates the admin page and the admin reads. Every admin action still needs its own wallet signature as
  * well, from the same wallet: a stolen cookie cannot act without the wallet, and a phished signature cannot act
@@ -118,11 +117,9 @@ export async function adminSessionFromToken(token: string | null | undefined): P
     SELECT id, wallet, expires_at FROM bb_admin_sessions
      WHERE token_hash = ${hashToken(token)} AND revoked_at IS NULL AND expires_at > now()`;
   if (!row) return null;
-  if (!adminWallets().has(row.wallet)) {
-    // no longer an admin: end all of that wallet's sessions, so adding it back later revives none of them
-    void db`UPDATE bb_admin_sessions SET revoked_at = now() WHERE wallet = ${row.wallet} AND revoked_at IS NULL`.catch(() => {});
-    return null;
-  }
+  // not an admin on this machine: refused, but never ended from here. While a secret change rolls out, a machine still on
+  // the old list would end a newly added admin's sessions; ending a removed wallet's is the boot sweep's job
+  if (!adminWallets().has(row.wallet)) return null;
   void db`UPDATE bb_admin_sessions SET last_seen_at = now() WHERE id = ${row.id} AND last_seen_at < now() - interval '1 minute'`.catch(() => {});
   return { id: Number(row.id), wallet: row.wallet, expiresAt: new Date(row.expires_at).toISOString() };
 }
@@ -131,21 +128,29 @@ export async function adminFromRequest(req: Request): Promise<AdminSession | nul
   return adminSessionFromToken(tokenFromCookieHeader(req.headers.get("cookie")));
 }
 
-/** At boot (a change to ADMIN_WALLETS restarts the machines): end every session of a wallet no longer listed. */
-export async function revokeNonAdminSessions(): Promise<number> {
+/**
+ * At boot (a change to ADMIN_WALLETS restarts the machines): end, for good, every session of a wallet no longer listed,
+ * so adding it back later revives none. Retried (3 tries, 10 s apart) so a database blip at boot does not skip it.
+ */
+export async function revokeNonAdminSessions(tries = 3, waitMs = 10_000): Promise<number> {
   const db = maybeDb();
   if (!db) return 0;
-  const rows = await db`UPDATE bb_admin_sessions SET revoked_at = now() WHERE revoked_at IS NULL AND wallet <> ALL(${[...adminWallets()]}::text[]) RETURNING id`;
-  return rows.length;
+  for (let i = 1; ; i++) {
+    try {
+      const rows = await db`UPDATE bb_admin_sessions SET revoked_at = now() WHERE revoked_at IS NULL AND wallet <> ALL(${[...adminWallets()]}::text[]) RETURNING id`;
+      return rows.length;
+    } catch (err) {
+      if (i >= tries) throw err;
+      await new Promise((r) => setTimeout(r, waitMs));
+    }
+  }
 }
 
-/**
- * The gate for every admin route: a session, and for an action (`signedWallet` given) a request from the site's own
- * pages and the same wallet that signed it. Fails closed: no database or a failed read refuses.
- */
-export async function requireAdmin(req: Request, signedWallet?: unknown): Promise<{ ok: true; session: AdminSession } | Fail> {
+type Gate = { ok: true; session: AdminSession } | Fail;
+
+/** The gate for every admin read: a session that still counts. Fails closed: no database or a failed read refuses. */
+export async function requireAdmin(req: Request): Promise<Gate> {
   if (!maybeDb()) return fail("db unconfigured", 503);
-  if (signedWallet !== undefined && !fromAdminOrigin(req)) return fail("bad origin", 403);
   let session: AdminSession | null;
   try {
     session = await adminFromRequest(req);
@@ -154,10 +159,21 @@ export async function requireAdmin(req: Request, signedWallet?: unknown): Promis
     return fail("admin check unavailable, try again", 503);
   }
   if (!session) return fail("admin session needed: sign in at /admin", 401);
-  if (signedWallet !== undefined && (typeof signedWallet !== "string" || signedWallet.toLowerCase() !== session.wallet)) {
-    return fail("signed by a different wallet than the signed-in admin: switch back to it", 403);
-  }
   return { ok: true, session };
+}
+
+/**
+ * The gate for every admin action: a request from the site's own pages, a session, and the session's wallet is the one
+ * that signed the action. A missing or malformed wallet is refused here, never let through as a read would be.
+ */
+export async function requireAdminAction(req: Request, signedWallet: unknown): Promise<Gate> {
+  if (!maybeDb()) return fail("db unconfigured", 503);
+  if (!fromAdminOrigin(req)) return fail("bad origin", 403);
+  if (typeof signedWallet !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(signedWallet)) return fail("bad wallet", 400);
+  const a = await requireAdmin(req);
+  if (!a.ok) return a;
+  if (signedWallet.toLowerCase() !== a.session.wallet) return fail("signed by a different wallet than the signed-in admin: switch back to it", 403);
+  return a;
 }
 
 export type AdminSessionRow = { id: number; device: string; created_at: string; last_seen_at: string; expires_at: string };
