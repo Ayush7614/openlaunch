@@ -260,10 +260,10 @@ test("a fee is never waived while the applicant may be paying it: under a live q
   const schema = src("../../../db/schema.sql");
   assert.match(schema, /ALTER TABLE bb_pair_applications ADD COLUMN IF NOT EXISTS last_quote_until timestamptz;/);
   assert.match(schema, /UPDATE bb_pair_applications SET last_quote_until = quote_until WHERE last_quote_until IS NULL AND quote_until IS NOT NULL;/, "backfill: a live quote");
-  // a quote a burn already spent before the column existed: the latest burn + the 30-minute lock is never before its end
-  assert.match(schema, /UPDATE bb_pair_applications a SET last_quote_until = b\.sent \+ interval '30 minutes'\n\s*FROM \(SELECT application_id, max\(block_time\) AS sent FROM bb_pair_burns GROUP BY application_id\) b\n\s*WHERE a\.id = b\.application_id AND a\.last_quote_until IS NULL;/, "backfill: a spent quote");
+  // a quote a burn already spent before the column existed began before the migration, so it ends by then + the 30-minute lock
+  assert.match(schema, /UPDATE bb_pair_applications a SET last_quote_until = now\(\) \+ interval '30 minutes'\n\s*WHERE a\.last_quote_until IS NULL AND a\.status IN \('open', 'changes'\) AND EXISTS \(SELECT 1 FROM bb_pair_burns b WHERE b\.application_id = a\.id\);/, "backfill: a spent quote");
   assert.equal(PAIR_QUOTE_LOCK_MS, 30 * 60_000, "the backfill's 30 minutes is the quote lock");
-  assert.ok(schema.indexOf("CREATE TABLE IF NOT EXISTS bb_pair_burns") < schema.indexOf("FROM bb_pair_burns GROUP BY application_id"), "the backfill runs after bb_pair_burns exists (a fresh database)");
+  assert.ok(schema.indexOf("CREATE TABLE IF NOT EXISTS bb_pair_burns") < schema.indexOf("EXISTS (SELECT 1 FROM bb_pair_burns b WHERE b.application_id = a.id)"), "the backfill runs after bb_pair_burns exists (a fresh database)");
   // the panel holds the button back and says when, from the same rule
   assert.match(s, /settling_until: iso\(settlingUntil\(r\)\),/);
   const panel = src("../../components/launchpad/PairReviewAdmin.tsx");

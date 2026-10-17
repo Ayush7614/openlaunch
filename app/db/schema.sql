@@ -597,12 +597,12 @@ CREATE INDEX IF NOT EXISTS bb_pair_burns_app_idx ON bb_pair_burns (application_i
 -- The end of the latest fee quote, kept when a landed burn spends the quote (that clears quote_until): another transfer
 -- sent under it may still be indexing, so a fee waiver waits for it as well.
 ALTER TABLE bb_pair_applications ADD COLUMN IF NOT EXISTS last_quote_until timestamptz;
--- Backfill: a live quote's own end; where a burn already spent the quote, the latest burn + 30 minutes (a quote ends at
--- most 30 minutes after any transfer sent under it, so that is never earlier than its real end).
+-- Backfill: a live quote's own end. Where a burn already spent the quote (that cleared quote_until) its end is unknown,
+-- but every such quote began before this runs, so it ends by now + 30 minutes: an application a waiver could still
+-- apply to waits that long. Later quotes record last_quote_until themselves.
 UPDATE bb_pair_applications SET last_quote_until = quote_until WHERE last_quote_until IS NULL AND quote_until IS NOT NULL;
-UPDATE bb_pair_applications a SET last_quote_until = b.sent + interval '30 minutes'
-  FROM (SELECT application_id, max(block_time) AS sent FROM bb_pair_burns GROUP BY application_id) b
- WHERE a.id = b.application_id AND a.last_quote_until IS NULL;
+UPDATE bb_pair_applications a SET last_quote_until = now() + interval '30 minutes'
+ WHERE a.last_quote_until IS NULL AND a.status IN ('open', 'changes') AND EXISTS (SELECT 1 FROM bb_pair_burns b WHERE b.application_id = a.id);
 
 -- ── admin sign-in (lib/admin) ───────────────────────────────────────────────
 -- Server-issued nonces for Sign-In with Ethereum messages: 5 minutes, single use.
