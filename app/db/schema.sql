@@ -579,6 +579,10 @@ CREATE INDEX IF NOT EXISTS bb_pair_applications_status_idx ON bb_pair_applicatio
 CREATE INDEX IF NOT EXISTS bb_pair_applications_applicant_idx ON bb_pair_applications (applicant);
 -- One application in progress per token.
 CREATE UNIQUE INDEX IF NOT EXISTS bb_pair_applications_open_idx ON bb_pair_applications (chain_id, address) WHERE status IN ('open', 'paid', 'changes');
+-- The end of the latest fee quote, kept when a landed burn spends the quote (that clears quote_until): another transfer
+-- sent under it may still be indexing, so a fee waiver waits for it as well.
+ALTER TABLE bb_pair_applications ADD COLUMN IF NOT EXISTS last_quote_until timestamptz;
+UPDATE bb_pair_applications SET last_quote_until = quote_until WHERE last_quote_until IS NULL AND quote_until IS NOT NULL;
 -- TWIG sent to 0x…dEaD for an application (raw facts from the Transfer log), each valued in USD when indexed.
 CREATE TABLE IF NOT EXISTS bb_pair_burns (
   chain_id       integer NOT NULL,

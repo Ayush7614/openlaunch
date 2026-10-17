@@ -228,7 +228,7 @@ test("an admin can approve an unpaid application with the fee waived, and an alr
   // a paid fee is never recorded as waived
   assert.match(decide, /if \(decision === "waive" && isPaid\(app\.paid_usd, app\.fee_usd\)\) return fail\(/);
   // and the claim itself re-checks it, so a burn settling between the check and the claim cannot be waived away
-  assert.match(decide, /WHERE id = \$\{id\} AND status = \$\{app\.status\} AND \(\$\{decision\} <> 'waive' OR \(paid_usd < fee_usd \* \$\{1 - PAIR_FEE_TOLERANCE\}\n\s*AND \(quote_until IS NULL OR quote_until < now\(\) - \$\{`\$\{PAIR_QUOTE_SETTLE_MS \/ 1000\} seconds`\}::interval\)\)\) RETURNING id/);
+  assert.match(decide, /WHERE id = \$\{id\} AND status = \$\{app\.status\} AND \(\$\{decision\} <> 'waive' OR \(paid_usd < fee_usd \* \$\{1 - PAIR_FEE_TOLERANCE\}\n\s*AND \(quote_until IS NULL OR quote_until < now\(\) - \$\{`\$\{PAIR_QUOTE_SETTLE_MS \/ 1000\} seconds`\}::interval\)\n\s*AND \(last_quote_until IS NULL OR last_quote_until < now\(\) - \$\{`\$\{PAIR_QUOTE_SETTLE_MS \/ 1000\} seconds`\}::interval\)\)\) RETURNING id/);
   assert.match(decide, /const restore = \(\) => db`\s*UPDATE bb_pair_applications SET\s*status = CASE WHEN \$\{app\.status\} = 'open' AND paid_usd >= fee_usd \* \$\{1 - PAIR_FEE_TOLERANCE\} THEN 'paid' ELSE \$\{app\.status\} END,[^`]*reviews_used = \$\{app\.reviews_used\}[^`]*AND status = 'approved'`/, "a failed listing puts the application back where it was (as paid when a burn settled meanwhile)");
   assert.match(decide, /\(decision === "changes" \|\| decision === "reject"\) && !reason/, "approving and waiving need no reason");
   assert.match(src("../../components/launchpad/PairReviewAdmin.tsx"), /\{!isPaid\(a\.paid_usd, a\.fee_usd\) && !a\.settling_until \? <button type="button" disabled=\{!address \|\| busy\} onClick=\{\(\) => void decide\(a\.id, "waive"\)\} className=\{btn\.primarySm\}[^>]*>Approve without fee</, "only offered when the fee is not paid and not being paid");
@@ -252,7 +252,13 @@ test("a fee is never waived while the applicant may be paying it: under a live q
   const decide = s.slice(s.indexOf("export async function reviewApplication"));
   const guard = decide.indexOf('if (decision === "waive" && settling !== null) return fail(');
   assert.ok(guard > decide.indexOf("const settling = settlingUntil(app);") && guard < decide.indexOf("const claimed = await db`"), "checked before the claim");
-  assert.match(s, /const settlingUntil = \(r: AppRow\) => pairSettlingUntil\(r\.quote_until \? new Date\(r\.quote_until\)\.getTime\(\) : null, Date\.now\(\)\);/);
+  // from the latest quote's end, which a landed burn does not erase: a second transfer under the same quote holds it too
+  assert.match(s, /const ends = \[r\.quote_until, r\.last_quote_until\]\.filter\(\(d\) => d\)\.map\(\(d\) => new Date\(d!\)\.getTime\(\)\);\n\s*return pairSettlingUntil\(ends\.length \? Math\.max\(\.\.\.ends\) : null, Date\.now\(\)\);/);
+  assert.match(s, /quote_until = now\(\) \+ \$\{`\$\{PAIR_QUOTE_LOCK_MS \/ 1000\} seconds`\}::interval,\n\s*last_quote_until = now\(\) \+ \$\{`\$\{PAIR_QUOTE_LOCK_MS \/ 1000\} seconds`\}::interval\n/, "every quote records its end twice");
+  assert.match(s, /SET quote_twig = NULL, quote_price_usd = NULL, quote_at = NULL, quote_until = NULL WHERE id = \$\{appId\}/, "a landed burn clears the quote…");
+  assert.doesNotMatch(s, /last_quote_until = NULL/, "…but never last_quote_until");
+  const schema = src("../../../db/schema.sql");
+  assert.match(schema, /ALTER TABLE bb_pair_applications ADD COLUMN IF NOT EXISTS last_quote_until timestamptz;\nUPDATE bb_pair_applications SET last_quote_until = quote_until WHERE last_quote_until IS NULL AND quote_until IS NOT NULL;/);
   // the panel holds the button back and says when, from the same rule
   assert.match(s, /settling_until: iso\(settlingUntil\(r\)\),/);
   const panel = src("../../components/launchpad/PairReviewAdmin.tsx");
