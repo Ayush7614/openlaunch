@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { rateLimited } from "@/lib/launchpad/editServer";
 import { clientIp, readJson } from "@/lib/profiles/http";
 import { admitAdmin } from "@/lib/profiles/server";
-import { requireAdmin } from "@/lib/admin/session";
+import { requireAdmin, requireAdminAction } from "@/lib/admin/session";
 import { SEASON_ACTIONS, buildPointsAdminMessage, isPointsAdminAction, normalizeSeasonDays, normalizeSeasonId } from "@/lib/points/auth";
 import { currentSeason, endSeasonNow, finalizeIfEnded, hideSeason, previewBoards, previousPublishedSeason, publishSeason, recomputeNow, seasonById, seasonEnded, seasonFinal, startSeason, type Season } from "@/lib/points/server";
 
@@ -47,7 +47,7 @@ export async function POST(req: Request) {
   if (rateLimited(`points-admin:ip:${clientIp(req)}`, 30)) return NextResponse.json({ error: "slow down" }, { status: 429 });
   const b = await readJson(req);
   if (!b) return NextResponse.json({ error: "bad json" }, { status: 400 });
-  const session = await requireAdmin(req, b.wallet);
+  const session = await requireAdminAction(req, b.wallet);
   if (!session.ok) return NextResponse.json({ error: session.error }, { status: session.status });
   const action = b.action;
   if (!isPointsAdminAction(action)) return NextResponse.json({ error: "bad action" }, { status: 400 });

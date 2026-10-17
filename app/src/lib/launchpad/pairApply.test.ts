@@ -4,6 +4,8 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   PAIR_APPLY_COPY,
+  PAIR_QUOTE_LOCK_MS,
+  PAIR_QUOTE_SETTLE_MS,
   PAIR_REVIEWS_MAX,
   PAIR_REVIEW_WINDOW_MS,
   PAIR_TAG_BASE,
@@ -18,6 +20,7 @@ import {
   pairBurnUsd,
   pairFeeQuote,
   pairListingUsd,
+  pairSettlingUntil,
   pairTagOf,
   proofPostText,
   proofPostUrl,
@@ -159,7 +162,7 @@ test("nothing holds a token's place for good: unpaid applications expire after 4
   const s = src("pairApplyServer.ts");
   const exp = s.slice(s.indexOf("export async function expireStaleApplications"), s.indexOf("/** Whether a wallet has a visible profile"));
   assert.match(exp, /a\.status = 'open' AND a\.paid_usd = 0 AND a\.created_at < now\(\)/);
-  assert.match(exp, /a\.quote_until IS NULL OR a\.quote_until < now\(\) - interval '1 hour'/, "never under a live quote");
+  assert.match(exp, /a\.quote_until IS NULL OR a\.quote_until < now\(\) - \$\{`\$\{PAIR_QUOTE_SETTLE_MS \/ 1000\} seconds`\}::interval/, "never under a live quote, nor in the hour after it");
   assert.match(exp, /NOT EXISTS \(SELECT 1 FROM bb_pair_burns b WHERE b\.application_id = a\.id AND b\.block_time >= a\.created_at\)/, "never once anything was burned for it (a stray burn from before it existed does not count)");
   assert.match(exp, /a\.status = 'changes' AND a\.paid_at < now\(\)/);
   const apply = s.slice(s.indexOf("export async function applicantAction"));
@@ -225,16 +228,34 @@ test("an admin can approve an unpaid application with the fee waived, and an alr
   // a paid fee is never recorded as waived
   assert.match(decide, /if \(decision === "waive" && isPaid\(app\.paid_usd, app\.fee_usd\)\) return fail\(/);
   // and the claim itself re-checks it, so a burn settling between the check and the claim cannot be waived away
-  assert.match(decide, /WHERE id = \$\{id\} AND status = \$\{app\.status\} AND \(\$\{decision\} <> 'waive' OR paid_usd < fee_usd \* \$\{1 - PAIR_FEE_TOLERANCE\}\) RETURNING id/);
+  assert.match(decide, /WHERE id = \$\{id\} AND status = \$\{app\.status\} AND \(\$\{decision\} <> 'waive' OR \(paid_usd < fee_usd \* \$\{1 - PAIR_FEE_TOLERANCE\}\n\s*AND \(quote_until IS NULL OR quote_until < now\(\) - \$\{`\$\{PAIR_QUOTE_SETTLE_MS \/ 1000\} seconds`\}::interval\)\)\) RETURNING id/);
   assert.match(decide, /const restore = \(\) => db`\s*UPDATE bb_pair_applications SET\s*status = CASE WHEN \$\{app\.status\} = 'open' AND paid_usd >= fee_usd \* \$\{1 - PAIR_FEE_TOLERANCE\} THEN 'paid' ELSE \$\{app\.status\} END,[^`]*reviews_used = \$\{app\.reviews_used\}[^`]*AND status = 'approved'`/, "a failed listing puts the application back where it was (as paid when a burn settled meanwhile)");
   assert.match(decide, /\(decision === "changes" \|\| decision === "reject"\) && !reason/, "approving and waiving need no reason");
-  assert.match(src("../../components/launchpad/PairReviewAdmin.tsx"), /\{!isPaid\(a\.paid_usd, a\.fee_usd\) \? <button type="button" disabled=\{!address \|\| busy\} onClick=\{\(\) => void decide\(a\.id, "waive"\)\} className=\{btn\.primarySm\}[^>]*>Approve without fee</, "only offered when the fee is not paid");
+  assert.match(src("../../components/launchpad/PairReviewAdmin.tsx"), /\{!isPaid\(a\.paid_usd, a\.fee_usd\) && !a\.settling_until \? <button type="button" disabled=\{!address \|\| busy\} onClick=\{\(\) => void decide\(a\.id, "waive"\)\} className=\{btn\.primarySm\}[^>]*>Approve without fee</, "only offered when the fee is not paid and not being paid");
   assert.match(src("../../components/launchpad/PairApplication.tsx"), /app\.status === "approved" && app\.paid_usd < app\.fee_usd \* 0\.98 \? <p className="text-sm text-up">\{app\.paid_usd > 0 \? PAIR_APPLY_COPY\.waivedRest\(app\.paid_usd\) : PAIR_APPLY_COPY\.waived\}/, "a partial payment is shown, and only the rest is waived");
   assert.equal(PAIR_APPLY_COPY.waivedRest(12.5), "Paid: $12.50. openlaunch waived the rest of the fee.");
   // a listing that throws (not only one refused) puts the application back
   assert.match(decide, /\} catch \(e\) \{\n\s*await restore\(\);\n\s*throw e;/);
   assert.match(decide, /if \(!w\.ok\) \{\n\s*await restore\(\);/);
   assert.match(buildPairReviewMessage({ decision: "waive", id: 1, wallet: "0xA", nonce: "n", ts: 0, reason: "" }), /^openlaunch\.lol community pair review\n\nDecision: waive\nApplication: 1\nReason: -\n/);
+});
+
+test("a fee is never waived while the applicant may be paying it: under a live quote or in the hour after it", () => {
+  const now = 1_800_000_000_000;
+  assert.equal(PAIR_QUOTE_SETTLE_MS, 60 * 60_000);
+  assert.equal(pairSettlingUntil(null, now), null, "no quote was given: waive at once");
+  const until = now + PAIR_QUOTE_LOCK_MS;
+  assert.equal(pairSettlingUntil(until, now), until + PAIR_QUOTE_SETTLE_MS, "a live quote");
+  assert.equal(pairSettlingUntil(now - 59 * 60_000, now), now + 60_000, "ended 59 minutes ago: a transfer may still be indexing");
+  assert.equal(pairSettlingUntil(now - PAIR_QUOTE_SETTLE_MS, now), null, "an hour after it ended");
+  const s = src("pairApplyServer.ts");
+  const decide = s.slice(s.indexOf("export async function reviewApplication"));
+  const guard = decide.indexOf('if (decision === "waive" && settling !== null) return fail(');
+  assert.ok(guard > decide.indexOf("const settling = settlingUntil(app);") && guard < decide.indexOf("const claimed = await db`"), "checked before the claim");
+  assert.match(s, /const settlingUntil = \(r: AppRow\) => pairSettlingUntil\(r\.quote_until \? new Date\(r\.quote_until\)\.getTime\(\) : null, Date\.now\(\)\);/);
+  // the panel holds the button back and says when, from the same rule
+  assert.match(s, /settling_until: iso\(settlingUntil\(r\)\),/);
+  assert.match(src("../../components/launchpad/PairReviewAdmin.tsx"), /\{!isPaid\(a\.paid_usd, a\.fee_usd\) && a\.settling_until \? <span[^>]*>The applicant may be paying the fee now: waive it after \{new Date\(a\.settling_until\)/);
 });
 
 /* ── wiring ── */

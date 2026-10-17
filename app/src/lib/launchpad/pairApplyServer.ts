@@ -12,6 +12,7 @@ import {
   PAIR_APPLY_OPEN_MAX,
   PAIR_FEE_TOLERANCE,
   PAIR_QUOTE_LOCK_MS,
+  PAIR_QUOTE_SETTLE_MS,
   PAIR_FEE_WAIVED,
   PAIR_REVIEWS_MAX,
   PAIR_REVIEW_WINDOW_MS,
@@ -27,6 +28,7 @@ import {
   pairBurnUsd,
   pairFeeQuote,
   pairListingUsd,
+  pairSettlingUntil,
   proofPostUrl,
   sourceLabel,
   type PairApplicationStatus,
@@ -62,9 +64,12 @@ export type PairApplicationPublic = {
   price_kind: PairPriceKind; price_pool: string; price_quote: string; price_hook: string | null; logo: string | null; website: string | null; x_handle: string | null; description: string | null; proof_url: string | null;
   precheck: PairPrecheck; status: PairApplicationStatus; fee_usd: number; paid_usd: number; paid_at: string | null;
   quote: { twig: string; price_usd: number; until: string; amount: string } | null;
+  /** A fee transfer may still be on its way until then (a fee quote is live or ended within the hour): no waiver before. */
+  settling_until: string | null;
   reviews_used: number; reviews_max: number; reason: string | null; decided_at: string | null; created_at: string; can_ask_again: boolean; burns: PairBurnPublic[];
 };
-const iso = (v: Date | null) => (v ? new Date(v).toISOString() : null);
+const iso = (v: Date | number | null) => (v ? new Date(v).toISOString() : null);
+const settlingUntil = (r: AppRow) => pairSettlingUntil(r.quote_until ? new Date(r.quote_until).getTime() : null, Date.now());
 
 function publicOf(r: AppRow, burns: PairBurnPublic[]): PairApplicationPublic {
   const live = r.quote_until && r.quote_twig && r.quote_price_usd && new Date(r.quote_until).getTime() > Date.now();
@@ -73,6 +78,7 @@ function publicOf(r: AppRow, burns: PairBurnPublic[]): PairApplicationPublic {
     price_kind: r.price_kind, price_pool: r.price_pool, price_quote: r.price_quote, price_hook: r.price_hook, logo: r.logo_url, website: r.website, x_handle: r.x_handle, description: r.description, proof_url: r.proof_url,
     precheck: r.precheck, status: r.status, fee_usd: r.fee_usd, paid_usd: r.paid_usd, paid_at: iso(r.paid_at),
     quote: live ? { twig: String(r.quote_twig), price_usd: r.quote_price_usd!, until: iso(r.quote_until)!, amount: pairBurnAmount(BigInt(r.quote_twig!), Number(r.id)).toString() } : null,
+    settling_until: iso(settlingUntil(r)),
     reviews_used: r.reviews_used, reviews_max: PAIR_REVIEWS_MAX, reason: r.reason, decided_at: iso(r.decided_at), created_at: iso(r.created_at)!,
     can_ask_again: canAskAgain({ status: r.status, reviews_used: r.reviews_used, paid_at: r.paid_at ? new Date(r.paid_at).getTime() : null }, Date.now()),
     burns,
@@ -113,7 +119,7 @@ export async function expireStaleApplications(chain?: ChainKey, address?: string
     UPDATE bb_pair_applications a SET status = 'expired', reason = CASE WHEN a.status = 'open' THEN 'Not paid within 48 hours.' ELSE 'The review window closed.' END, decided_at = now()
      WHERE ((a.status = 'open' AND a.paid_usd = 0 AND a.created_at < now() - ${`${PAIR_UNPAID_EXPIRE_MS / 1000} seconds`}::interval
              -- never while a fee quote is live, nor in the hour after it (a transfer sent under it may still be indexing)
-             AND (a.quote_until IS NULL OR a.quote_until < now() - interval '1 hour')
+             AND (a.quote_until IS NULL OR a.quote_until < now() - ${`${PAIR_QUOTE_SETTLE_MS / 1000} seconds`}::interval)
              -- only burns sent for it count: a stray one sent before it existed must not keep it alive
              AND NOT EXISTS (SELECT 1 FROM bb_pair_burns b WHERE b.application_id = a.id AND b.block_time >= a.created_at))
         OR (a.status = 'changes' AND a.paid_at < now() - ${`${PAIR_REVIEW_WINDOW_MS / 1000} seconds`}::interval)) ${scope}
@@ -312,6 +318,10 @@ export async function reviewApplication(b: Record<string, unknown>): Promise<{ o
   if (!app) return fail("no such application", 404);
   // a fee already paid is not waived: a paid application in "changes" goes back through "again" and then "approve"
   if (decision === "waive" && isPaid(app.paid_usd, app.fee_usd)) return fail("this application has paid its fee: approve it after the applicant asks again", 409);
+  // nor while the applicant may be paying it: under a live fee quote, or in the hour after it while their transfer may
+  // still be indexing. Waiving then would have them burn TWIG for a fee that was waived meanwhile
+  const settling = settlingUntil(app);
+  if (decision === "waive" && settling !== null) return fail(`the applicant may be paying the fee right now (a fee quote is open or just ended): waive it after ${new Date(settling).toISOString().slice(11, 16)} UTC`, 409);
   // an admin may close (reject) any application still in progress, so nothing can hold a token's place; approving and
   // asking for changes need a paid one; waiving the fee approves one that has not paid
   const allowed: PairApplicationStatus[] = decision === "reject" ? ["paid", "open", "changes"] : decision === "waive" ? ["open", "changes"] : ["paid"];
@@ -323,10 +333,12 @@ export async function reviewApplication(b: Record<string, unknown>): Promise<{ o
   const status: PairApplicationStatus = approving ? "approved" : decision === "reject" || used >= PAIR_REVIEWS_MAX ? "rejected" : "changes";
   const why = decision === "waive" ? reason || PAIR_FEE_WAIVED : reason;
   // claim the decision first: two admins deciding at once cannot both win, and a listing never runs for a lost claim
-  // a waiver is claimed only while the row still records the fee as unpaid: a burn that settles after the check above loses no money
+  // a waiver is claimed only while the row still records the fee as unpaid and no fee transfer may be on its way: a burn
+  // that settles, or a quote the applicant takes, after the checks above loses no money
   const claimed = await db`
     UPDATE bb_pair_applications SET status = ${status}, reviews_used = ${used}, reason = ${why || null}, decided_by = ${wallet}, decided_at = now()
-     WHERE id = ${id} AND status = ${app.status} AND (${decision} <> 'waive' OR paid_usd < fee_usd * ${1 - PAIR_FEE_TOLERANCE}) RETURNING id`;
+     WHERE id = ${id} AND status = ${app.status} AND (${decision} <> 'waive' OR (paid_usd < fee_usd * ${1 - PAIR_FEE_TOLERANCE}
+       AND (quote_until IS NULL OR quote_until < now() - ${`${PAIR_QUOTE_SETTLE_MS / 1000} seconds`}::interval))) RETURNING id`;
   if (claimed.length === 0) return fail("this application changed meanwhile: reload", 409);
   if (approving) {
     // not listed, whether refused or thrown: the application goes back to where it was, its review not used. An unpaid one

@@ -23,6 +23,18 @@ export function pairListingUsd(env: string | undefined = process.env.PAIR_LISTIN
   return Number.isFinite(n) && n >= 10 && n <= 100_000 ? n : PAIR_LISTING_USD_DEFAULT;
 }
 export const PAIR_QUOTE_LOCK_MS = 30 * 60_000;
+/** After a fee quote ends, a transfer sent under it may still be indexing for up to an hour. */
+export const PAIR_QUOTE_SETTLE_MS = 60 * 60_000;
+/**
+ * Until when a fee transfer may still be on its way for an application whose last fee quote ends at `quoteUntil`: the
+ * quote's end plus an hour, or null once that has passed (or there was no quote). Nothing that would make such a
+ * transfer moot happens before then: no expiry, and no fee waiver (the applicant would burn TWIG for a waived fee).
+ */
+export function pairSettlingUntil(quoteUntil: number | null, now: number): number | null {
+  if (quoteUntil === null) return null;
+  const until = quoteUntil + PAIR_QUOTE_SETTLE_MS;
+  return until > now ? until : null;
+}
 export const PAIR_FEE_STEP = 100_000n;
 /** A burn total within 2% under the fee counts as paid (rounding, a price tick between quote and send). */
 export const PAIR_FEE_TOLERANCE = 0.02;

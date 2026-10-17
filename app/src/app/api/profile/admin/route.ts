@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { rateLimited } from "@/lib/launchpad/editServer";
 import { clientIp, readJson } from "@/lib/profiles/http";
 import { listProfilesForReview, moderateProfile } from "@/lib/profiles/server";
-import { requireAdmin } from "@/lib/admin/session";
+import { requireAdmin, requireAdminAction } from "@/lib/admin/session";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +32,7 @@ export async function POST(req: Request) {
   if (rateLimited(`pmod:ip:${clientIp(req)}`, 60)) return NextResponse.json({ error: "slow down" }, { status: 429 });
   const b = await readJson(req);
   if (!b) return NextResponse.json({ error: "bad json" }, { status: 400 });
-  const a = await requireAdmin(req, b.wallet);
+  const a = await requireAdminAction(req, b.wallet);
   if (!a.ok) return NextResponse.json({ error: a.error }, { status: a.status });
   try {
     const r = await moderateProfile({ action: b.action, target: b.target, reason: b.reason, claim: b.claim, chain: b.chain, wallet: b.wallet, nonce: b.nonce, ts: b.ts, signature: b.signature });

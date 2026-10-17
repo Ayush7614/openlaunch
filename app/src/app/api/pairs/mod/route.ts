@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { rateLimited } from "@/lib/launchpad/editServer";
 import { clientIp, readJson } from "@/lib/profiles/http";
-import { requireAdmin } from "@/lib/admin/session";
+import { requireAdminAction } from "@/lib/admin/session";
 import { moderatePair } from "@/lib/launchpad/pairsServer";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +15,7 @@ export async function POST(req: Request) {
   if (rateLimited(`pairs-mod:ip:${clientIp(req)}`, 30)) return NextResponse.json({ error: "slow down" }, { status: 429 });
   const b = await readJson(req);
   if (!b) return NextResponse.json({ error: "bad json" }, { status: 400 });
-  const a = await requireAdmin(req, b.wallet);
+  const a = await requireAdminAction(req, b.wallet);
   if (!a.ok) return NextResponse.json({ error: a.error }, { status: a.status });
   const r = await moderatePair(b);
   if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });

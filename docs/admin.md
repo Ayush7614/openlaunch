@@ -24,12 +24,14 @@ Without an admin session, `/admin` is a sign-in card and nothing else: no panel 
 - The database (`bb_admin_sessions`) keeps only the token's SHA-256, a rough device label ("Chrome · macOS") and the
   times. No IP, no user agent.
 - Every request checks that the session exists, is not ended, has not expired, and that its wallet is still in
-  `ADMIN_WALLETS`. A session that turns up for a wallet no longer listed ends all of that wallet's sessions.
+  `ADMIN_WALLETS`. A request never ends sessions itself: while a secret change rolls out, a machine still on the old
+  list would end a newly added admin's. Ending a removed wallet's sessions is done at boot (see Ops).
 - At most 5 sessions per wallet; signing in again ends the oldest.
 - **Sessions** on `/admin` lists this wallet's sessions. Each can be ended, or all of them with **Sign out everywhere**.
   Sign out ends the session on the server, not only in the browser.
 - Sign-in, sign-out and every admin action only accept requests from the site's own pages (the Origin header), on top
-  of SameSite=Strict. Sign-in is limited to 10 a minute per IP and per wallet.
+  of SameSite=Strict. An action must name the wallet that signed it; one without is refused, never treated as a read.
+  Sign-in is limited to 10 a minute per IP and per wallet.
 - Opening `/admin` from a link on another site sends no Strict cookie on that first load. The card asks the server
   from inside the page and loads the panels when a session is there, so there is no second signature.
 
@@ -46,8 +48,10 @@ A stolen cookie cannot act without the wallet, and a phished action signature ca
 ## Ops
 
 - **Remove an admin**: take the wallet out of `ADMIN_WALLETS` (`fly secrets set ADMIN_WALLETS=… -a basebid`). The
-  secret change restarts the machines, and at boot every session of a wallet no longer listed is ended for good:
-  adding the wallet back later revives none of them.
+  secret change restarts the machines, and at boot every session of a wallet no longer listed is ended for good
+  (retried if the database is briefly unreachable): adding the wallet back later revives none of them. Until a machine
+  restarts it still has the old list, so the swap takes as long as the restart (a minute or so).
+- **Add an admin**: add the wallet to `ADMIN_WALLETS` the same way, and sign in once both machines have restarted.
 - **End every session at once** (a lost device):
   `UPDATE bb_admin_sessions SET revoked_at = now() WHERE revoked_at IS NULL;`
 - Sign-ins and sign-outs are logged as `[admin] signed in: <wallet> (<device>)` and `[admin] signed out: …`.
