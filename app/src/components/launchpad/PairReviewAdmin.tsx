@@ -10,7 +10,7 @@ import { CHAINS, explorerAddress, shortAddr } from "@/lib/chainPublic";
 import { nowMs } from "@/lib/launchpad/time";
 import { friendlyError } from "@/lib/errors";
 import { nonce } from "@/lib/nonce";
-import { buildPairReviewMessage, sourceLabel, type PairReviewDecision } from "@/lib/launchpad/pairApply";
+import { buildPairReviewMessage, isPaid, sourceLabel, type PairReviewDecision } from "@/lib/launchpad/pairApply";
 import type { PairApplicationPublic } from "@/lib/launchpad/pairApplyServer";
 import PrecheckReport from "./PrecheckReport";
 
@@ -85,7 +85,9 @@ export default function PairReviewAdmin() {
           {a.reason ? <p className="text-xs text-muted">Last reason: {a.reason}</p> : null}
           {a.status === "open" || a.status === "changes" ? (
             <div className="flex flex-wrap gap-2">
-              <input aria-label={`Reason for closing ${a.symbol}`} value={reasons[a.id] ?? ""} onChange={(e) => setReasons((r) => ({ ...r, [a.id]: e.target.value }))} placeholder="Reason for closing (the applicant sees it)" maxLength={300} className="min-h-9 min-w-0 flex-1 rounded-lg border border-line bg-paper px-3 text-xs text-ink" />
+              <input aria-label={`Reason for closing ${a.symbol}`} value={reasons[a.id] ?? ""} onChange={(e) => setReasons((r) => ({ ...r, [a.id]: e.target.value }))} placeholder="Reason (the applicant sees it; optional to waive the fee)" maxLength={300} className="min-h-9 min-w-0 flex-1 rounded-lg border border-line bg-paper px-3 text-xs text-ink" />
+              {/* a paid fee is never waived (the server refuses it too, for a burn that lands meanwhile) */}
+              {!isPaid(a.paid_usd, a.fee_usd) ? <button type="button" disabled={!address || busy} onClick={() => void decide(a.id, "waive")} className={btn.primarySm} title="List it now; the application is marked approved with the fee waived">Approve without fee</button> : null}
               <button type="button" disabled={!address || busy || !(reasons[a.id] ?? "").trim()} onClick={() => void decide(a.id, "reject")} className={`${btn.secondarySm} text-down-ink`}>Close</button>
             </div>
           ) : null}

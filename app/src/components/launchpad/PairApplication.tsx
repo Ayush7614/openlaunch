@@ -246,7 +246,7 @@ export default function PairApplication({ initial, open }: { initial: PairApplic
             </div>
           )
         ) : (
-          <p className="text-sm text-up">Paid: ${app.paid_usd.toFixed(2)} of ${app.fee_usd}.</p>
+          app.status === "approved" && app.paid_usd < app.fee_usd * 0.98 ? <p className="text-sm text-up">{app.paid_usd > 0 ? PAIR_APPLY_COPY.waivedRest(app.paid_usd) : PAIR_APPLY_COPY.waived}</p> : <p className="text-sm text-up">Paid: ${app.paid_usd.toFixed(2)} of ${app.fee_usd}.</p>
         )}
         {sent ? <p className={helper}><a href={explorerTx(CHAIN, sent)} target="_blank" rel="noopener noreferrer" className="underline">Your transfer ↗</a></p> : null}
         {app.burns.length ? (

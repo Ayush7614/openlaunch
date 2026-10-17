@@ -22,6 +22,7 @@ import {
   pairPriceFromTick,
   pairSymbolProblem,
   pairTitle,
+  pairWarmingUp,
   pairVolumeLabel,
   sortsBelow,
   timeWeightedPrice,
@@ -115,6 +116,21 @@ const T0 = Date.UTC(2026, 9, 16);
 const listed: PairState = { status: "listed", status_by: "admin", status_at: T0, failing_since: null };
 const soft = { ok: false as const, hard: false, reason: "No USD price" };
 const hard = { ok: false as const, hard: true, reason: "Its contract code changed." };
+
+test("a new v4 listing warms up for 40 minutes: a missing average then is not a failing check", () => {
+  const t = Date.UTC(2026, 9, 16, 16, 29);
+  assert.equal(pairWarmingUp("univ4", t, t + 14 * 60_000), true);
+  assert.equal(pairWarmingUp("univ4", t, t + 39 * 60_000), true);
+  assert.equal(pairWarmingUp("univ4", t, t + 41 * 60_000), false);
+  assert.equal(pairWarmingUp("univ3", t, t + 60_000), false, "a v3 oracle already has its history");
+  assert.equal(pairWarmingUp("launch", t, t + 60_000), false, "our own swap index already has its history");
+  const health = src("pairsServer.ts").slice(src("pairsServer.ts").indexOf("async function poolHealth"), src("pairsServer.ts").indexOf("let lastMonitor"));
+  assert.match(health, /const warming = leg\.twap === null && leg\.spot !== null && leg\.spot > 0 && pairWarmingUp\(/, "only a positive spot with no average is excused");
+  assert.match(health, /if \(!warming && guardedPairPrice\(leg\.spot, leg\.twap\)\.price === null\) return \{ ok: false/);
+  const liquidityCheck = health.indexOf("poolLiquidityUsd(");
+  const warmupReturn = health.indexOf("return warming ? null : { ok: true };");
+  assert.ok(liquidityCheck >= 0 && warmupReturn >= 0 && liquidityCheck < warmupReturn, "liquidity is still checked while warming up");
+});
 
 test("monitor: an unknown reading changes nothing; a soft failure suspends after 24 hours, a hard one at once", () => {
   assert.equal(nextPairStatus(listed, null, T0 + 1).changed, false);

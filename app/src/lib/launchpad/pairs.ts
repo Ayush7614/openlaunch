@@ -122,6 +122,15 @@ export function sortsBelow(a: string, b: string): boolean {
   return BigInt(a.toLowerCase()) < BigInt(b.toLowerCase());
 }
 
+/**
+ * Whether a newly listed pair is still gathering its price samples: a v4 pool keeps no oracle, so its 30-minute average
+ * needs PAIR_MIN_SAMPLED_S of our own minute samples (plus a little slack for the first ones). Until then a missing
+ * average is expected, not a failing check. Other kinds read their average from history that already exists.
+ */
+export function pairWarmingUp(kind: PairPriceKind, listedAt: number, now: number): boolean {
+  return kind === "univ4" && now - listedAt < (PAIR_TWAP_WINDOW_S + 10 * 60) * 1000;
+}
+
 /** Whole quote units per whole pair token from a pool's token1-per-token0 raw price. */
 export function pairPriceFromRaw(raw1Per0: number, pairIsToken0: boolean, pairDecimals: number, quoteDecimals: number): number | null {
   if (!Number.isFinite(raw1Per0) || !(raw1Per0 > 0)) return null;

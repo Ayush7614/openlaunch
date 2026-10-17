@@ -140,7 +140,9 @@ export function buildPairApplyMessage(p: { action: PairApplyAction; chain: Chain
   ].join("\n");
 }
 
-export const PAIR_REVIEW_DECISIONS = ["approve", "changes", "reject"] as const;
+/** "waive": approve an application that has not paid, the fee waived by openlaunch (an admin call, signed like the rest). */
+export const PAIR_REVIEW_DECISIONS = ["approve", "waive", "changes", "reject"] as const;
+export const PAIR_FEE_WAIVED = "Fee waived by openlaunch.";
 export type PairReviewDecision = (typeof PAIR_REVIEW_DECISIONS)[number];
 export function isPairReviewDecision(v: unknown): v is PairReviewDecision {
   return typeof v === "string" && (PAIR_REVIEW_DECISIONS as readonly string[]).includes(v);
@@ -164,4 +166,6 @@ export const PAIR_APPLY_COPY = {
   lockNote: "The amount is locked for 30 minutes. Sent later, it counts at the price when it lands; a shortfall can be topped up.",
   reviewNote: "Reviews look at the checks, the community (its X account, its age, its activity) and the proof post. A listing is not an endorsement.",
   disabled: "Applications open soon.",
+  waived: "No fee: openlaunch waived it for this application.",
+  waivedRest: (paidUsd: number) => `Paid: $${paidUsd.toFixed(2)}. openlaunch waived the rest of the fee.`,
 } as const;
