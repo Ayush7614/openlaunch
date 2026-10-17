@@ -39,6 +39,14 @@ export default function PairReviewAdmin() {
     const id = setTimeout(() => void load(), 0);
     return () => clearTimeout(id);
   }, [load]);
+  // a waiver held back while the applicant may be paying opens at its settling_until: reload the queue then, so the
+  // button shows without a manual reload (at least 15 s apart, should this device's clock run ahead of the server's)
+  useEffect(() => {
+    const next = Math.min(...(apps ?? []).map((a) => (a.settling_until ? Date.parse(a.settling_until) : Infinity)));
+    if (!Number.isFinite(next)) return;
+    const id = setTimeout(() => void load(), Math.max(15_000, next - nowMs() + 1_000));
+    return () => clearTimeout(id);
+  }, [apps, load]);
 
   async function decide(id: number, decision: PairReviewDecision) {
     if (!address || busy) return;

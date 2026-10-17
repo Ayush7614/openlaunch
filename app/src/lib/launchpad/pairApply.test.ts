@@ -255,7 +255,10 @@ test("a fee is never waived while the applicant may be paying it: under a live q
   assert.match(s, /const settlingUntil = \(r: AppRow\) => pairSettlingUntil\(r\.quote_until \? new Date\(r\.quote_until\)\.getTime\(\) : null, Date\.now\(\)\);/);
   // the panel holds the button back and says when, from the same rule
   assert.match(s, /settling_until: iso\(settlingUntil\(r\)\),/);
-  assert.match(src("../../components/launchpad/PairReviewAdmin.tsx"), /\{!isPaid\(a\.paid_usd, a\.fee_usd\) && a\.settling_until \? <span[^>]*>The applicant may be paying the fee now: waive it after \{new Date\(a\.settling_until\)/);
+  const panel = src("../../components/launchpad/PairReviewAdmin.tsx");
+  assert.match(panel, /\{!isPaid\(a\.paid_usd, a\.fee_usd\) && a\.settling_until \? <span[^>]*>The applicant may be paying the fee now: waive it after \{new Date\(a\.settling_until\)/);
+  // an open panel reloads the queue when the earliest hold ends, so the button comes back on its own
+  assert.match(panel, /const next = Math\.min\(\.\.\.\(apps \?\? \[\]\)\.map\(\(a\) => \(a\.settling_until \? Date\.parse\(a\.settling_until\) : Infinity\)\)\);\n\s*if \(!Number\.isFinite\(next\)\) return;\n\s*const id = setTimeout\(\(\) => void load\(\), Math\.max\(15_000, next - nowMs\(\) \+ 1_000\)\);\n\s*return \(\) => clearTimeout\(id\);\n\s*\}, \[apps, load\]\);/);
 });
 
 /* ── wiring ── */
