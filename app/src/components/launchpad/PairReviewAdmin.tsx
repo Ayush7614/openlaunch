@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useConfig } from "wagmi";
 import { getWalletClient } from "wagmi/actions";
-import { useHydratedAccount } from "@/lib/useHydratedAccount";
+import { useAdminAccount } from "@/components/admin/AdminAccount";
 import { btn, card } from "@/components/ui";
 import { CHAINS, explorerAddress, shortAddr } from "@/lib/chainPublic";
 import { nowMs } from "@/lib/launchpad/time";
@@ -20,7 +20,7 @@ import PrecheckReport from "./PrecheckReport";
  * Changes and Reject each use one of the application's three reviews and need a reason the applicant sees.
  */
 export default function PairReviewAdmin() {
-  const { address } = useHydratedAccount();
+  const { address } = useAdminAccount();
   const config = useConfig();
   const [apps, setApps] = useState<PairApplicationPublic[] | null>(null);
   const [reasons, setReasons] = useState<Record<number, string>>({});
