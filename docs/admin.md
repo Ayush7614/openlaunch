@@ -52,6 +52,9 @@ A stolen cookie cannot act without the wallet, and a phished action signature ca
   (retried if the database is briefly unreachable): adding the wallet back later revives none of them. Until a machine
   restarts it still has the old list, so the swap takes as long as the restart (a minute or so).
 - **Add an admin**: add the wallet to `ADMIN_WALLETS` the same way, and sign in once both machines have restarted.
+- **Adding back a removed wallet**, or if the log shows `[admin] session sweep failed`: end that wallet's old sessions
+  first, `UPDATE bb_admin_sessions SET revoked_at = now() WHERE wallet = '<address, lowercase>' AND revoked_at IS NULL;`
+  (the boot sweep normally did it already; this covers a sweep that failed all its tries).
 - **End every session at once** (a lost device):
   `UPDATE bb_admin_sessions SET revoked_at = now() WHERE revoked_at IS NULL;`
 - Sign-ins and sign-outs are logged as `[admin] signed in: <wallet> (<device>)` and `[admin] signed out: …`.
