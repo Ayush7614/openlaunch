@@ -27,7 +27,7 @@ import {
   sourceLabel,
 } from "./pairApply.ts";
 import { boostFromTransfer, isLaunchTag } from "./boost.ts";
-import { PAIR_CHAINS, PAIR_CHAINS_TEXT, PAIR_FEE_CHAIN, buildPairAdminMessage, pairSymbolProblem } from "./pairs.ts";
+import { PAIR_CHAINS, PAIR_CHAINS_TEXT, PAIR_FEE_CHAIN, buildPairAdminMessage, pairSymbolCheck, pairSymbolProblem } from "./pairs.ts";
 import { coreQuoteNames } from "./config.ts";
 import { hasDelegatecall, implementationOf1167 } from "./pairProbe.ts";
 
@@ -353,9 +353,19 @@ test("review fixes: a wallet on another chain switches first; Base-only burns; n
   assert.equal(pairSymbolProblem("PORKU", ["MUSEWORLD"], ["TSLA"]), null);
   for (const f of ["pairCheck.ts", "pairsServer.ts"]) {
     const s = src(f);
-    assert.match(s, /\.filter\(\(p\) => p\.status === "listed" && !\(p\.chain === chain && p\.address === address\)\)\.map\(\(p\) => p\.symbol\), stockList\(chain\)\.map\(\(s\) => s\.symbol\)\)/, f);
+    assert.match(s, /\.filter\(\(p\) => p\.status === "listed" && !\(p\.chain === chain && p\.address === address\)\)\.map\(\(p\) => p\.symbol\), (stockTickers\(chain\)|stocks)\)/, f);
     assert.match(s, /await ensureRegistry\(\)\.catch\(\(\) => null\); \/\/ Robinhood's stock tickers/, f);
+    assert.doesNotMatch(s, /stockList\(/, f); // an unread Robinhood list reads as empty there: tickers come from stockTickers (null when unread)
   }
+  // a stock list that was never read is no pass: the free check says unknown, a listing is refused until it reads
+  assert.match(src("stocksServer.ts"), /export function stockTickers\(chain: ChainKey\): readonly string\[\] \| null \{\n\s*if \(STOCK_SOURCE\[chain\] === "robinhood-registry" && !registry\) return null;/);
+  assert.match(src("pairsServer.ts"), /const stocks = stockTickers\(chain\);\n\s*if \(!stocks\) return fail\("the chain's stock list could not be read to rule out a stock's ticker; try again", 503\);/);
+  assert.deepEqual(pairSymbolCheck("PORKU", [], ["TSLA"]), { pass: true, value: "PORKU" });
+  assert.deepEqual(pairSymbolCheck("TSLA", [], ["TSLA"]), { pass: false, value: "TSLA is a stock's ticker" });
+  assert.equal(pairSymbolCheck("PORKU", [], null).pass, null);
+  assert.match(pairSymbolCheck("PORKU", [], null).value, /stock list could not be read/);
+  assert.deepEqual(pairSymbolCheck("museworld", ["MUSEWORLD"], null), { pass: false, value: "another listed pair is already museworld" });
+  assert.equal(pairSymbolCheck("WETH", [], null).pass, false);
   assert.equal(coreQuoteNames("robinhood"), "USDG, ETH or GITLAWB");
   assert.match(src("pairsServer.ts"), /the price pool must be against a core quote \(\$\{coreQuoteNames\(chain\)\}\)/);
 });

@@ -109,6 +109,17 @@ export function pairSymbolProblem(symbol: string, taken: readonly string[], stoc
 }
 
 /**
+ * The free check's symbol row. `stocks` null = the chain's stock list could not be read (Robinhood's registry before its
+ * first good read): a symbol that fails on what is known still fails, otherwise the row is unknown, never a pass.
+ */
+export function pairSymbolCheck(symbol: string, taken: readonly string[], stocks: readonly string[] | null): { pass: boolean | null; value: string } {
+  const problem = pairSymbolProblem(symbol, taken, stocks ?? []);
+  if (problem) return { pass: false, value: problem };
+  if (stocks === null) return { pass: null, value: `${symbol}: the chain's stock list could not be read to rule out a stock's ticker; try again` };
+  return { pass: true, value: symbol };
+}
+
+/**
  * A site path to a logo we serve ourselves (the seeded MUSEWORLD tile); uploaded logos are checked against our image host
  * instead. PNG only: the share card inlines these files as they are, and its renderer cannot read WebP.
  */

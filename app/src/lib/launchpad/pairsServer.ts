@@ -11,7 +11,7 @@ import { tsFresh } from "./posts";
 import { PAIR_CHAINS, PAIR_CHAINS_TEXT, PAIR_FEE_CHAIN, PAIR_DESCRIPTION_MAX, guardedPairPrice, pairWarmingUp, PAIR_MONITOR_EVERY_MS, PAIR_MONITOR_LIQUIDITY_USD, PAIR_SAMPLE_EVERY_MS, buildPairAdminMessage, isPairAdminAction, isPairPriceKind, isPairWebsite, isSiteLogoPath, isXHandle, nextPairStatus, pairSymbolProblem, type PairHealth, type PairListing, type PairPriceKind, type PairPublic, type PairStatus } from "./pairs";
 import { codeHashOf, isCoreQuote, poolLiquidityUsd, readPairLeg, readPairUsd, samplePairSpot, univ3Tokens, univ4Key } from "./pairPrice";
 import { coreQuoteNames } from "./config";
-import { ensureRegistry, stockList } from "./stocksServer";
+import { ensureRegistry, stockTickers } from "./stocksServer";
 
 /**
  * Server half of community pairs (pairs.ts): the list as every request sees it (prices included, refreshed in the
@@ -169,7 +169,9 @@ async function inspect(chain: ChainKey, address: string, l: PairListing, others:
   if (decimals < 6 || decimals > 18) return fail("decimals must be 6 to 18", 400);
   const clean = symbol.normalize("NFKC").replace(/^\$/, "").trim();
   await ensureRegistry().catch(() => null); // Robinhood's stock tickers
-  const problem = pairSymbolProblem(clean, others.filter((p) => p.status === "listed" && !(p.chain === chain && p.address === address)).map((p) => p.symbol), stockList(chain).map((s) => s.symbol));
+  const stocks = stockTickers(chain);
+  if (!stocks) return fail("the chain's stock list could not be read to rule out a stock's ticker; try again", 503);
+  const problem = pairSymbolProblem(clean, others.filter((p) => p.status === "listed" && !(p.chain === chain && p.address === address)).map((p) => p.symbol), stocks);
   if (problem) return fail(problem, 400);
   const src = { chain, address, decimals, price_kind: l.price_kind, price_pool: l.price_pool, price_quote: l.price_quote };
   if (l.price_kind === "launch") {
