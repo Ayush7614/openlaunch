@@ -4,24 +4,26 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useConfig, useChainId, useReadContract, useSwitchChain } from "wagmi";
 import { getPublicClient, getWalletClient } from "wagmi/actions";
+import { walletOnChain } from "@/lib/walletOnChain";
 import type { Hex } from "viem";
 import { useHydratedAccount } from "@/lib/useHydratedAccount";
 import { btn, card, helper, input } from "@/components/ui";
-import { BUILDER_DATA_SUFFIX, CHAINS, explorerTx, shortAddr } from "@/lib/chainPublic";
+import { BUILDER_DATA_SUFFIX, CHAINS, CHAIN_LABELS, explorerAddress, explorerTx, shortAddr } from "@/lib/chainPublic";
 import { ERC20_MIN_ABI, ERC20_TRANSFER_ABI } from "@/lib/launchpad/abi";
 import { DEAD } from "@/lib/launchpad/config";
 import { TWIG_ADDRESS, TWIG_WRAP_URL } from "@/lib/launchpad/twig";
 import { nowMs } from "@/lib/launchpad/time";
 import { nonce } from "@/lib/nonce";
 import { friendlyError } from "@/lib/errors";
-import { pairPath } from "@/lib/launchpad/pairs";
+import { PAIR_FEE_CHAIN, pairPath } from "@/lib/launchpad/pairs";
 import { PAIR_APPLY_COPY, buildPairApplyMessage, pairApplicationOf, proofPostText, proofPostUrl, type PairApplyAction } from "@/lib/launchpad/pairApply";
 import { intentUrl } from "@/lib/profiles/xpost";
 import type { PairApplicationPublic } from "@/lib/launchpad/pairApplyServer";
 import PrecheckReport from "./PrecheckReport";
 
-const CHAIN = "base" as const;
-const BASE = CHAINS[CHAIN];
+/** The fee is TWIG on Base and every signature here is made on Base, whatever chain the token is on. */
+const FEE_CHAIN = PAIR_FEE_CHAIN;
+const BASE = CHAINS[FEE_CHAIN];
 const group = (v: string | bigint) => BigInt(v).toLocaleString("en-US");
 
 /**
@@ -104,9 +106,9 @@ export default function PairApplication({ initial, open }: { initial: PairApplic
     try {
       const n = nonce();
       const ts = nowMs();
-      const wallet = await getWalletClient(config, { chainId: BASE.id });
-      const signature = await wallet.signMessage({ message: buildPairApplyMessage({ action, chain: CHAIN, address: app.address, wallet: address, nonce: n, ts, id: app.id, ...extra }) });
-      const res = await fetch("/api/pairs/apply", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, chain: CHAIN, address: app.address, id: app.id, wallet: address, nonce: n, ts, signature, ...extra }) });
+      const wallet = await walletOnChain(config, BASE.id);
+      const signature = await wallet.signMessage({ message: buildPairApplyMessage({ action, chain: app.chain, address: app.address, wallet: address, nonce: n, ts, id: app.id, ...extra }) });
+      const res = await fetch("/api/pairs/apply", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, chain: app.chain, address: app.address, id: app.id, wallet: address, nonce: n, ts, signature, ...extra }) });
       const d = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) throw new Error(d.error ?? `request failed (HTTP ${res.status})`);
       setMsg({ ok: true, text: action === "proof" ? "Proof post saved." : "Sent back for review." });
@@ -123,7 +125,7 @@ export default function PairApplication({ initial, open }: { initial: PairApplic
     if (!sent || busy) return;
     setBusy("recheck");
     try {
-      await fetch(`/api/launch/sync?chain=${CHAIN}&tx=${sent}`, { method: "POST" }).catch(() => {});
+      await fetch(`/api/launch/sync?chain=${FEE_CHAIN}&tx=${sent}`, { method: "POST" }).catch(() => {});
       await reload();
     } finally {
       setBusy(null);
@@ -175,7 +177,7 @@ export default function PairApplication({ initial, open }: { initial: PairApplic
         setMsg({ ok: false, text: e instanceof Error && /reverted/.test(e.message) ? e.message : "Sent. Its confirmation is not in yet: this page updates when it is indexed." });
         return;
       }
-      await fetch(`/api/launch/sync?chain=${CHAIN}&tx=${hash}`, { method: "POST" }).catch(() => {});
+      await fetch(`/api/launch/sync?chain=${FEE_CHAIN}&tx=${hash}`, { method: "POST" }).catch(() => {});
       setMsg({ ok: true, text: "Sent. It counts once indexed (seconds)." });
       await reload();
       void bal.refetch();
@@ -202,7 +204,9 @@ export default function PairApplication({ initial, open }: { initial: PairApplic
         {app.can_ask_again ? (
           mine ? <button type="button" onClick={() => void sign("again", {})} disabled={busy !== null} className={btn.secondarySm}>Ask for another review ({app.reviews_max - app.reviews_used} left)</button> : <p className={helper}>The applicant can ask for another review ({app.reviews_max - app.reviews_used} left).</p>
         ) : null}
-        <p className={helper}>Applied by {shortAddr(app.applicant)} · {app.reviews_used} of {app.reviews_max} reviews used.</p>
+        <p className={helper}>
+          <a href={explorerAddress(app.chain, app.address)} target="_blank" rel="noopener noreferrer" className="underline decoration-line underline-offset-2">{app.symbol} on {CHAIN_LABELS[app.chain]} ↗</a> · Applied by {shortAddr(app.applicant)} · {app.reviews_used} of {app.reviews_max} reviews used.
+        </p>
       </div>
 
       <div className={`${card} space-y-3 p-5`}>
@@ -248,12 +252,12 @@ export default function PairApplication({ initial, open }: { initial: PairApplic
         ) : (
           app.status === "approved" && app.paid_usd < app.fee_usd * 0.98 ? <p className="text-sm text-up">{app.paid_usd > 0 ? PAIR_APPLY_COPY.waivedRest(app.paid_usd) : PAIR_APPLY_COPY.waived}</p> : <p className="text-sm text-up">Paid: ${app.paid_usd.toFixed(2)} of ${app.fee_usd}.</p>
         )}
-        {sent ? <p className={helper}><a href={explorerTx(CHAIN, sent)} target="_blank" rel="noopener noreferrer" className="underline">Your transfer ↗</a></p> : null}
+        {sent ? <p className={helper}><a href={explorerTx(FEE_CHAIN, sent)} target="_blank" rel="noopener noreferrer" className="underline">Your transfer ↗</a></p> : null}
         {app.burns.length ? (
           <ul className="space-y-1 text-xs text-body">
             {app.burns.map((b) => (
               <li key={b.tx_hash}>
-                <a href={explorerTx(CHAIN, b.tx_hash)} target="_blank" rel="noopener noreferrer" className="underline decoration-line underline-offset-2">{group(b.twig)} TWIG</a> · {b.usd !== null ? `$${b.usd.toFixed(2)} (${b.priced_by === "quote" ? "at the locked price" : "at the price when it landed"})` : "not valued yet"} · from {shortAddr(b.sender)}
+                <a href={explorerTx(FEE_CHAIN, b.tx_hash)} target="_blank" rel="noopener noreferrer" className="underline decoration-line underline-offset-2">{group(b.twig)} TWIG</a> · {b.usd !== null ? `$${b.usd.toFixed(2)} (${b.priced_by === "quote" ? "at the locked price" : "at the price when it landed"})` : "not valued yet"} · from {shortAddr(b.sender)}
               </li>
             ))}
           </ul>

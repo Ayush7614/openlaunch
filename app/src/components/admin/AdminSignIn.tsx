@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useConfig } from "wagmi";
-import { getWalletClient } from "wagmi/actions";
+import { walletOnChain } from "@/lib/walletOnChain";
 import ConnectButton from "@/components/ConnectButton";
 import { btn, card } from "@/components/ui";
 import { useHydratedAccount } from "@/lib/useHydratedAccount";
@@ -45,7 +45,7 @@ export default function AdminSignIn() {
       const nd = (await n.json().catch(() => ({}))) as { nonce?: string; issuedAt?: string; error?: string };
       if (!n.ok || !nd.nonce || !nd.issuedAt) throw new Error(nd.error ?? `request failed (HTTP ${n.status})`);
       const message = buildAdminSignInMessage({ origin: window.location.origin, address, nonce: nd.nonce, issuedAt: new Date(nd.issuedAt) });
-      const wallet = await getWalletClient(config, { chainId: CHAINS.base.id });
+      const wallet = await walletOnChain(config, CHAINS.base.id);
       const signature = await wallet.signMessage({ account: address, message });
       const res = await fetch("/api/admin/session", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message, signature }) });
       const d = (await res.json().catch(() => ({}))) as { error?: string };

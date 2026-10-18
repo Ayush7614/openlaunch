@@ -5,7 +5,7 @@ import { maybeDb, uniqueViolation } from "@/lib/db";
 import { adminWallets, consumeNonce, isNonce, verify } from "./postsServer";
 import { tsFresh } from "./posts";
 import { gitlawbUsdParts } from "./gitlawbServer";
-import { PAIR_CHAINS, type PairPriceKind } from "./pairs";
+import { PAIR_CHAINS, PAIR_CHAINS_TEXT, PAIR_FEE_CHAIN, type PairPriceKind } from "./pairs";
 import { loadPairs, readListing, reloadPairs, writeListing } from "./pairsServer";
 import { cachedPrecheck, forgetPrecheck, type PairPrecheck } from "./pairCheck";
 import {
@@ -151,7 +151,7 @@ export async function applicantAction(b: Record<string, unknown>): Promise<{ ok:
   if (!isPairApplyAction(b.action)) return fail("bad action", 400);
   const action = b.action;
   const chain = PAIR_CHAINS.find((c) => c === b.chain);
-  if (!chain) return fail("pairs are listed on Base only", 400);
+  if (!chain) return fail(`pairs are listed on ${PAIR_CHAINS_TEXT} only`, 400);
   if (typeof b.address !== "string" || !isAddress(b.address)) return fail("bad token address", 400);
   const address = b.address.toLowerCase();
   if (!isNonce(b.nonce) || !tsFresh(b.ts, Date.now())) return fail("stale or bad nonce", 400);
@@ -163,7 +163,8 @@ export async function applicantAction(b: Record<string, unknown>): Promise<{ ok:
   const proof = action === "proof" ? proofPostUrl(typeof b.proof === "string" ? b.proof : "") : null;
   if (action === "proof" && !proof) return fail("the proof must be a link to a post on X", 400);
   const message = buildPairApplyMessage({ action, chain, address, wallet, nonce: b.nonce, ts: Number(b.ts), id, ...(l ? { source: sourceLabel(l), website: l.website, x_handle: l.x_handle, logo: l.logo, description: l.description } : {}), ...(proof ? { proof } : {}) });
-  if (!(await verify(chain, wallet, message, b.signature))) return fail("signature does not match", 401);
+  // signed on Base, where the applicant pays, whatever chain the pair is on (a smart wallet is checked where it lives)
+  if (!(await verify(PAIR_FEE_CHAIN, wallet, message, b.signature))) return fail("signature does not match", 401);
   if (!(await consumeNonce(b.nonce, wallet))) return fail("nonce already used", 401);
   const cid = chainIdOf(chain);
 
@@ -241,7 +242,8 @@ export async function quoteFee(id: number): Promise<PairApplicationPublic["quote
  */
 export async function recordPairBurn(chain: ChainKey, row: PairBurnRow, blockTime: Date): Promise<boolean> {
   const db = maybeDb();
-  if (!db) return false;
+  // a fee is TWIG on Base: a transfer on any other chain, whatever token it names itself, never pays one
+  if (!db || chain !== PAIR_FEE_CHAIN) return false;
   const cid = chainIdOf(chain);
   const ins = await db`
     INSERT INTO bb_pair_burns (chain_id, tx_hash, log_index, application_id, sender, twig, usd, priced_by, block_number, block_time)
@@ -255,7 +257,8 @@ export async function recordPairBurn(chain: ChainKey, row: PairBurnRow, blockTim
 
 async function valueBurn(cid: number, tx: string, log: number, appId: number, whole: bigint, sentAt: Date): Promise<void> {
   const db = maybeDb()!;
-  const [app] = await db<AppRow[]>`SELECT * FROM bb_pair_applications WHERE id = ${appId} AND chain_id = ${cid}`;
+  // by id alone: the fee is TWIG on Base whatever chain the pair is on, so the burn's chain is not the application's
+  const [app] = await db<AppRow[]>`SELECT * FROM bb_pair_applications WHERE id = ${appId}`;
   if (!app) return; // names no application (yet): kept as a fact, never counted
   // sent before the application existed (an early or stray burn whose tag happens to name it): kept as a fact, never counted
   if (sentAt.getTime() < new Date(app.created_at).getTime()) return;
@@ -317,7 +320,7 @@ export async function reviewApplication(b: Record<string, unknown>): Promise<{ o
   if (!isNonce(b.nonce) || !tsFresh(b.ts, Date.now())) return fail("stale or bad nonce", 400);
   if (!adminWallets().has(wallet)) return fail("admin only", 403);
   const message = buildPairReviewMessage({ decision, id, wallet, nonce: b.nonce, ts: Number(b.ts), reason });
-  if (!(await verify("base", wallet, message, b.signature))) return fail("signature does not match", 401);
+  if (!(await verify(PAIR_FEE_CHAIN, wallet, message, b.signature))) return fail("signature does not match", 401);
   if (!(await consumeNonce(b.nonce, wallet))) return fail("nonce already used", 401);
   const [app] = await db<AppRow[]>`SELECT * FROM bb_pair_applications WHERE id = ${id}`;
   if (!app) return fail("no such application", 404);

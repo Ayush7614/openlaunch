@@ -194,7 +194,7 @@ test("admin message: its own wording, and every listing field the server stores 
 test("server: the signature is checked before anything is written, by an admin, once", () => {
   const all = src("pairsServer.ts");
   const s = all.slice(all.indexOf("async function moderate("));
-  const order = ["if (!adminWallets().has(wallet))", "await verify(chain, wallet, message, b.signature)", "await consumeNonce(b.nonce, wallet)", "await writeListing(", "UPDATE bb_pairs SET status"];
+  const order = ["if (!adminWallets().has(wallet))", "await verify(PAIR_FEE_CHAIN, wallet, message, b.signature)", "await consumeNonce(b.nonce, wallet)", "await writeListing(", "UPDATE bb_pairs SET status"];
   const at = order.map((o) => s.indexOf(o));
   assert.ok(at.every((i) => i > 0), JSON.stringify(at));
   assert.deepEqual([...at].sort((a, b) => a - b), at, "admin → verify → nonce → write");
@@ -255,7 +255,8 @@ test("words: no seal, no 'official', no value talk, in the badge, the copy, the 
 test("one list of core quotes and core names, shared by the admin picker, the server and the symbol rule", () => {
   assert.deepEqual(coreQuotes("base").map((q) => q.symbol).sort(), ["ETH", "GITLAWB", "TWIG", "USDC", "WETH"]);
   assert.match(src("pairPrice.ts"), /return coreQuotes\(chain\)\.some\(/);
-  assert.match(src("../../components/launchpad/PairsAdmin.tsx"), /const CORE_QUOTES = coreQuotes\(CHAIN\)/);
+  assert.match(src("../../components/launchpad/PairsAdmin.tsx"), /const coreQuoteOptions = \(chain: ChainKey\) => coreQuotes\(chain\)/, "per chain, the server's own list");
+  assert.deepEqual(coreQuotes("robinhood").map((q) => q.symbol).sort(), ["ETH", "GITLAWB", "USDG"]);
   assert.match(src("pairs.ts"), /import \{ CORE_QUOTE_PREFIXES, CORE_QUOTE_SYMBOLS \} from "\.\/unlisted-quote\.ts";/);
   assert.equal(pairSymbolProblem("MUSEWORLD", []), null, "a pair may be named MUSEWORLD (it is one); only core names are barred");
 });

@@ -3,10 +3,10 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useConfig } from "wagmi";
-import { getWalletClient } from "wagmi/actions";
+import { walletOnChain } from "@/lib/walletOnChain";
 import { useAdminAccount } from "@/components/admin/AdminAccount";
 import { btn, card } from "@/components/ui";
-import { CHAINS, explorerAddress, shortAddr } from "@/lib/chainPublic";
+import { CHAINS, CHAIN_LABELS, explorerAddress, shortAddr } from "@/lib/chainPublic";
 import { nowMs } from "@/lib/launchpad/time";
 import { friendlyError } from "@/lib/errors";
 import { nonce } from "@/lib/nonce";
@@ -56,7 +56,7 @@ export default function PairReviewAdmin() {
       const reason = (reasons[id] ?? "").trim();
       const n = nonce();
       const ts = nowMs();
-      const wallet = await getWalletClient(config, { chainId: CHAINS.base.id });
+      const wallet = await walletOnChain(config, CHAINS.base.id);
       const signature = await wallet.signMessage({ message: buildPairReviewMessage({ decision, id, wallet: address, nonce: n, ts, reason }) });
       const res = await fetch("/api/pairs/review", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ decision, id, reason, wallet: address, nonce: n, ts, signature }) });
       const d = (await res.json().catch(() => ({}))) as { error?: string };
@@ -81,7 +81,7 @@ export default function PairReviewAdmin() {
             <span className="font-mono text-[11px] text-muted">{a.code} · {a.status} · paid ${a.paid_usd.toFixed(0)}/{a.fee_usd} · reviews {a.reviews_used}/{a.reviews_max}</span>
           </div>
           <p className="text-xs text-body">
-            Token <a href={explorerAddress(a.chain, a.address)} target="_blank" rel="noopener noreferrer" className="underline">{shortAddr(a.address)}</a> · by <a href={`/u/${a.applicant}`} className="underline">{shortAddr(a.applicant)}</a> · price {sourceLabel({ price_kind: a.price_kind, price_pool: a.price_pool, price_quote: a.price_quote, price_hook: a.price_hook ?? "" })}
+            Token <a href={explorerAddress(a.chain, a.address)} target="_blank" rel="noopener noreferrer" className="underline">{shortAddr(a.address)}</a> on {CHAIN_LABELS[a.chain]} · by <a href={`/u/${a.applicant}`} className="underline">{shortAddr(a.applicant)}</a> · price {sourceLabel({ price_kind: a.price_kind, price_pool: a.price_pool, price_quote: a.price_quote, price_hook: a.price_hook ?? "" })}
           </p>
           <p className="text-xs text-body">
             Proof: {a.proof_url ? <a href={a.proof_url} target="_blank" rel="noopener noreferrer" className="underline">{a.proof_url}</a> : <span className="text-warm-ink">none yet</span>}

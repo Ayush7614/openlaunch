@@ -4,12 +4,13 @@ import { BRAND_DOMAIN, BRAND_GITHUB } from "@/lib/brand";
 import { boostEnabled } from "@/lib/launchpad/boostServer";
 import { BOOST_FLOOR_TWIG, BOOST_TOKEN, BOOST_WINDOW_H } from "@/lib/launchpad/boost";
 import { applicationsOpen } from "@/lib/launchpad/pairApplyServer";
+import { PAIR_CHAINS, PAIR_CHAINS_TEXT } from "@/lib/launchpad/pairs";
 
 /** How to apply for a community pair, only while applications are open: an agent must never burn for one that cannot exist yet. */
 function pairApplySection(): string {
   if (!applicationsOpen()) return "";
-  return `Listing is applied for at /pairs/apply (a free check, then a fee in TWIG sent to 0x…dEaD naming the application: amount = whole TWIG × 10^18
-+ 3 × 10^11 + application id; it pays for a review, not a listing, and is not refunded). Rules: https://github.com/Twigpine/openlaunch/blob/main/docs/pairs.md
+  return `Listing is applied for at /pairs/apply (a free check, then a fee in TWIG on Base, whichever chain the token is on, sent to 0x…dEaD naming the
+application: amount = whole TWIG × 10^18 + 3 × 10^11 + application id; it pays for a review, not a listing, and is not refunded). Rules: https://github.com/Twigpine/openlaunch/blob/main/docs/pairs.md
 `;
 }
 
@@ -97,13 +98,13 @@ Recommended: buy a little right after launch (a Universal Router swap on the new
 holder and no price move reads as dead on screeners and sits under "quiet launches" on the home page until an outside wallet trades it.
 
 ${boostSection()}
-## Community pairs (Base)
+## Community pairs (${PAIR_CHAINS_TEXT})
 A launch may be paired with a listed community token: the site badges it and prices it in USD from one named pool (checked against
 that pool's 30-minute average). The launch form does not offer them (ETH, TWIG and stocks only): such a launch is made against the
 factory directly. The contracts accept any ERC-20 either way; an unlisted one shows as "Unlisted pair", unpriced. Each listing is
 checked hourly and suspended when its checks fail.
 - GET  ${SITE_URL}/api/pairs                                        (every pair: address, symbol, decimals, status, usd, price source)
-Pages: /pairs, /pair/base/<address>. Launch with one against the factory exactly as with any ERC-20 quote (findSalt with the pair's address).
+Pages: /pairs, /pair/<chain>/<address> (chain: ${PAIR_CHAINS.join(" or ")}). Launch with one against the factory exactly as with any ERC-20 quote (findSalt with the pair's address).
 ${pairApplySection()}
 ## API
 - GET  ${SITE_URL}/api/launch/list?chain=base|robinhood|arc&sort=live|new|mcap|volume|gainers|holders&window=1h|24h|all&limit=50

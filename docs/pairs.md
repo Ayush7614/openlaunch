@@ -2,7 +2,9 @@
 
 A launch can be paired with any ERC-20: the factory has no allowlist and never will. **Community pairs** are the site's list of community tokens it badges and prices in USD. They are never offered in the launch form, which offers ETH, TWIG and stocks only: a launch paired with a community token is made against the factory by the community's own tools or agents (findSalt with the pair's address, then `launch`). A token that is not on the list still trades; it shows as an "Unlisted pair", with no USD price, and stays out of Trending.
 
-Pages: `/pairs` (the list), `/pair/base/<address>` (one pair: its price source, what is checked, its public record, its launches), `/pairs/apply` (the free check and the application), `/pairs/apply/<id>` (one application). API: `GET /api/pairs`.
+Chains: **Base and Robinhood Chain**. The fee is TWIG on Base for a token on either chain, and every pair signature (the applicant's and the admin's) is made on Base.
+
+Pages: `/pairs` (the list), `/pair/<chain>/<address>` (`base` or `robinhood`; one pair: its price source, what is checked, its public record, its launches), `/pairs/apply` (the free check and the application), `/pairs/apply/<id>` (one application). API: `GET /api/pairs`.
 
 ## What a listing gets, and what it does not
 
@@ -42,7 +44,7 @@ A suspended or delisted pair's launches still trade: they show as unlisted (no b
 
 `/admin` → Community pairs, signed in as an admin ([admin.md](admin.md)). Every action is also a signature from the signed-in `ADMIN_WALLETS` wallet over a message that includes every field written (`buildPairAdminMessage`), with a single-use nonce:
 
-- **list / update**: the server reads the token (ERC-20, 6 to 18 decimals, a symbol no core quote and no other listed pair has) and the price pool (it trades this token against that quote, reads a price, holds at least $25,000) before writing.
+- **list / update**: the server reads the token (ERC-20, 6 to 18 decimals, a symbol no core quote, no stock on that chain and no pair listed on either chain has) and the price pool (it trades this token against that quote, reads a price, holds at least $25,000) before writing. On Robinhood Chain the market data includes spoof pools that report large reserves with a handful of holders: the holder floor and the review are what keep those out, so check the pool's real trading there.
 - **suspend / delist** (a reason is required and shown on the record), **reinstate** (pins the current code).
 
 One listed symbol per chain is enforced by a unique index.
@@ -51,7 +53,7 @@ One listed symbol per chain is enforced by a unique index.
 
 Off unless the runtime secret **`PAIRS_APPLY=on`** is set (`fly secrets set PAIRS_APPLY=on -a basebid`). Off, `/pairs/apply` says applications open soon and the application APIs answer 503. The fee is **`PAIR_LISTING_USD`** dollars (default 200) in TWIG.
 
-1. **Free check** (`POST /api/pairs/precheck`, `pairCheck.ts`). Hard checks, all required: a token contract that reads as an ERC-20 with 6 to 18 decimals and a symbol of its own; not already a pair or a core quote; not an upgradeable proxy (EIP-1967 / EIP-1822 slots); a price pool against a core quote that reads a price, holding at least $50,000; trading for at least 14 days; at least 500 holders; plain transfers, tested by simulating a real holder sending the token (`TransferProbe.sol`, run inside an `eth_call` with a state override): it must arrive whole, and a transfer to `0x…dEaD` must succeed (launch fees are burned there). Flags for the reviewer: a live `owner()`, a minimal-proxy clone, `DELEGATECALL` in the code, B20 roles, top-10 holders, 24-hour volume, and GoPlus Security's second opinion. Holders and pool ages come from GeckoTerminal; anything a service cannot answer counts as unknown, never as a pass.
+1. **Free check** (`POST /api/pairs/precheck`, `pairCheck.ts`). Hard checks, all required: a token contract that reads as an ERC-20 with 6 to 18 decimals and a symbol of its own (not a core quote, not a stock ticker on that chain, not a pair listed on either chain); not already a pair or a core quote; not an upgradeable proxy (EIP-1967 / EIP-1822 slots); a price pool against a core quote that reads a price, holding at least $50,000; trading for at least 14 days; at least 500 holders; plain transfers, tested by simulating a real holder sending the token (`TransferProbe.sol`, run inside an `eth_call` with a state override): it must arrive whole, and a transfer to `0x…dEaD` must succeed (launch fees are burned there). Flags for the reviewer: a live `owner()`, a minimal-proxy clone, `DELEGATECALL` in the code, B20 roles, top-10 holders, 24-hour volume, and GoPlus Security's second opinion. Holders and pool ages come from GeckoTerminal; anything a service cannot answer counts as unknown, never as a pass (so does the symbol while Robinhood's stock registry has not been read, and a listing is refused until it reads).
 2. **Apply** (`POST /api/pairs/apply`, action `apply`): signed by a wallet whose openlaunch profile has a verified X account, picking one of the pools the check found. One application in progress per token, three per wallet.
 3. **Proof**: the community's own X account posts the application code ("Application OL-12-K7QX"); the applicant saves the post's link (action `proof`). The reviewer checks it by hand.
 4. **Fee**: `POST /api/pairs/application/<id>/quote` locks `$fee ÷ the lower of TWIG's spot and 30-minute average`, rounded up to 100,000 TWIG, for 30 minutes (a running lock is never replaced). The applicant sends it in one plain transfer:

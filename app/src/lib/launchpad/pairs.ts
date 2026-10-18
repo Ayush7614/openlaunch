@@ -17,14 +17,24 @@
  * price, so one swap that pushes the pool for a block cannot rewrite every paired launch's market cap and ranking. A pair
  * with no average (a v3 pool without enough oracle history, a v4 pool without 20 minutes of samples) shows no USD.
  */
-import { CHAIN_IDS, type ChainKey } from "../chainKeys.ts";
+import { CHAIN_IDS, CHAIN_LABELS, type ChainKey } from "../chainKeys.ts";
 import { amountForUsd } from "./first-buy.ts";
 import { fmtCompact } from "./math.ts";
 import { CORE_QUOTE_PREFIXES, CORE_QUOTE_SYMBOLS } from "./unlisted-quote.ts";
 
-/** Pairs are listed on Base only for now (where TWIG pays for an application, and where the communities are). */
-export const PAIR_CHAINS: readonly ChainKey[] = ["base"];
+/** Pairs are listed on Base and Robinhood Chain, where the communities launching on openlaunch are. */
+export const PAIR_CHAINS: readonly ChainKey[] = ["base", "robinhood"];
 export const isPairChain = (c: ChainKey): boolean => PAIR_CHAINS.includes(c);
+/**
+ * TWIG's chain. Every application pays its fee here and every pair signature (the applicant's, the admin's) is checked
+ * here, whatever chain the pair is on: TWIG lives on Base only, and one chain for the whole flow is one wallet network.
+ */
+export const PAIR_FEE_CHAIN: ChainKey = "base";
+/** "Base and Robinhood Chain": the chains pairs are listed on, in words. */
+export const PAIR_CHAINS_TEXT = andList(PAIR_CHAINS.map((c) => CHAIN_LABELS[c]));
+function andList(names: string[]): string {
+  return names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
 
 export type PairStatus = "listed" | "suspended" | "delisted";
 export type PairPriceKind = "launch" | "univ3" | "univ4";
@@ -85,13 +95,28 @@ export type PairPublic = {
 
 export const PAIR_SYMBOL_MAX = 12;
 
-/** Why a symbol cannot be listed, or null. `taken` = the symbols of the other listed pairs on the chain. */
-export function pairSymbolProblem(symbol: string, taken: readonly string[]): string | null {
+/**
+ * Why a symbol cannot be listed, or null. `taken` = the symbols of the other listed pairs, on every chain (a copy of a
+ * community's name on another chain would carry its badge); `stocks` = the chain's stock tickers.
+ */
+export function pairSymbolProblem(symbol: string, taken: readonly string[], stocks: readonly string[] = []): string | null {
   if (!new RegExp(`^[A-Za-z0-9._-]{1,${PAIR_SYMBOL_MAX}}$`).test(symbol)) return `a symbol is 1 to ${PAIR_SYMBOL_MAX} letters, digits, dots, dashes or underscores`;
   const up = symbol.toUpperCase();
   if (CORE_QUOTE_SYMBOLS.includes(up) || CORE_QUOTE_PREFIXES.some((p) => up.startsWith(p))) return `${symbol} is a core quote's name`;
+  if (stocks.some((t) => t.toUpperCase() === up)) return `${symbol} is a stock's ticker`;
   if (taken.some((t) => t.toUpperCase() === up)) return `another listed pair is already ${symbol}`;
   return null;
+}
+
+/**
+ * The free check's symbol row. `stocks` null = the chain's stock list could not be read (Robinhood's registry before its
+ * first good read): a symbol that fails on what is known still fails, otherwise the row is unknown, never a pass.
+ */
+export function pairSymbolCheck(symbol: string, taken: readonly string[], stocks: readonly string[] | null): { pass: boolean | null; value: string } {
+  const problem = pairSymbolProblem(symbol, taken, stocks ?? []);
+  if (problem) return { pass: false, value: problem };
+  if (stocks === null) return { pass: null, value: `${symbol}: the chain's stock list could not be read to rule out a stock's ticker; try again` };
+  return { pass: true, value: symbol };
 }
 
 /**

@@ -4,8 +4,9 @@ import { publicClient } from "@/lib/chain";
 import { chainIdOf, explorerAddress, type ChainKey } from "@/lib/chainPublic";
 import { maybeDb } from "@/lib/db";
 import { ERC20_MIN_ABI } from "./abi";
-import { DEAD, launchpad, quoteInfo as staticQuoteInfo } from "./config";
-import { PAIR_MIN_AGE_DAYS, PAIR_MIN_HOLDERS, PAIR_MIN_LIQUIDITY_USD, pairSymbolProblem, type PairPriceKind, type PairPublic } from "./pairs";
+import { DEAD, coreQuoteNames, launchpad, quoteInfo as staticQuoteInfo } from "./config";
+import { ensureRegistry, stockTickers } from "./stocksServer";
+import { PAIR_MIN_AGE_DAYS, PAIR_MIN_HOLDERS, PAIR_MIN_LIQUIDITY_USD, pairSymbolCheck, type PairPriceKind, type PairPublic } from "./pairs";
 import { isCoreQuote, readPairLeg, univ4Key } from "./pairPrice";
 import { TRANSFER_PROBE_ABI, TRANSFER_PROBE_RUNTIME, hasDelegatecall, implementationOf1167 } from "./pairProbe";
 
@@ -141,8 +142,9 @@ export async function precheckPair(chain: ChainKey, rawAddress: string, listed: 
   const dec = typeof decimals === "number" ? decimals : 0;
   const erc20 = typeof symbol === "string" && typeof name === "string" && typeof decimals === "number";
   add({ id: "erc20", label: "Reads as an ERC-20 with 6 to 18 decimals", pass: hasCode ? erc20 && dec >= 6 && dec <= 18 : null, hard: true, value: erc20 ? `${sym}, ${dec} decimals` : "symbol, name or decimals cannot be read" });
-  const symProblem = erc20 ? pairSymbolProblem(sym, listed.filter((p) => p.chain === chain && p.status === "listed" && p.address !== address).map((p) => p.symbol)) : null;
-  add({ id: "symbol", label: "A symbol of its own", pass: erc20 ? symProblem === null : null, hard: true, value: symProblem ?? sym });
+  if (erc20) await ensureRegistry().catch(() => null); // Robinhood's stock tickers
+  const symCheck = erc20 ? pairSymbolCheck(sym, listed.filter((p) => p.status === "listed" && !(p.chain === chain && p.address === address)).map((p) => p.symbol), stockTickers(chain)) : null;
+  add({ id: "symbol", label: "A symbol of its own", pass: symCheck?.pass ?? null, hard: true, value: symCheck?.value ?? sym });
   const already = listed.find((p) => p.chain === chain && p.address === address && p.status !== "delisted");
   add({ id: "new", label: "Not a pair already, and not a core quote", pass: !already && !isCoreQuote(chain, address), hard: true, value: already ? `already ${already.status}` : isCoreQuote(chain, address) ? "a core quote" : "new" });
 
@@ -164,7 +166,7 @@ export async function precheckPair(chain: ChainKey, rawAddress: string, listed: 
   const [gt, gp] = await Promise.all([gecko(chain, address), goplus(chain, address)]);
   const sources = erc20 && hasCode ? await sourcesFor(chain, address, dec, gt.pools) : [];
   const best = sources.find((s) => s.usable) ?? null;
-  add({ id: "pool", label: "A price pool against ETH, WETH, USDC, GITLAWB or TWIG that reads a price", pass: sources.length ? best !== null : gt.pools === null ? null : false, hard: true, value: best ? best.label : "none found" });
+  add({ id: "pool", label: `A price pool against ${coreQuoteNames(chain)} that reads a price`, pass: sources.length ? best !== null : gt.pools === null ? null : false, hard: true, value: best ? best.label : "none found" });
   const liq = best?.reserve_usd ?? null;
   add({ id: "liquidity", label: `At least $${PAIR_MIN_LIQUIDITY_USD.toLocaleString("en-US")} in that pool`, pass: liq === null ? null : liq >= PAIR_MIN_LIQUIDITY_USD, hard: true, value: liq === null ? "unknown" : `$${Math.round(liq).toLocaleString("en-US")}` });
   const oldest = (gt.pools ?? []).map((p) => (p.attributes.pool_created_at ? Date.parse(p.attributes.pool_created_at) : NaN)).filter(Number.isFinite).sort((a, b) => a - b)[0];

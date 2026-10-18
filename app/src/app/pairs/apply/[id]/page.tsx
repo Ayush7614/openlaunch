@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { CHAIN_LABELS } from "@/lib/chainPublic";
 import { notFound } from "next/navigation";
 import SectionIntro from "@/components/sections/SectionIntro";
 import shell from "@/components/sections/SectionShell.module.css";
@@ -14,7 +15,7 @@ export default async function PairApplicationPage({ params }: { params: Promise<
   if (!app) notFound();
   return (
     <main className={shell.page}>
-      <SectionIntro eyebrow="Community pair application" title={`${app.name} (${app.symbol})`} description={`Application ${app.code}. Every step below is public: the check, the fee and the decision.`} />
+      <SectionIntro eyebrow="Community pair application" title={`${app.name} (${app.symbol})`} description={`Application ${app.code}, for a token on ${CHAIN_LABELS[app.chain]}. Every step below is public: the check, the fee and the decision.`} />
       <div className="mt-8 max-w-2xl">
         <PairApplication initial={app} open={applicationsOpen()} />
       </div>
