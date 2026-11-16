@@ -353,8 +353,11 @@ export function createMcpTools(overrides: Partial<McpToolDeps> = {}): McpTool[] 
       name: "get_protocol_totals",
       title: "Get protocol totals",
       description:
-        "The site's all-time totals: launches, trades, USD volume valued at each trade's own hour, fees paid to creators, fees burned, " +
-        "and per-chain counts. A quote with no price is reported as a partial USD figure, never guessed.",
+        "The site's all-time totals: launches, trades, USD volume, fees paid to creators, fees burned, and per-chain counts. " +
+        "Trades and fees with a stored USD value are valued at their own hour; missing values, including community-pair trades, " +
+        "are valued at the quote's current price. usd_partial is true only when a quote that normally prices has no price right " +
+        "now, so the USD sums undercount; quotes with no price source (such as unlisted tokens) are left out without setting " +
+        "usd_partial and are never guessed.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       annotations: { title: "Get protocol totals", ...readOnly },
       run: async () => {

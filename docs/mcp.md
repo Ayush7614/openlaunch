@@ -148,8 +148,13 @@ Points are computed hourly from chain activity; the public season row says wheth
 ### `get_protocol_totals`
 
 `{}` → `{eth_usd, totals}`. All-time launches, trades, USD volume, fees paid to creators, fees burned, and per-chain
-counts. USD volume is valued at each trade's own hour; a quote with no price is reported as a partial figure, never
-guessed.
+counts.
+
+USD sums use each trade's or fee's stored trade-hour value. Missing values, including community-pair trades, stock
+trades before price history began, and hours the indexer could not price yet, are valued at the quote's current price,
+so a total can mix historical trade-hour values with current-price fallbacks. `usd_partial` is `true` only when a quote
+that normally has a price has none right now, so the USD sums undercount. A quote with no USD price source (such as an
+unlisted token) is left out of the USD sums without setting `usd_partial`, and is never guessed.
 
 ## Data semantics
 
@@ -159,7 +164,8 @@ The same caveats as the JSON API apply:
   may not be visible yet. `POST /api/launch/sync?chain=…&tx=…` asks the site to index a transaction immediately.
 - Launch rows contain display-unit numbers. Swap amounts are raw base-unit decimal integer strings; use
   `quote_decimals` from `get_token_trades` (or the launch row) for quote amounts, not a blanket 18.
-- USD figures can be `null` or partial when the price feed is down. The response says when it is partial.
+- USD figures can be `null` or partial when the price feed is down; `usd_partial` marks a total that undercounts
+  because a normally-priced quote is unavailable right now. Quotes with no USD price source are left out of USD totals.
 - There are no platform fees, no owner, and no write tools. A read-only MCP server cannot launch, trade or sign.
 
 ## Limits and security
