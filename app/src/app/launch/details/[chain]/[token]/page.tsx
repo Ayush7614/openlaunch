@@ -64,8 +64,10 @@ export default async function LaunchDetailsPage({ params }: { params: Promise<{ 
       <section className="rounded-2xl border border-line bg-card p-5 shadow-card">
         <h2 className="font-display text-base font-semibold text-ink">Top holders</h2>
         <p className="mt-1 text-sm text-muted">The five largest wallets, with the pool and the protocol&apos;s own addresses left out.</p>
-        {m.topHolders.length === 0 ? (
-          <p className="mt-4 text-sm text-muted">{m.synced ? "No holders yet." : "The transfer history is still indexing."}</p>
+        {!m.synced ? (
+          <p className="mt-4 text-sm text-muted">The transfer history is still indexing, so this ranking is incomplete. Check back in a minute.</p>
+        ) : m.topHolders.length === 0 ? (
+          <p className="mt-4 text-sm text-muted">No holders yet.</p>
         ) : (
           <ol className="mt-4 space-y-2">
             {m.topHolders.map((h, i) => (
@@ -83,7 +85,7 @@ export default async function LaunchDetailsPage({ params }: { params: Promise<{ 
       </section>
 
       <p className="text-sm text-muted">
-        The ten largest wallets hold {fmtShare(m.top10Bps)} of supply; the locked pool holds {fmtShare(m.poolBps)}.{" "}
+        {m.synced ? `The ten largest wallets hold ${fmtShare(m.top10Bps)} of supply; the locked pool holds ${fmtShare(m.poolBps)}. ` : null}
         <Link href={tokenPath(m.chain, m.token)} className="underline decoration-line-strong underline-offset-4 hover:text-ink">
           The full token page
         </Link>{" "}

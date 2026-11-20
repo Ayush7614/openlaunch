@@ -51,7 +51,10 @@ export type LaunchMetrics = {
   /** Collected and burned fees in USD, the quote side only, as the indexer stored them. */
   fees_collected_usd: number;
   fees_burned_usd: number;
-  /** Share of supply in the ten largest non-system wallets, and in the locked pool, in basis points. */
+  /**
+   * Share of supply in the ten largest non-system wallets, and in the locked pool, in basis points. Both, and the
+   * ranking below, are partial while `synced` is false: show them only once the transfer history is complete.
+   */
   top10Bps: number;
   poolBps: number;
   topHolders: { address: string; balance: string; bps: number }[];

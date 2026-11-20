@@ -2,7 +2,7 @@ import "server-only";
 import { chainIdOf, type ChainKey } from "@/lib/chainPublic";
 import { maybeDb } from "@/lib/db";
 import { ethUsd } from "./ethPrice";
-import { getHolderPanel } from "./holdersServer";
+import { getHolderSummary } from "./holdersServer";
 import { memo } from "./memo";
 import { launchMetrics, type LaunchMetrics } from "./metrics";
 import { getLaunch } from "./queries";
@@ -22,16 +22,18 @@ async function read(chain: ChainKey, token: string): Promise<LaunchMetrics | nul
   const db = maybeDb();
   if (!db) return null;
   const usd = await ethUsd();
-  const [launch, panel, feeRows] = await Promise.all([
+  const [launch, summary, feeRows] = await Promise.all([
     // the launch read model: quote decimals as the server resolved them and volume in USD at each trade's own hour
     getLaunch(chain, token, usd),
-    getHolderPanel(chain, token),
+    // the holder figures only: the trust panel's sniper and creator work reads the launch's every swap, and none of it
+    // reaches this page
+    getHolderSummary(chain, token),
     // the launch's own fee totals, already in USD: the indexer stores each fee event's value in its own hour's price
     db<{ collected: number; burned: number }[]>`
       SELECT fees_collected_usd::float8 AS collected, fees_burned_usd::float8 AS burned
         FROM bb_launches WHERE chain_id = ${chainIdOf(chain)} AND token = ${token}`,
   ]);
-  if (!launch || !panel) return null;
+  if (!launch || !summary) return null;
   const fees = feeRows[0] ?? { collected: 0, burned: 0 };
-  return launchMetrics(launch, panel, { collected_usd: fees.collected, burned_usd: fees.burned });
+  return launchMetrics(launch, summary, { collected_usd: fees.collected, burned_usd: fees.burned });
 }
